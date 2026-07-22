@@ -1220,6 +1220,10 @@ void Application::setState(AppState newState) {
                         }
                     }
                 });
+                // Barber shop and other live appearance changes rebuild the model.
+                gameHandler->setPlayerModelRebuildCallback([this]() {
+                    refreshPlayerCharacterModel();
+                });
             }
             // Load quest marker models
             loadQuestMarkerModels();
@@ -3037,6 +3041,48 @@ void Application::spawnPlayerCharacter() {
         // Load equipped weapons (sword + shield)
         if (appearanceComposer_) appearanceComposer_->loadEquippedWeapons();
     }
+}
+
+void Application::refreshPlayerCharacterModel() {
+    if (!playerCharacterSpawned || !gameHandler) return;
+    const game::Character* ch = gameHandler->getActiveCharacter();
+    if (!ch) return;
+    // Only rebuild when the visible appearance actually changed. PLAYER_BYTES_2
+    // also carries rest state, so the appearance hook fires on entering/leaving
+    // inns and cities — a full respawn on those would be needless and jarring.
+    if (ch->appearanceBytes == spawnedAppearanceBytes_ &&
+        ch->facialFeatures == spawnedFacialFeatures_) {
+        return;
+    }
+    LOG_INFO("Rebuilding player model in place for appearance change (barber shop)");
+
+    // Keep the character exactly where it is — this is the same respawn path
+    // teleport uses (so equipment/geometry are fully re-applied), just live.
+    const glm::vec3 savedPos = renderer ? renderer->getCharacterPosition() : glm::vec3(0.0f);
+
+    if (renderer && renderer->getCharacterRenderer()) {
+        uint32_t oldInst = renderer->getCharacterInstanceId();
+        if (oldInst > 0) {
+            renderer->setCharacterFollow(0);
+            if (auto* ac = renderer->getAnimationController()) ac->clearMount();
+            renderer->getCharacterRenderer()->removeInstance(oldInst);
+        }
+    }
+    playerCharacterSpawned = false;
+    spawnedPlayerGuid_ = 0;
+    spawnedAppearanceBytes_ = 0;
+    spawnedFacialFeatures_ = 0;
+
+    spawnSnapToGround = false; // don't snap Z — stay at the current position
+    if (appearanceComposer_) appearanceComposer_->setWeaponsSheathed(false);
+    spawnPlayerCharacter();
+
+    if (renderer) renderer->getCharacterPosition() = savedPos;
+
+    // Force equipment geosets/textures to be re-composited onto the fresh model
+    // next frame — the respawn only builds the base body, and equipment isn't
+    // "dirty" (nothing was equipped), so without this the model loses its armor.
+    if (gameHandler) gameHandler->resetEquipmentDirtyTracking();
 }
 
 void Application::buildFactionHostilityMap(uint8_t playerRace) {

@@ -979,6 +979,12 @@ public:
     using AppearanceChangedCallback = std::function<void()>;
     void setAppearanceChangedCallback(AppearanceChangedCallback cb) { appearanceChangedCallback_ = std::move(cb); }
 
+    // Player model rebuild callback — fired alongside the appearance change so the
+    // in-world 3D character can be respawned with the new hair/facial hair without
+    // requiring a game restart.
+    using PlayerModelRebuildCallback = std::function<void()>;
+    void setPlayerModelRebuildCallback(PlayerModelRebuildCallback cb) { playerModelRebuildCallback_ = std::move(cb); }
+
     // Ghost state callback — fired when player enters or leaves ghost (spirit) form
     using GhostStateCallback = std::function<void(bool isGhost)>;
     void setGhostStateCallback(GhostStateCallback cb) { ghostStateCallback_ = std::move(cb); }
@@ -2563,6 +2569,7 @@ public:
     auto& addonChatCallbackRef() { return addonChatCallback_; }
     auto& addonEventCallbackRef() { return addonEventCallback_; }
     auto& appearanceChangedCallbackRef() { return appearanceChangedCallback_; }
+    auto& playerModelRebuildCallbackRef() { return playerModelRebuildCallback_; }
     auto& autoFollowCallbackRef() { return autoFollowCallback_; }
     auto& chargeCallbackRef() { return chargeCallback_; }
     auto& chatBubbleCallbackRef() { return chatBubbleCallback_; }
@@ -3661,6 +3668,7 @@ private:
     StandStateCallback standStateCallback_;
     LogoutCompleteCallback logoutCompleteCallback_;
     AppearanceChangedCallback appearanceChangedCallback_;
+    PlayerModelRebuildCallback playerModelRebuildCallback_;
     GhostStateCallback ghostStateCallback_;
     MeleeSwingCallback meleeSwingCallback_;
     FaceCameraProvider faceCameraProvider_;

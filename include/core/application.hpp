@@ -130,6 +130,9 @@ private:
     void processDeferredLogoutToLogin();
     void setupUICallbacks();
     void spawnPlayerCharacter();
+    // Re-spawn the in-world player model in place after a live appearance change
+    // (barber shop), so the new hair/facial hair shows without a restart.
+    void refreshPlayerCharacterModel();
     void buildFactionHostilityMap(uint8_t playerRace);
     void setupTestTransport();  // Test transport boat for development
 

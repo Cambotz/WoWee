@@ -1139,6 +1139,8 @@ bool EntityController::applyPlayerStatFields(const FlatFieldMap& fields,
                 owner_.isRestingRef() = (restStateByte != 0);
                 if (owner_.appearanceChangedCallbackRef())
                     owner_.appearanceChangedCallbackRef()();
+                if (owner_.playerModelRebuildCallbackRef())
+                    owner_.playerModelRebuildCallbackRef()();
             }
         }
         else if (pfi.chosenTitle != 0xFFFF && key == pfi.chosenTitle) {
@@ -1154,6 +1156,8 @@ bool EntityController::applyPlayerStatFields(const FlatFieldMap& fields,
             }
             if (owner_.appearanceChangedCallbackRef())
                 owner_.appearanceChangedCallbackRef()();
+            if (owner_.playerModelRebuildCallbackRef())
+                owner_.playerModelRebuildCallbackRef()();
         }
         else if (!isCreate && key == pfi.playerFlags) {
             constexpr uint32_t PLAYER_FLAGS_GHOST = 0x00000010;
