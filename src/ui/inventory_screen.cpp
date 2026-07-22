@@ -491,6 +491,19 @@ void InventoryScreen::pickupFromEquipment(game::Inventory& inv, game::EquipSlot 
     inventoryDirty = true;
 }
 
+void InventoryScreen::pickupFromKeyring(game::Inventory& inv, int index) {
+    const auto& slot = inv.getKeyringSlot(index);
+    if (slot.empty()) return;
+    holdingItem = true;
+    heldItem = slot.item;
+    heldSource = HeldSource::KEYRING;
+    heldBackpackIndex = -1;
+    heldKeyringIndex = index;
+    heldEquipSlot = game::EquipSlot::NUM_SLOTS;
+    inv.clearKeyringSlot(index);
+    inventoryDirty = true;
+}
+
 void InventoryScreen::pickupFromBank(game::Inventory& inv, int bankIndex) {
     const auto& slot = inv.getBankSlot(bankIndex);
     if (slot.empty()) return;
@@ -564,6 +577,8 @@ void InventoryScreen::placeInBackpack(game::Inventory& inv, int index) {
             srcSlot = static_cast<uint8_t>(heldBankBagSlotIndex);
         } else if (heldSource == HeldSource::BANK_BAG_EQUIP && heldBankBagIndex >= 0) {
             srcSlot = static_cast<uint8_t>(67 + heldBankBagIndex);
+        } else if (heldSource == HeldSource::KEYRING && heldKeyringIndex >= 0) {
+            srcSlot = static_cast<uint8_t>(86 + heldKeyringIndex); // KEYRING_SLOT_START
         } else {
             cancelPickup(inv);
             return;
@@ -609,6 +624,8 @@ void InventoryScreen::placeInBag(game::Inventory& inv, int bagIndex, int slotInd
             srcSlot = static_cast<uint8_t>(heldBankBagSlotIndex);
         } else if (heldSource == HeldSource::BANK_BAG_EQUIP && heldBankBagIndex >= 0) {
             srcSlot = static_cast<uint8_t>(67 + heldBankBagIndex);
+        } else if (heldSource == HeldSource::KEYRING && heldKeyringIndex >= 0) {
+            srcSlot = static_cast<uint8_t>(86 + heldKeyringIndex); // KEYRING_SLOT_START
         } else {
             cancelPickup(inv);
             return;
@@ -628,6 +645,48 @@ void InventoryScreen::placeInBag(game::Inventory& inv, int bagIndex, int slotInd
         heldSource = HeldSource::BAG;
         heldBagIndex = bagIndex;
         heldBagSlotIndex = slotIndex;
+    }
+    inventoryDirty = true;
+}
+
+void InventoryScreen::placeInKeyring(game::Inventory& inv, int index) {
+    if (!holdingItem) return;
+    if (gameHandler_) {
+        uint8_t dstBag = 0xFF;
+        uint8_t dstSlot = static_cast<uint8_t>(86 + index); // KEYRING_SLOT_START
+        uint8_t srcBag = 0xFF;
+        uint8_t srcSlot = 0;
+        if (heldSource == HeldSource::KEYRING && heldKeyringIndex >= 0) {
+            srcSlot = static_cast<uint8_t>(86 + heldKeyringIndex);
+        } else if (heldSource == HeldSource::BACKPACK && heldBackpackIndex >= 0) {
+            srcSlot = static_cast<uint8_t>(23 + heldBackpackIndex);
+        } else if (heldSource == HeldSource::BAG && heldBagIndex >= 0 && heldBagSlotIndex >= 0) {
+            srcBag = static_cast<uint8_t>(19 + heldBagIndex);
+            srcSlot = static_cast<uint8_t>(heldBagSlotIndex);
+        } else {
+            // Only keys (from bags/backpack/keyring) belong in the keyring; the
+            // server rejects anything else. Other sources just cancel.
+            cancelPickup(inv);
+            return;
+        }
+        if (srcBag == dstBag && srcSlot == dstSlot) {
+            cancelPickup(inv);
+            return;
+        }
+        gameHandler_->swapContainerItems(srcBag, srcSlot, dstBag, dstSlot);
+        cancelPickup(inv);
+        return;
+    }
+    const auto& target = inv.getKeyringSlot(index);
+    if (target.empty()) {
+        inv.setKeyringSlot(index, heldItem);
+        holdingItem = false;
+    } else {
+        game::ItemDef targetItem = target.item;
+        inv.setKeyringSlot(index, heldItem);
+        heldItem = targetItem;
+        heldSource = HeldSource::KEYRING;
+        heldKeyringIndex = index;
     }
     inventoryDirty = true;
 }
@@ -768,6 +827,12 @@ void InventoryScreen::cancelPickup(game::Inventory& inv) {
     } else if (heldSource == HeldSource::BANK_BAG_EQUIP && heldBankBagIndex >= 0) {
         if (inv.getBankBagItem(heldBankBagIndex).empty()) {
             inv.setBankBagItem(heldBankBagIndex, heldItem);
+        } else {
+            inv.addItem(heldItem);
+        }
+    } else if (heldSource == HeldSource::KEYRING && heldKeyringIndex >= 0) {
+        if (inv.getKeyringSlot(heldKeyringIndex).empty()) {
+            inv.setKeyringSlot(heldKeyringIndex, heldItem);
         } else {
             inv.addItem(heldItem);
         }
@@ -1198,7 +1263,9 @@ void InventoryScreen::renderAggregateBags(game::Inventory& inventory, uint64_t m
         for (int slot = inventory.getKeyringSize() - 1; slot >= 0; --slot) {
             if (!inventory.getKeyringSlot(slot).empty()) { lastOccupied = slot; break; }
         }
-        visibleKeySlots = lastOccupied < 0 ? 0 : ((lastOccupied / keyColumns) + 1) * keyColumns;
+        // Always show at least one row when the keyring is enabled, so it stays
+        // visible (and a drop target) even when empty.
+        visibleKeySlots = ((lastOccupied < 0 ? 0 : lastOccupied) / keyColumns + 1) * keyColumns;
         if (visibleKeySlots > 0) {
             const float keySlotSize = 24.0f * scale;
             const int keyRows = (visibleKeySlots + keyColumns - 1) / keyColumns;
@@ -1280,7 +1347,7 @@ void InventoryScreen::renderAggregateBags(game::Inventory& inventory, uint64_t m
             if (slot % keyColumns != 0) ImGui::SameLine();
             ImGui::PushID(10000 + slot);
             renderItemSlot(inventory, inventory.getKeyringSlot(slot), keySlotSize, nullptr,
-                           SlotKind::BACKPACK, -1, game::EquipSlot::NUM_SLOTS);
+                           SlotKind::KEYRING, -1, game::EquipSlot::NUM_SLOTS, -1, -1, slot);
             ImGui::PopID();
         }
     }
@@ -1327,8 +1394,8 @@ void InventoryScreen::renderSeparateBags(game::Inventory& inventory, uint64_t mo
             for (int i = inventory.getKeyringSize() - 1; i >= 0; --i) {
                 if (!inventory.getKeyringSlot(i).empty()) { lastOccupied = i; break; }
             }
-            if (lastOccupied >= 0) {
-                int visibleKeySlots = ((lastOccupied / keyCols) + 1) * keyCols;
+            {
+                int visibleKeySlots = ((lastOccupied < 0 ? 0 : lastOccupied) / keyCols + 1) * keyCols;
                 int keyRows = (visibleKeySlots + keyCols - 1) / keyCols;
                 bpH += 30.0f * scale + keyRows * (keySlotSize + 4.0f * scale);
             }
@@ -1399,8 +1466,8 @@ void InventoryScreen::renderBagWindow(const char* title, bool& isOpen,
                 if (!inventory.getKeyringSlot(i).empty()) { lastOccupied = i; break; }
             }
         }
-        int visibleKeySlots = (lastOccupied < 0) ? 0
-                            : ((lastOccupied / keyCols) + 1) * keyCols;
+        int visibleKeySlots = !showKeyring_ ? 0
+                            : ((lastOccupied < 0 ? 0 : lastOccupied) / keyCols + 1) * keyCols;
         int keyringRows = (visibleKeySlots + keyCols - 1) / keyCols;
         contentH += 36.0f * scale;
         if (visibleKeySlots > 0) {
@@ -1504,7 +1571,7 @@ void InventoryScreen::renderBagWindow(const char* title, bool& isOpen,
         for (int i = inventory.getKeyringSize() - 1; i >= 0; --i) {
             if (!inventory.getKeyringSlot(i).empty()) { lastOccupied = i; break; }
         }
-        int visibleSlots = (lastOccupied < 0) ? 0 : ((lastOccupied / keyCols) + 1) * keyCols;
+        int visibleSlots = ((lastOccupied < 0 ? 0 : lastOccupied) / keyCols + 1) * keyCols;
         if (visibleSlots > 0) {
             ImGui::Spacing();
             ImGui::Separator();
@@ -1516,7 +1583,7 @@ void InventoryScreen::renderBagWindow(const char* title, bool& isOpen,
                 snprintf(id, sizeof(id), "##skr_%d", i);
                 ImGui::PushID(id);
                 renderItemSlot(inventory, slot, keySlotSize, nullptr,
-                               SlotKind::BACKPACK, -1, game::EquipSlot::NUM_SLOTS);
+                               SlotKind::KEYRING, -1, game::EquipSlot::NUM_SLOTS, -1, -1, i);
                 ImGui::PopID();
             }
         }
@@ -2604,7 +2671,7 @@ void InventoryScreen::renderBackpackPanel(game::Inventory& inventory, bool colla
         for (int i = inventory.getKeyringSize() - 1; i >= 0; --i) {
             if (!inventory.getKeyringSlot(i).empty()) { lastOccupied = i; break; }
         }
-        int visibleSlots = (lastOccupied < 0) ? 0 : ((lastOccupied / keyCols) + 1) * keyCols;
+        int visibleSlots = ((lastOccupied < 0 ? 0 : lastOccupied) / keyCols + 1) * keyCols;
         if (visibleSlots > 0) {
             ImGui::Spacing();
             ImGui::Separator();
@@ -2616,7 +2683,7 @@ void InventoryScreen::renderBackpackPanel(game::Inventory& inventory, bool colla
                 snprintf(sid, sizeof(sid), "##keyring_%d", i);
                 ImGui::PushID(sid);
                 renderItemSlot(inventory, slot, keySlotSize, nullptr,
-                               SlotKind::BACKPACK, -1, game::EquipSlot::NUM_SLOTS);
+                               SlotKind::KEYRING, -1, game::EquipSlot::NUM_SLOTS, -1, -1, i);
                 ImGui::PopID();
             }
         }
@@ -2627,9 +2694,11 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
                                       float size, const char* label,
                                       SlotKind kind, int backpackIndex,
                                       game::EquipSlot equipSlot,
-                                      int bagIndex, int bagSlotIndex) {
+                                      int bagIndex, int bagSlotIndex,
+                                      int keyringIndex) {
     // Bag items are valid inventory slots even though backpackIndex is -1
     bool isBagSlot = (bagIndex >= 0 && bagSlotIndex >= 0);
+    bool isKeyringSlot = (kind == SlotKind::KEYRING && keyringIndex >= 0);
     ImDrawList* drawList = ImGui::GetWindowDrawList();
     ImVec2 pos = ImGui::GetCursorScreenPos();
 
@@ -2639,6 +2708,9 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
     bool validDrop = false;
     if (holdingItem) {
         if (kind == SlotKind::BACKPACK && (backpackIndex >= 0 || isBagSlot)) {
+            validDrop = true;
+        } else if (isKeyringSlot) {
+            // The keyring only accepts keys; the server enforces this on the swap.
             validDrop = true;
         } else if (kind == SlotKind::EQUIPMENT && heldItem.inventoryType > 0) {
             if (heldItem.inventoryType == 18) {
@@ -2684,6 +2756,8 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
                 placeInBackpack(inventory, backpackIndex);
             } else if (kind == SlotKind::BACKPACK && isBagSlot) {
                 placeInBag(inventory, bagIndex, bagSlotIndex);
+            } else if (isKeyringSlot) {
+                placeInKeyring(inventory, keyringIndex);
             } else if (kind == SlotKind::EQUIPMENT) {
                 placeInEquipment(inventory, equipSlot);
             }
@@ -2780,6 +2854,7 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
                 pickupBackpackIndex_ = backpackIndex;
                 pickupBagIndex_ = bagIndex;
                 pickupBagSlotIndex_ = bagSlotIndex;
+                pickupKeyringIndex_ = keyringIndex;
                 pickupEquipSlot_ = equipSlot;
             }
             // Check if held long enough to pick up
@@ -2791,6 +2866,8 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
                     sameSlot = sameSlot && (pickupBackpackIndex_ == backpackIndex);
                 else if (kind == SlotKind::BACKPACK && isBagSlot)
                     sameSlot = sameSlot && (pickupBagIndex_ == bagIndex) && (pickupBagSlotIndex_ == bagSlotIndex);
+                else if (isKeyringSlot)
+                    sameSlot = sameSlot && (pickupKeyringIndex_ == keyringIndex);
                 else if (kind == SlotKind::EQUIPMENT)
                     sameSlot = sameSlot && (pickupEquipSlot_ == equipSlot);
 
@@ -2800,6 +2877,8 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
                         pickupFromBackpack(inventory, backpackIndex);
                     } else if (kind == SlotKind::BACKPACK && isBagSlot) {
                         pickupFromBag(inventory, bagIndex, bagSlotIndex);
+                    } else if (isKeyringSlot) {
+                        pickupFromKeyring(inventory, keyringIndex);
                     } else if (kind == SlotKind::EQUIPMENT) {
                         pickupFromEquipment(inventory, equipSlot);
                     }
@@ -2812,6 +2891,8 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
                     placeInBackpack(inventory, backpackIndex);
                 } else if (kind == SlotKind::BACKPACK && isBagSlot) {
                     placeInBag(inventory, bagIndex, bagSlotIndex);
+                } else if (isKeyringSlot && validDrop) {
+                    placeInKeyring(inventory, keyringIndex);
                 } else if (kind == SlotKind::EQUIPMENT && validDrop) {
                     placeInEquipment(inventory, equipSlot);
                 }
@@ -2941,6 +3022,9 @@ void InventoryScreen::renderItemSlot(game::Inventory& inventory, const game::Ite
                         gameHandler_->useItemInBag(bagIndex, bagSlotIndex);
                     }
                 }
+            } else if (isKeyringSlot) {
+                // Right-click a key to use it (e.g. opening a nearby door/object).
+                gameHandler_->useItemById(item.itemId);
             }
         }
 

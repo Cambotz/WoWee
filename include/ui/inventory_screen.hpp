@@ -140,7 +140,7 @@ private:
     // Drag-and-drop held item state
     bool holdingItem = false;
     game::ItemDef heldItem;
-    enum class HeldSource { NONE, BACKPACK, BAG, EQUIPMENT, BANK, BANK_BAG, BANK_BAG_EQUIP };
+    enum class HeldSource { NONE, BACKPACK, BAG, EQUIPMENT, BANK, BANK_BAG, BANK_BAG_EQUIP, KEYRING };
     HeldSource heldSource = HeldSource::NONE;
     int heldBackpackIndex = -1;
     int heldBagIndex = -1;
@@ -148,10 +148,11 @@ private:
     int heldBankIndex = -1;
     int heldBankBagIndex = -1;
     int heldBankBagSlotIndex = -1;
+    int heldKeyringIndex = -1;
     game::EquipSlot heldEquipSlot = game::EquipSlot::NUM_SLOTS;
 
     // Slot rendering with interaction support
-    enum class SlotKind { BACKPACK, EQUIPMENT };
+    enum class SlotKind { BACKPACK, EQUIPMENT, KEYRING };
 
     // Frame the item-target cursor was armed on (-1 = not armed). Cancel input is
     // ignored on that frame so the right-click that used the item doesn't cancel it.
@@ -164,6 +165,7 @@ private:
     int pickupBackpackIndex_ = -1;
     int pickupBagIndex_ = -1;
     int pickupBagSlotIndex_ = -1;
+    int pickupKeyringIndex_ = -1;
     game::EquipSlot pickupEquipSlot_ = game::EquipSlot::NUM_SLOTS;
     static constexpr float kPickupHoldThreshold = 0.10f; // seconds
 
@@ -184,7 +186,8 @@ private:
                         float size, const char* label,
                         SlotKind kind, int backpackIndex,
                         game::EquipSlot equipSlot,
-                        int bagIndex = -1, int bagSlotIndex = -1);
+                        int bagIndex = -1, int bagSlotIndex = -1,
+                        int keyringIndex = -1);
     void renderItemTooltip(const game::ItemDef& item, const game::Inventory* inventory = nullptr, uint64_t itemGuid = 0);
     const std::unordered_map<uint32_t, std::string>& getEnchantmentNames();
 
@@ -192,9 +195,11 @@ private:
     void pickupFromBackpack(game::Inventory& inv, int index);
     void pickupFromBag(game::Inventory& inv, int bagIndex, int slotIndex);
     void pickupFromEquipment(game::Inventory& inv, game::EquipSlot slot);
+    void pickupFromKeyring(game::Inventory& inv, int index);
     void placeInBackpack(game::Inventory& inv, int index);
     void placeInBag(game::Inventory& inv, int bagIndex, int slotIndex);
     void placeInEquipment(game::Inventory& inv, game::EquipSlot slot);
+    void placeInKeyring(game::Inventory& inv, int index);
     void cancelPickup(game::Inventory& inv);
     game::EquipSlot getEquipSlotForType(uint8_t inventoryType, game::Inventory& inv);
     void renderHeldItem();
