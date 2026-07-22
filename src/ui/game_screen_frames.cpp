@@ -1154,17 +1154,17 @@ void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
             }
         }
 
-        // Player class, right-aligned on the name line and tinted with the class colour.
+        // Player class, tinted with the class colour, flowed inline after the name.
+        // Note: do NOT right-align this to GetWindowContentRegionMax() — on an
+        // AlwaysAutoResize window that edge is the *previous* frame's width, so
+        // pinning content to it makes the frame keep any width a prior (wider)
+        // target gave it and never shrink back. Inline keeps it "wide enough for
+        // the text, but no wider".
         if (target->getType() == game::ObjectType::PLAYER) {
             uint8_t cid = entityClassId(target.get());
             if (cid != 0) {  // 0 = class not received yet; would read as "Unknown"
                 const char* cls = classNameStr(cid);
-                const float textW = ImGui::CalcTextSize(cls).x;
-                ImGui::SameLine();
-                // Right-align, but never let it run back over the name or the icons.
-                const float minX = ImGui::GetCursorPosX() + 8.0f;
-                const float rightEdge = ImGui::GetWindowContentRegionMax().x;
-                ImGui::SetCursorPosX(std::max(minX, rightEdge - textW));
+                ImGui::SameLine(0.0f, 8.0f);
                 ImGui::TextColored(classColorVec4(cid), "%s", cls);
             }
         }
