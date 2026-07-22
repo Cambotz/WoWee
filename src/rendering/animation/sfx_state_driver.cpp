@@ -1,0 +1,94 @@
+// ============================================================================
+// SfxStateDriver — extracted from AnimationController
+//
+// Tracks state transitions for activity SFX (jump, landing, swim) and
+// mount ambient sounds.  Moved from AnimationController::updateSfxState().
+// ============================================================================
+
+#include "rendering/animation/sfx_state_driver.hpp"
+#include "rendering/animation/footstep_driver.hpp"
+#include "rendering/renderer.hpp"
+#include "audio/audio_coordinator.hpp"
+#include "audio/activity_sound_manager.hpp"
+#include "audio/mount_sound_manager.hpp"
+#include "audio/music_manager.hpp"
+#include "rendering/camera_controller.hpp"
+
+namespace wowee {
+namespace rendering {
+
+void SfxStateDriver::update(float deltaTime, Renderer* renderer,
+                            bool mounted, bool taxiFlight,
+                            FootstepDriver& footstepDriver) {
+    auto* activitySoundManager = renderer->getAudioCoordinator()->getActivitySoundManager();
+    if (!activitySoundManager) return;
+
+    auto* cameraController = renderer->getCameraController();
+
+    activitySoundManager->update(deltaTime);
+    if (cameraController && cameraController->isThirdPerson()) {
+        bool grounded = cameraController->isGrounded();
+        bool jumping = cameraController->isJumping();
+        bool falling = cameraController->isFalling();
+        bool swimming = cameraController->isSwimming();
+        bool moving = cameraController->isMoving();
+
+        if (!initialized_) {
+            prevGrounded_ = grounded;
+            prevJumping_ = jumping;
+            prevFalling_ = falling;
+            prevSwimming_ = swimming;
+            initialized_ = true;
+        }
+
+        // Jump detection
+        if (jumping && !prevJumping_ && !swimming) {
+            activitySoundManager->playJump();
+        }
+
+        // Landing detection
+        if (grounded && !prevGrounded_) {
+            bool hardLanding = prevFalling_;
+            activitySoundManager->playLanding(
+                footstepDriver.resolveFootstepSurface(renderer), hardLanding);
+        }
+
+        // Water transitions
+        if (swimming && !prevSwimming_) {
+            activitySoundManager->playWaterEnter();
+        } else if (!swimming && prevSwimming_) {
+            activitySoundManager->playWaterExit();
+        }
+
+        activitySoundManager->setSwimmingState(swimming, moving);
+
+        if (renderer->getAudioCoordinator()->getMusicManager()) {
+            renderer->getAudioCoordinator()->getMusicManager()->setUnderwaterMode(swimming);
+        }
+
+        prevGrounded_ = grounded;
+        prevJumping_ = jumping;
+        prevFalling_ = falling;
+        prevSwimming_ = swimming;
+    } else {
+        activitySoundManager->setSwimmingState(false, false);
+        if (renderer->getAudioCoordinator()->getMusicManager()) {
+            renderer->getAudioCoordinator()->getMusicManager()->setUnderwaterMode(false);
+        }
+        initialized_ = false;
+    }
+
+    // Mount ambient sounds
+    if (renderer->getAudioCoordinator()->getMountSoundManager()) {
+        renderer->getAudioCoordinator()->getMountSoundManager()->update(deltaTime);
+        if (cameraController && mounted) {
+            bool isMoving = cameraController->isMoving();
+            bool flying = taxiFlight || !cameraController->isGrounded();
+            renderer->getAudioCoordinator()->getMountSoundManager()->setMoving(isMoving);
+            renderer->getAudioCoordinator()->getMountSoundManager()->setFlying(flying);
+        }
+    }
+}
+
+} // namespace rendering
+} // namespace wowee
