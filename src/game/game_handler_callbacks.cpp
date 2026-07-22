@@ -105,43 +105,79 @@ bool isLootContainerName(const std::string& name) {
                            sizeof(kContainerTerms) / sizeof(kContainerTerms[0]));
 }
 
-uint32_t openLockSpellForGameObject(pipeline::AssetManager* assets,
-                                    const GameObjectQueryResponseData* info,
-                                    const std::unordered_set<uint32_t>& knownSpells) {
-    if (!assets || !info || !info->hasData || info->data[0] == 0) return 0;
+// How the local player can open a game object, decided from its Lock.dbc row.
+enum class LockOpenMethod {
+    UseDirect,       // no lock, or a lock the server gates itself (quest "Open"
+                     // containers, etc.): open with a plain CMSG_GAMEOBJ_USE.
+    CastSpell,       // a known open-lock spell applies (e.g. Lockpicking) — cast it.
+    NeedsKeyOrSkill, // requires a key item or a skill/spell the player lacks.
+};
+
+struct LockOpenPlan {
+    LockOpenMethod method = LockOpenMethod::UseDirect;
+    uint32_t spellId = 0;
+};
+
+// Inspect a game object's lock and decide how to open it. Crucially, a chest
+// with lockId == 0 (or a server-gated quest lock such as the Legend of Stalvan
+// "Sealed Crate") is UseDirect, NOT a locked object — it must still receive a
+// CMSG_GAMEOBJ_USE rather than being refused with a "needs a key" message.
+LockOpenPlan planGameObjectOpen(pipeline::AssetManager* assets,
+                                const GameObjectQueryResponseData* info,
+                                const std::unordered_set<uint32_t>& knownSpells) {
+    LockOpenPlan plan;
+    if (!assets || !info || !info->hasData || info->data[0] == 0) return plan;
 
     auto lockDbc = assets->loadDBC("Lock.dbc");
     auto spellDbc = assets->loadDBC("Spell.dbc");
     if (!lockDbc || !spellDbc || !lockDbc->isLoaded() || !spellDbc->isLoaded() ||
         lockDbc->getFieldCount() < 33 || spellDbc->getFieldCount() < 234) {
-        return 0;
+        return plan; // Can't inspect the lock — let the server adjudicate a USE.
     }
 
     const uint32_t lockId = info->data[0];
+    bool needsKeyOrSkill = false;
     for (uint32_t row = 0; row < lockDbc->getRecordCount(); ++row) {
         if (lockDbc->getUInt32(row, 0) != lockId) continue;
 
         for (uint32_t slot = 0; slot < 8; ++slot) {
+            // Lock.dbc: Type[8] at cols 1-8, Index[8] at cols 9-16.
             const uint32_t keyType = lockDbc->getUInt32(row, 1 + slot);
             const uint32_t keyIndex = lockDbc->getUInt32(row, 9 + slot);
-            if (keyType == 1 && keyIndex != 0) return keyIndex; // LOCK_KEY_SPELL
-            if (keyType != 2 || keyIndex == 0) continue;       // LOCK_KEY_SKILL
+            if (keyType == 0 || keyIndex == 0) continue;
 
-            for (uint32_t spellRow = 0; spellRow < spellDbc->getRecordCount(); ++spellRow) {
-                const uint32_t spellId = spellDbc->getUInt32(spellRow, 0);
-                if (knownSpells.count(spellId) == 0) continue;
-                for (uint32_t effect = 0; effect < 3; ++effect) {
-                    constexpr uint32_t kSpellEffectOpenLock = 33;
-                    if (spellDbc->getUInt32(spellRow, 71 + effect) == kSpellEffectOpenLock &&
-                        spellDbc->getUInt32(spellRow, 110 + effect) == keyIndex) {
-                        return spellId;
+            constexpr uint32_t kLockKeyItem = 1;   // requires a key item
+            constexpr uint32_t kLockKeySkill = 2;  // requires a skill (LockType id)
+            constexpr uint32_t kLockTypeLockpicking = 1; // LockType.dbc: Lockpicking
+
+            if (keyType == kLockKeySkill) {
+                // A known player spell whose OPEN_LOCK effect matches this
+                // LockType lets us open it directly (Lockpicking, etc.).
+                for (uint32_t spellRow = 0; spellRow < spellDbc->getRecordCount(); ++spellRow) {
+                    const uint32_t spellId = spellDbc->getUInt32(spellRow, 0);
+                    if (knownSpells.count(spellId) == 0) continue;
+                    for (uint32_t effect = 0; effect < 3; ++effect) {
+                        constexpr uint32_t kSpellEffectOpenLock = 33;
+                        if (spellDbc->getUInt32(spellRow, 71 + effect) == kSpellEffectOpenLock &&
+                            spellDbc->getUInt32(spellRow, 110 + effect) == keyIndex) {
+                            plan.method = LockOpenMethod::CastSpell;
+                            plan.spellId = spellId;
+                            return plan;
+                        }
                     }
                 }
+                // Only Lockpicking genuinely blocks a click when the player lacks
+                // the spell. Other skill locks (quest "Open", disarm, gather) are
+                // gated server-side and open on a plain USE, so don't refuse them.
+                if (keyIndex == kLockTypeLockpicking) needsKeyOrSkill = true;
+            } else if (keyType == kLockKeyItem) {
+                needsKeyOrSkill = true;
             }
         }
         break;
     }
-    return 0;
+    if (needsKeyOrSkill) plan.method = LockOpenMethod::NeedsKeyOrSkill;
+    return plan;
 }
 
 uint32_t gatherSpellForGameObject(const GameObjectQueryResponseData* info, const std::string& name) {
@@ -2354,27 +2390,36 @@ void GameHandler::performGameObjectInteractionNow(uint64_t guid) {
     }
 
     if (chestLike && isActiveExpansion("wotlk")) {
-        // AzerothCore does not handle type-3 chests in GameObject::Use(), and
-        // HandleLootOpcode rejects non-creature GUIDs. Normal quest containers
-        // are opened through the generic OPEN_LOCK effect spell instead.
-        const uint32_t openLockSpellId = openLockSpellForGameObject(
+        // Skill/key-locked chests (e.g. rogue lockboxes) are opened by casting the
+        // matching OPEN_LOCK spell. Unlocked and server-gated quest containers
+        // (lockId == 0, or a quest "Open" lock like the Legend of Stalvan Sealed
+        // Crate) have no such spell — they must still fall through to the plain
+        // CMSG_GAMEOBJ_USE path below, not be refused.
+        const LockOpenPlan plan = planGameObjectOpen(
             services_.assetManager, goInfo, spellHandler_->getKnownSpells());
-        if (openLockSpellId == 0) {
+        if (plan.method == LockOpenMethod::NeedsKeyOrSkill) {
             addSystemChatMessage("This object requires a key or opening skill.");
-            LOG_WARNING("GO chest has no usable open-lock spell: lockId=",
+            LOG_WARNING("GO chest requires a key/skill the player lacks: lockId=",
                         goInfo && goInfo->hasData ? goInfo->data[0] : 0,
                         " guid=0x", std::hex, guid, std::dec,
                         " entry=", goEntry, " name='", goName, "'");
             return;
         }
-        auto castPacket = getPacketParsers()->buildCastGameObjectSpell(
-            openLockSpellId, guid, 0);
-        socket->send(castPacket);
-        lastInteractedGoGuid_ = guid;
-        LOG_INFO("GO chest open-lock cast: spell=", openLockSpellId,
+        if (plan.method == LockOpenMethod::CastSpell) {
+            auto castPacket = getPacketParsers()->buildCastGameObjectSpell(
+                plan.spellId, guid, 0);
+            socket->send(castPacket);
+            lastInteractedGoGuid_ = guid;
+            LOG_INFO("GO chest open-lock cast: spell=", plan.spellId,
+                     " guid=0x", std::hex, guid, std::dec,
+                     " entry=", goEntry, " name='", goName, "'");
+            return;
+        }
+        // LockOpenMethod::UseDirect — fall through to CMSG_GAMEOBJ_USE.
+        LOG_INFO("GO chest opens via direct USE (no player lock): lockId=",
+                 goInfo && goInfo->hasData ? goInfo->data[0] : 0,
                  " guid=0x", std::hex, guid, std::dec,
                  " entry=", goEntry, " name='", goName, "'");
-        return;
     }
 
     // Every expansion activates game objects through CMSG_GAMEOBJ_USE.
