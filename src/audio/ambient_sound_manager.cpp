@@ -903,7 +903,11 @@ void AmbientSoundManager::updateBellTolls(float deltaTime) {
     const float bellInterval = randomFloat(120.0f, 180.0f);
     if (bellLibrary && !bellLibrary->empty() && (*bellLibrary)[0].loaded) {
         if (bellTollTime_ >= bellInterval) {
-            float volume = 0.5f * bellVolumeScale_ * volumeScale_;
+            // Bells have their own "Capital City Bells" slider (bellVolumeScale_)
+            // and must be independent of the ambient slider (volumeScale_) — the
+            // engine still applies master volume. Coupling to volumeScale_ made the
+            // bell control appear dead whenever ambient was turned down.
+            float volume = 0.5f * bellVolumeScale_;
             AudioEngine::instance().playSound2D((*bellLibrary)[0].data, volume, 1.0f);
             LOG_INFO("Bell toll ringing in city: type ", static_cast<int>(currentCity_));
             bellTollTime_ = 0.0f;
