@@ -612,6 +612,19 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 scale = std::max(rawScale * 1.5f, 0.15f);
             } else if (!gpu.isFireflyEffect) {
                 scale = std::min(rawScale, 1.5f);
+                // Candle flames are authored at a fraction of a unit, which lands
+                // sub-pixel at any normal viewing distance — the fixture glows
+                // with no visible flame. Small effect-heavy models dodge this by
+                // being classified as spell effects (three or more emitters and
+                // few vertices) and picking up that path's floor, but a
+                // chandelier is a real fixture at 370 vertices and misses the
+                // cut, so its five candles rendered as nothing. Give flame
+                // fixtures the same floor without making them spell effects,
+                // which would also change how they blend.
+                if (gpu.isLanternLike || gpu.isTorch ||
+                    gpu.isBrazierOrFire || gpu.isKoboldFlame) {
+                    scale = std::max(scale, 0.15f);
+                }
             }
 
             auto& vd = cachedGroup->vertexData;
