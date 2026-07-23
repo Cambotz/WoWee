@@ -101,18 +101,18 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
         float life = interpFloat(em.lifespan, inst.animTime, inst.globalSequenceTime,
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
-        // Distance travelled is speed times lifespan, and these particles are
-        // given a wide drift by the no-speed fallback further down. Over
-        // CHANDELIER01's six second lifespan that scatters its candle flames
-        // several metres across the room as loose embers. Shortening the life is
-        // the one lever that keeps them near the wick without touching the
-        // motion itself, which is what made them visible in the first place.
-        // Applied before the density floor below, which divides by lifespan and
-        // so restores the population a shorter life would otherwise cost.
+        // Distance travelled is speed times lifespan, and the no-speed fallback
+        // further down gives these particles a wide drift. Over CHANDELIER01's
+        // six second lifespan that spreads its candle flames well across the
+        // room. Trim the lifespan a little to pull them back in — only a little,
+        // because cutting it hard keeps the particles near the emitter, and near
+        // the emitter is precisely where they cannot be seen. Applied before the
+        // density floor below, which divides by lifespan and so holds the
+        // population steady.
         const bool flameFixture = gpu.isLanternLike || gpu.isTorch ||
                                   gpu.isBrazierOrFire || gpu.isKoboldFlame;
         if (flameFixture) {
-            constexpr float kMaxFlameLifeSeconds = 1.5f;
+            constexpr float kMaxFlameLifeSeconds = 4.5f;
             life = std::min(life, kMaxFlameLifeSeconds);
         }
 
@@ -158,12 +158,8 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             p.maxLife = life;
             p.tileIndex = 0.0f;
 
-            // Position: emitter position transformed by bone matrix, raised clear
-            // of the model's own geometry where it would otherwise be buried.
+            // Position: emitter position transformed by bone matrix
             glm::vec3 localPos = em.position;
-            if (ei < gpu.particleSpawnLift.size()) {
-                localPos.z += gpu.particleSpawnLift[ei];
-            }
             glm::mat4 boneXform = glm::mat4(1.0f);
             if (em.bone < inst.boneMatrices.size()) {
                 boneXform = inst.boneMatrices[em.bone];

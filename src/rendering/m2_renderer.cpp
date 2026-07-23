@@ -1629,34 +1629,6 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
 
     // Copy particle emitter data and resolve textures
     gpuModel.particleEmitters = model.particleEmitters;
-
-    // Lift emitters that sit inside their own model's geometry. A flame is a
-    // point sprite carrying one depth value, so an emitter buried in the candle
-    // it belongs to has every particle depth-rejected the moment it is born, and
-    // only those that wander out of the mesh are ever seen. CHANDELIER01 buries
-    // all five of its candle emitters ~0.17 below the wax, which is why its
-    // flames only appeared once they had drifted metres away. Fixtures that
-    // already work (a torch, a candle) have at least one emitter in open air and
-    // get a lift of zero here.
-    gpuModel.particleSpawnLift.assign(model.particleEmitters.size(), 0.0f);
-    if (gpuModel.isLanternLike || gpuModel.isTorch ||
-        gpuModel.isBrazierOrFire || gpuModel.isKoboldFlame) {
-        constexpr float kSearchRadius = 0.18f;  // candle-width neighbourhood
-        constexpr float kClearance    = 0.03f;  // sit just proud of the surface
-        for (size_t ei = 0; ei < model.particleEmitters.size(); ++ei) {
-            const glm::vec3 ep = model.particleEmitters[ei].position;
-            float highest = ep.z;
-            for (const auto& v : model.vertices) {
-                const float dx = v.position.x - ep.x;
-                const float dy = v.position.y - ep.y;
-                if (dx * dx + dy * dy > kSearchRadius * kSearchRadius) continue;
-                highest = std::max(highest, v.position.z);
-            }
-            if (highest > ep.z) {
-                gpuModel.particleSpawnLift[ei] = (highest - ep.z) + kClearance;
-            }
-        }
-    }
     gpuModel.particleTextures.resize(model.particleEmitters.size(), whiteTexture_.get());
     for (size_t ei = 0; ei < model.particleEmitters.size(); ei++) {
         uint16_t texIdx = model.particleEmitters[ei].texture;
