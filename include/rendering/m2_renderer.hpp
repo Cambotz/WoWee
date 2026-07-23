@@ -101,6 +101,7 @@ struct M2ModelGPU {
     bool isBrazierOrFire = false;   // Brazier / campfire / bonfire model
     bool isGroundFire = false;      // Ground fire whose halo follows its lowest flame emitter
     bool isTorch = false;           // Wall-mounted or standing torch
+    bool isForge = false;           // Smithy forge (contained fire, lights its surroundings)
     AmbientEmitterType ambientEmitterType = AmbientEmitterType::None;
 
     // Collision mesh with spatial grid (from M2 bounding geometry)

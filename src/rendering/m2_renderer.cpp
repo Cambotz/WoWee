@@ -127,7 +127,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
     for (const auto& instance : instances) {
         const M2ModelGPU* model = instance.cachedModel;
         if (!model || (!model->isLanternLike && !model->isTorch &&
-                       !model->isBrazierOrFire && !model->isLavaModel)) continue;
+                       !model->isBrazierOrFire && !model->isForge &&
+                       !model->isLavaModel)) continue;
 
         if (model->isLavaModel) {
             const glm::vec3 worldPos = instance.cachedCullCenter;
@@ -179,11 +180,14 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             hasBatchLight = true;
         }
 
-        // Standalone candles expose their flame/glow only through particle
-        // emitters, so they have no glow-card batch for the path above. Use a
-        // single light at the emitter centroid; chandeliers with an authored
-        // glow batch remain represented by that batch rather than five lights.
-        if (!hasBatchLight && model->isLanternLike &&
+        // Candles, hearth fires, campfires, torches and forges express their
+        // flame purely as particle emitters, with no glow-card batch for the
+        // path above — so without this they lit nothing at all. One light at
+        // the emitter centroid; chandeliers with an authored glow batch stay
+        // represented by that batch rather than by five separate lights.
+        const bool openFlame = model->isBrazierOrFire || model->isTorch ||
+                               model->isGroundFire || model->isForge;
+        if (!hasBatchLight && (model->isLanternLike || openFlame) &&
             !model->particleEmitters.empty()) {
             glm::vec3 worldPos(0.0f);
             uint32_t emitterCount = 0;
@@ -204,10 +208,19 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                     const bool chandelier =
                         model->name.find("Chandelier") != std::string::npos ||
                         model->name.find("chandelier") != std::string::npos;
+                    // A hearth or campfire throws light much further than a
+                    // candle, and burns oranger than a lamp wick.
+                    float radius    = chandelier ? 10.0f : 5.0f;
+                    float intensity = chandelier ? 1.25f : 0.85f;
+                    glm::vec3 color(1.0f, 0.58f, 0.22f);
+                    if (openFlame) {
+                        radius    = model->isTorch ? 8.0f : 11.0f;
+                        intensity = model->isTorch ? 1.10f : 1.30f;
+                        color     = glm::vec3(1.0f, 0.50f, 0.18f);
+                    }
                     candidates.push_back({distSq,
-                        glm::vec4(worldPos, chandelier ? 10.0f : 5.0f),
-                        glm::vec4(1.0f, 0.58f, 0.22f,
-                                  chandelier ? 1.25f : 0.85f),
+                        glm::vec4(worldPos, radius),
+                        glm::vec4(color, intensity),
                         /*flame=*/true, instance.position});
                 }
             }
@@ -1416,6 +1429,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.isWaterfall                 = cls.isWaterfall;
     gpuModel.isBrazierOrFire             = cls.isBrazierOrFire;
     gpuModel.isGroundFire                = cls.isGroundFire;
+    gpuModel.isForge                     = cls.isForge;
     gpuModel.isTorch                     = cls.isTorch;
     // Data-driven flight-path detection: name tokens miss many flying doodads
     // (buzzards, swallows, bird swarms, ...). A small mesh whose bone animation

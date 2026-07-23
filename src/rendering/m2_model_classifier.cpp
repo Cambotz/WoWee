@@ -104,6 +104,7 @@ M2ClassificationResult classifyM2Model(
     // follow the lowest flame emitter rather than the mesh/card center.
     r.isGroundFire    = (fireName && !brazierName) || has(n, "taurenlamppost");
     r.isTorch         = torchName;
+    r.isForge         = forgeName;
 
     // ---------------------------------------------------------------
     // Collision: shape categories (mirrors original logic ordering)
