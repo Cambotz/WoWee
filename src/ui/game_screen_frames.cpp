@@ -1,4 +1,5 @@
 #include "ui/game_screen.hpp"
+#include "ui/ui_raid_icons.hpp"
 #include "ui/ui_colors.hpp"
 #include "ui/ui_helpers.hpp"
 #include "rendering/vk_context.hpp"
@@ -1033,23 +1034,19 @@ void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
         // Record the auto-fitted width so next frame can center the window correctly.
         frameW = ImGui::GetWindowSize().x;
         lastTargetFrameWidth_ = frameW;
-        // Raid mark icon (Star/Circle/Diamond/Triangle/Moon/Square/Cross/Skull)
-        static constexpr struct { const char* sym; ImU32 col; } kRaidMarks[] = {
-            { "\xe2\x98\x85", IM_COL32(255, 220,  50, 255) },  // 0 Star     (yellow)
-            { "\xe2\x97\x8f", IM_COL32(255, 140,   0, 255) },  // 1 Circle   (orange)
-            { "\xe2\x97\x86", IM_COL32(160,  32, 240, 255) },  // 2 Diamond  (purple)
-            { "\xe2\x96\xb2", IM_COL32( 50, 200,  50, 255) },  // 3 Triangle (green)
-            { "\xe2\x97\x8c", IM_COL32( 80, 160, 255, 255) },  // 4 Moon     (blue)
-            { "\xe2\x96\xa0", IM_COL32( 50, 200, 220, 255) },  // 5 Square   (teal)
-            { "\xe2\x9c\x9d", IM_COL32(255,  80,  80, 255) },  // 6 Cross    (red)
-            { "\xe2\x98\xa0", IM_COL32(255, 255, 255, 255) },  // 7 Skull    (white)
-        };
+        // Raid mark icon (Star/Circle/Diamond/Triangle/Moon/Square/Cross/Skull),
+        // drawn from the Blizzard artwork — the font has no glyphs for most of
+        // these symbols, so the previous text version rendered as '?' boxes.
         uint8_t mark = gameHandler.getEntityRaidMark(target->getGuid());
         if (mark < game::GameHandler::kRaidMarkCount) {
-            ImGui::GetWindowDrawList()->AddText(
-                ImGui::GetCursorScreenPos(),
-                kRaidMarks[mark].col, kRaidMarks[mark].sym);
-            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+            if (VkDescriptorSet markTex = ui::getRaidTargetIcon(mark, services_.assetManager)) {
+                constexpr float kMarkSize = 16.0f;
+                ImVec2 p = ImGui::GetCursorScreenPos();
+                ImGui::GetWindowDrawList()->AddImage(
+                    (ImTextureID)(uintptr_t)markTex, p,
+                    ImVec2(p.x + kMarkSize, p.y + kMarkSize));
+                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kMarkSize + 2.0f);
+            }
         }
 
         // Entity name and type — Selectable so we can attach a right-click context menu
@@ -1990,22 +1987,16 @@ void GameScreen::renderFocusFrame(game::GameHandler& gameHandler) {
 
         // Raid mark icon (star, circle, diamond, …) preceding the name
         {
-            static constexpr struct { const char* sym; ImU32 col; } kFocusMarks[] = {
-                { "\xe2\x98\x85", IM_COL32(255, 204,   0, 255) },  // 0 Star     (yellow)
-                { "\xe2\x97\x8f", IM_COL32(255, 103,   0, 255) },  // 1 Circle   (orange)
-                { "\xe2\x97\x86", IM_COL32(160,  32, 240, 255) },  // 2 Diamond  (purple)
-                { "\xe2\x96\xb2", IM_COL32( 50, 200,  50, 255) },  // 3 Triangle (green)
-                { "\xe2\x97\x8c", IM_COL32( 80, 160, 255, 255) },  // 4 Moon     (blue)
-                { "\xe2\x96\xa0", IM_COL32( 50, 200, 220, 255) },  // 5 Square   (teal)
-                { "\xe2\x9c\x9d", IM_COL32(255,  80,  80, 255) },  // 6 Cross    (red)
-                { "\xe2\x98\xa0", IM_COL32(255, 255, 255, 255) },  // 7 Skull    (white)
-            };
             uint8_t fmark = gameHandler.getEntityRaidMark(focus->getGuid());
             if (fmark < game::GameHandler::kRaidMarkCount) {
-                ImGui::GetWindowDrawList()->AddText(
-                    ImGui::GetCursorScreenPos(),
-                    kFocusMarks[fmark].col, kFocusMarks[fmark].sym);
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 18.0f);
+                if (VkDescriptorSet markTex = ui::getRaidTargetIcon(fmark, services_.assetManager)) {
+                    constexpr float kMarkSize = 16.0f;
+                    ImVec2 p = ImGui::GetCursorScreenPos();
+                    ImGui::GetWindowDrawList()->AddImage(
+                        (ImTextureID)(uintptr_t)markTex, p,
+                        ImVec2(p.x + kMarkSize, p.y + kMarkSize));
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kMarkSize + 2.0f);
+                }
             }
         }
 

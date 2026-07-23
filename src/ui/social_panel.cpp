@@ -5,6 +5,7 @@
 // who window, inspect window.
 // ============================================================
 #include "ui/social_panel.hpp"
+#include "ui/ui_raid_icons.hpp"
 #include "ui/chat_panel.hpp"
 #include "ui/spellbook_screen.hpp"
 #include "ui/inventory_screen.hpp"
@@ -176,24 +177,16 @@ void SocialPanel::renderPartyFrames(game::GameHandler& gameHandler,
 
                     // Raid mark symbol — small, just to the left of the leader crown
                     {
-                        static constexpr struct { const char* sym; ImU32 col; } kCellMarks[] = {
-                            { "\xe2\x98\x85", IM_COL32(255, 220,  50, 255) },
-                            { "\xe2\x97\x8f", IM_COL32(255, 140,   0, 255) },
-                            { "\xe2\x97\x86", IM_COL32(160,  32, 240, 255) },
-                            { "\xe2\x96\xb2", IM_COL32( 50, 200,  50, 255) },
-                            { "\xe2\x97\x8c", IM_COL32( 80, 160, 255, 255) },
-                            { "\xe2\x96\xa0", IM_COL32( 50, 200, 220, 255) },
-                            { "\xe2\x9c\x9d", IM_COL32(255,  80,  80, 255) },
-                            { "\xe2\x98\xa0", IM_COL32(255, 255, 255, 255) },
-                        };
                         uint8_t rmk = gameHandler.getEntityRaidMark(m.guid);
                         if (rmk < game::GameHandler::kRaidMarkCount) {
-                            ImFont* rmFont = ImGui::GetFont();
-                            ImVec2 rmsz = rmFont->CalcTextSizeA(9.0f, FLT_MAX, 0.0f, kCellMarks[rmk].sym);
-                            float rmX = cellMax.x - 10.0f - 2.0f - rmsz.x;
-                            draw->AddText(rmFont, 9.0f,
+                            VkDescriptorSet markTex = ui::getRaidTargetIcon(rmk, services_.assetManager);
+                            if (markTex) {
+                            constexpr float kMarkSize = 11.0f;
+                            float rmX = cellMax.x - 10.0f - 2.0f - kMarkSize;
+                            draw->AddImage((ImTextureID)(uintptr_t)markTex,
                                 ImVec2(rmX, cellMin.y + 2.0f),
-                                kCellMarks[rmk].col, kCellMarks[rmk].sym);
+                                ImVec2(rmX + kMarkSize, cellMin.y + 2.0f + kMarkSize));
+                            }
                         }
                     }
 
@@ -462,22 +455,12 @@ void SocialPanel::renderPartyFrames(game::GameHandler& gameHandler,
 
             // Raid mark symbol — shown on same line as name when this party member has a mark
             {
-                static constexpr struct { const char* sym; ImU32 col; } kPartyMarks[] = {
-                    { "\xe2\x98\x85", IM_COL32(255, 220,  50, 255) },  // 0 Star
-                    { "\xe2\x97\x8f", IM_COL32(255, 140,   0, 255) },  // 1 Circle
-                    { "\xe2\x97\x86", IM_COL32(160,  32, 240, 255) },  // 2 Diamond
-                    { "\xe2\x96\xb2", IM_COL32( 50, 200,  50, 255) },  // 3 Triangle
-                    { "\xe2\x97\x8c", IM_COL32( 80, 160, 255, 255) },  // 4 Moon
-                    { "\xe2\x96\xa0", IM_COL32( 50, 200, 220, 255) },  // 5 Square
-                    { "\xe2\x9c\x9d", IM_COL32(255,  80,  80, 255) },  // 6 Cross
-                    { "\xe2\x98\xa0", IM_COL32(255, 255, 255, 255) },  // 7 Skull
-                };
                 uint8_t pmk = gameHandler.getEntityRaidMark(member.guid);
                 if (pmk < game::GameHandler::kRaidMarkCount) {
-                    ImGui::SameLine();
-                    ImGui::TextColored(
-                        ImGui::ColorConvertU32ToFloat4(kPartyMarks[pmk].col),
-                        "%s", kPartyMarks[pmk].sym);
+                    if (VkDescriptorSet markTex = ui::getRaidTargetIcon(pmk, services_.assetManager)) {
+                        ImGui::SameLine();
+                        ImGui::Image((ImTextureID)(uintptr_t)markTex, ImVec2(14.0f, 14.0f));
+                    }
                 }
             }
 

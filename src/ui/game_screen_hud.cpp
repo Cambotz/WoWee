@@ -1,4 +1,5 @@
 #include "ui/game_screen.hpp"
+#include "ui/ui_raid_icons.hpp"
 #include "ui/ui_colors.hpp"
 #include "ui/ui_helpers.hpp"
 #include "rendering/vk_context.hpp"
@@ -1678,23 +1679,27 @@ void GameScreen::renderNameplates(game::GameHandler& gameHandler) {
             drawList->AddText(ImVec2(crownX,         nameY),         IM_COL32(255, 215, 0, A(240)), crownSym);
         }
 
-        // Raid mark (if any) to the left of the name
+        // Raid mark: the real Blizzard icon art floating above the unit, the way
+        // the original client presents it. This used to be a text glyph beside
+        // the name, but the ImGui font carries no skull/moon/cross code points,
+        // so every mark drew as a '?' box.
         {
-            static constexpr struct { const char* sym; ImU32 col; } kNPMarks[] = {
-                { "\xe2\x98\x85", IM_COL32(255,220, 50,230) },  // Star
-                { "\xe2\x97\x8f", IM_COL32(255,140,  0,230) },  // Circle
-                { "\xe2\x97\x86", IM_COL32(160, 32,240,230) },  // Diamond
-                { "\xe2\x96\xb2", IM_COL32( 50,200, 50,230) },  // Triangle
-                { "\xe2\x97\x8c", IM_COL32( 80,160,255,230) },  // Moon
-                { "\xe2\x96\xa0", IM_COL32( 50,200,220,230) },  // Square
-                { "\xe2\x9c\x9d", IM_COL32(255, 80, 80,230) },  // Cross
-                { "\xe2\x98\xa0", IM_COL32(255,255,255,230) },  // Skull
-            };
             uint8_t raidMark = gameHandler.getEntityRaidMark(guid);
             if (raidMark < game::GameHandler::kRaidMarkCount) {
-                float markX = nameX - 14.0f;
-                drawList->AddText(ImVec2(markX + 1.0f, nameY + 1.0f), IM_COL32(0,0,0,120), kNPMarks[raidMark].sym);
-                drawList->AddText(ImVec2(markX,         nameY),        kNPMarks[raidMark].col, kNPMarks[raidMark].sym);
+                VkDescriptorSet markTex = ui::getRaidTargetIcon(raidMark, services_.assetManager);
+                if (markTex) {
+                    // Sits above the name, and above the target chevron when this
+                    // is the current target, so the three never overlap.
+                    constexpr float kMarkSize = 32.0f;
+                    const float markBottom = nameY - (isTarget ? 16.0f : 3.0f);
+                    const float markTop    = markBottom - kMarkSize;
+                    drawList->AddImage(
+                        (ImTextureID)(uintptr_t)markTex,
+                        ImVec2(sx - kMarkSize * 0.5f, markTop),
+                        ImVec2(sx + kMarkSize * 0.5f, markBottom),
+                        ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
+                        IM_COL32(255, 255, 255, A(255)));
+                }
             }
 
             // Quest kill objective indicator: small yellow sword icon to the right of the name
