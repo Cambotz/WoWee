@@ -224,9 +224,9 @@ void main() {
         // watchable span, so the flame never visibly loops.
         float t = fogParams.z;
         float flicker = 0.84
-                      + 0.10 * sin(t * 2.7)
-                      + 0.05 * sin(t * 6.3 + 1.7)
-                      + 0.03 * sin(t * 15.1 + 0.6);
+                      + 0.10 * sin(t * 1.3)
+                      + 0.05 * sin(t * 2.9 + 1.7)
+                      + 0.03 * sin(t * 6.7 + 0.6);
 
         // Firelight only competes with daylight once the sun is down, so fade the
         // glow up as the scene darkens. A small floor keeps it faintly visible in
