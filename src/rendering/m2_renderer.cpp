@@ -1816,6 +1816,10 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                 if (pit != texturePropsByPtr_.end()) {
                     bgpu.hasAlpha = pit->second.hasAlpha;
                     bgpu.colorKeyBlack = pit->second.colorKeyBlack;
+                    // Forge fire uses ARMORREFLECT, an effect texture whose name
+                    // carries none of the flame/glow tokens the colour-key hint
+                    // looks for, so its black backing was being kept.
+                    if (gpuModel.isForge) bgpu.colorKeyBlack = true;
                 }
             }
             // textureCoordIndex is an index into a texture coord combo table, not directly

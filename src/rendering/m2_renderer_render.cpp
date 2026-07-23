@@ -1399,15 +1399,20 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
 
                     // Pipeline selection (per-model/batch, not per-instance)
                     const bool foliageCutout = foliageLikeModel && !model.isSpellEffect && batch.blendMode <= 3;
+                    // A forge model is nothing but the fire burning inside the
+                    // hearth — an effect overlay on a black background, the same
+                    // shape as a spell visual. Drawn opaque it fills the forge
+                    // opening with a black rectangle instead of flame.
+                    const bool fireEffectModel = model.isForge;
                     const bool forceCutout =
-                        !model.isSpellEffect &&
+                        !model.isSpellEffect && !fireEffectModel &&
                         (model.isGroundDetail || foliageCutout ||
                          batch.blendMode == 1 ||
                          (batch.blendMode >= 2 && !batch.hasAlpha) ||
                          batch.colorKeyBlack);
 
                     uint8_t effectiveBlendMode = batch.blendMode;
-                    if (model.isSpellEffect) {
+                    if (model.isSpellEffect || fireEffectModel) {
                         if (effectiveBlendMode <= 1) effectiveBlendMode = 3;
                         else if (effectiveBlendMode == 4 || effectiveBlendMode == 5) effectiveBlendMode = 3;
                     }
@@ -1611,7 +1616,8 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
 
             // Pipeline selection
             uint8_t effectiveBlendMode = batch.blendMode;
-            if (model.isSpellEffect) {
+            if (model.isSpellEffect || model.isForge) {
+                // Matches the opaque pass: forge fire is an additive effect.
                 if (effectiveBlendMode <= 1) effectiveBlendMode = 3;
                 else if (effectiveBlendMode == 4 || effectiveBlendMode == 5) effectiveBlendMode = 3;
             }
