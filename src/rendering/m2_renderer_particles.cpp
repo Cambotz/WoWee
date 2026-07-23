@@ -197,6 +197,18 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                         distN(particleRng_) * 0.6f,
                         distN(particleRng_) * 0.3f
                     );
+                } else if (gpu.isLanternLike || gpu.isTorch ||
+                           gpu.isBrazierOrFire || gpu.isKoboldFlame) {
+                    // Fire rises in a tight column. The mist fallback below
+                    // scatters a particle sideways by up to a unit and pushes it
+                    // downward, which for a flame throws it off the wick and into
+                    // the fixture — the reason a chandelier's candles showed
+                    // embers drifting down rather than flame standing up.
+                    p.velocity = rotMat * glm::vec3(
+                        distN(particleRng_) * 0.06f,
+                        distN(particleRng_) * 0.06f,
+                        0.25f + dist01(particleRng_) * 0.20f
+                    );
                 } else {
                     p.velocity = rotMat * glm::vec3(
                         distN(particleRng_) * 1.0f,
@@ -276,7 +288,7 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
                     // candle, which is invisible. Paired with the clamped
                     // lifespan this lifts a flame a few tenths of a unit over its
                     // life — a flame licking upward, not a plume.
-                    grav = -0.5f;
+                    grav = -0.2f;
                 } else {
                     float emSpeed = interpFloat(pem.emissionSpeed,
                                                  inst.animTime, inst.globalSequenceTime,
