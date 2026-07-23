@@ -236,7 +236,18 @@ void main() {
         float night = mix(1.0, 0.22, daylight);
 
         const vec3 kFireColor = vec3(1.0, 0.58, 0.22);
-        result = lit + kFireColor * (0.55 * flicker * night);
+        result = lit + kFireColor * (0.30 * flicker * night);
+
+        // Glass covering the dial: a tight sun highlight plus a Fresnel sheen
+        // that picks up sky colour at grazing angles, which is what sells a pane
+        // in front of the face rather than paint on stone. Both are additive and
+        // unaffected by the fire, since they live on the outer surface.
+        vec3 viewDir = normalize(viewPos.xyz - FragPos);
+        vec3 halfDir = normalize(ldir + viewDir);
+        float gloss  = pow(max(dot(norm, halfDir), 0.0), 96.0);
+        float fresnel = pow(1.0 - clamp(dot(norm, viewDir), 0.0, 1.0), 4.0);
+        result += lightColor.rgb * (gloss * 0.55 * shadow)
+                + ambientColor.rgb * (fresnel * 0.35);
     } else if (isLava != 0) {
         // Lava is self-luminous — bright emissive, no shadows
         result = texColor.rgb * 1.5;
