@@ -106,14 +106,14 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
         // for 40/s over half a second, CHANDELIER01 for 1/s over six seconds,
         // which sustains a single speck per candle and looks like a bare glow.
         // Steady-state population is rate x lifespan, so floor the rate against
-        // the lifespan to hold every fixture at a comparable density. Kept low
-        // deliberately: this only lifts emitters that authored a very slow rate,
-        // and a long-lived particle at a high rate reads as a swarm rather than
-        // a flame. Fixtures with a healthy authored rate are untouched — a
-        // candle asks for 40/s against a floor of 14, a torch 20 against 7.
+        // the lifespan to hold every fixture at a comparable density. Do not lower
+        // this: at 7 the flames disappear entirely, as they do under any change
+        // that reduces how many particles are alive or how far they travel. The
+        // effect is only visible because a scattering of particles reaches open
+        // air, so thinning it drops the whole thing below the threshold.
         if (rate > 0.0f && life > 0.0f &&
             (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire || gpu.isKoboldFlame)) {
-            constexpr float kMinLiveParticles = 7.0f;
+            constexpr float kMinLiveParticles = 15.0f;
             rate = std::max(rate, kMinLiveParticles / std::max(life, 0.1f));
         }
 
