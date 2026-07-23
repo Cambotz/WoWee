@@ -992,6 +992,7 @@ void M2Renderer::shutdown() {
         destroyModelGPU(model);
     }
     models.clear();
+    pinnedModelIds_.clear();
 
     // Destroy instance bone buffers
     for (auto& inst : instances) {

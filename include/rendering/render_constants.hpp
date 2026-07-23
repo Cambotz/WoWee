@@ -33,6 +33,17 @@ constexpr float M2_CULL_RADIUS_SCALE_DIVISOR = 12.0f;
 constexpr float M2_PADDED_RADIUS_SCALE       = 1.5f;
 constexpr float M2_PADDED_RADIUS_MIN_MARGIN  = 3.0f;
 
+// Distance floor for server game objects (mailboxes, chests, nodes, doors).
+// The adaptive doodad distance collapses to its densest-scene value in any
+// populated area — a city holds ~100k M2 instances, so ambient doodads are cut
+// at 300 * viewDistanceScale, i.e. 200 world units at a mid view-distance
+// setting. Applying that to game objects hides objects the player interacts
+// with. The server only sends a game object when it is inside its own
+// visibility radius, so anything we have been told about is worth drawing:
+// this floor sits comfortably beyond any server visibility setting, leaving
+// frustum and occlusion culling to do the real work.
+constexpr float M2_GAME_OBJECT_MIN_RENDER_DISTANCE = 600.0f;
+
 // ---------------------------------------------------------------------------
 // M2 variation / idle animation timing (milliseconds)
 // ---------------------------------------------------------------------------

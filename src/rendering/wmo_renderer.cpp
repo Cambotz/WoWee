@@ -1074,6 +1074,12 @@ const std::vector<WMORenderer::DoodadTemplate>* WMORenderer::getDoodadTemplates(
     return nullptr;
 }
 
+bool WMORenderer::hasInstance(uint32_t instanceId) const {
+    return std::find_if(instances.begin(), instances.end(),
+                        [instanceId](const WMOInstance& inst) { return inst.id == instanceId; })
+           != instances.end();
+}
+
 void WMORenderer::removeInstance(uint32_t instanceId) {
     auto it = std::find_if(instances.begin(), instances.end(),
                           [instanceId](const WMOInstance& inst) { return inst.id == instanceId; });
