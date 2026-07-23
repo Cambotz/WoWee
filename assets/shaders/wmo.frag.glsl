@@ -210,7 +210,24 @@ void main() {
     if (emissive == 1) {
         // Authored luminous glass must remain bright in direct sun and shadow.
         // A small warm bias keeps low-valued texels from reading as dark glass.
-        result = texColor.rgb * 2.0 + vec3(0.16, 0.07, 0.015);
+        vec3 glass = texColor.rgb * 2.0 + vec3(0.16, 0.07, 0.015);
+
+        // Gentle guttering, weaker than the clock's open fire — these are steady
+        // lamps, not flames in the wind.
+        //
+        // Every lamp in a building shares one batch, so a uniform phase would
+        // pulse a whole street in lockstep. The phase is hashed from the lamp's
+        // world position instead, quantised into cells a few units across: large
+        // enough that one lamp's glass falls in a single cell, small enough that
+        // neighbouring lamps land in different ones.
+        vec3 cell = floor(FragPos * 0.2);
+        float h = fract(sin(dot(cell, vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+        float phase = h * 6.2831853;
+        float t = fogParams.z;
+        float flicker = 0.93
+                      + 0.05 * sin(t * 1.3 + phase)
+                      + 0.02 * sin(t * 2.9 + phase * 1.7);
+        result = glass * flicker;
     } else if (emissive == 2) {
         // Firelit from behind (Darkshire's clock face): the surface is still lit
         // by the sun so it belongs to the building by day, with a warm glow

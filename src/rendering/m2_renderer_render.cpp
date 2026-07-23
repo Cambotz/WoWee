@@ -1300,6 +1300,25 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                             gs.size = batch.glowSize * inst.scale *
                                 (batch.preserveGlowMesh ? 2.0f : 1.45f);
                             if (batch.preserveGlowMesh) gs.color.a *= 1.25f;
+
+                            // Flame guttering. The phase comes from the lamp's own
+                            // world position, so two lanterns on the same street
+                            // never pulse together — a synchronised row of lamps
+                            // reads as a rendering artifact, not firelight. Two
+                            // detuned sines keep any single lamp from looping
+                            // visibly. Alpha and size move together, since a
+                            // brighter flame also looks slightly larger.
+                            {
+                                float h = std::sin(worldPos.x * 12.9898f +
+                                                   worldPos.y * 78.233f +
+                                                   worldPos.z * 37.719f) * 43758.5453f;
+                                const float phase = (h - std::floor(h)) * 6.2831853f;
+                                const float flicker =
+                                    0.90f + 0.07f * std::sin(lavaAnimSeconds * 1.3f + phase)
+                                          + 0.03f * std::sin(lavaAnimSeconds * 2.9f + phase * 1.7f);
+                                gs.color.a *= flicker;
+                                gs.size    *= 0.97f + 0.03f * flicker;
+                            }
                             glowSprites_.push_back(gs);
                             GlowSprite halo = gs;
                             halo.color.a *= batch.preserveGlowMesh ? 0.34f : 0.42f;
