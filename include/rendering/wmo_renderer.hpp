@@ -394,7 +394,7 @@ private:
         float wmoAmbientR;         // 52 (interior ambient color R)
         float wmoAmbientG;         // 56 (interior ambient color G)
         float wmoAmbientB;         // 60 (interior ambient color B)
-        int32_t emissive;           // 64 (authored luminous surface)
+        int32_t emissive;           // 64 (0 none, 1 lamp glass, 2 firelit)
         int32_t padding0;           // 68
         int32_t padding1;           // 72
         int32_t padding2;           // 76
@@ -439,7 +439,10 @@ private:
             bool isTransparent = false;     // blendMode >= 2
             bool isWindow = false;          // F_SIDN or F_WINDOW material
             bool isLava = false;            // lava/magma texture (UV scroll)
-            bool isEmissive = false;        // lamp glass / other luminous surface
+            // 0 = not luminous, 1 = authored lamp glass (bright), 2 = firelit
+            // from behind with a flicker (clock faces). See wmo.frag's emissive
+            // branch for how each level is shaded.
+            uint8_t emissiveLevel = 0;
             // For multi-draw: store index ranges
             struct DrawRange { uint32_t firstIndex; uint32_t indexCount; };
             std::vector<DrawRange> draws;
