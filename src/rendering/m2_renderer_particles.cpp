@@ -101,6 +101,18 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
         float life = interpFloat(em.lifespan, inst.animTime, inst.globalSequenceTime,
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
+        // A flame reads as a flame only when enough particles are alive at once.
+        // Authored rates vary wildly for the same visual intent — a candle asks
+        // for 40/s over half a second, CHANDELIER01 for 1/s over six seconds,
+        // which sustains a single speck per candle and looks like a bare glow.
+        // Steady-state population is rate x lifespan, so floor the rate against
+        // the lifespan to hold every fixture at a comparable density.
+        if (rate > 0.0f && life > 0.0f &&
+            (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire || gpu.isKoboldFlame)) {
+            constexpr float kMinLiveParticles = 15.0f;
+            rate = std::max(rate, kMinLiveParticles / std::max(life, 0.1f));
+        }
+
         if (rate <= 0.0f || life <= 0.0f) {
             // Diagnostic: a lamp or flame whose emitter never fires produces a
             // fixture that glows but shows no flame. Report each model once so a
@@ -196,20 +208,6 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
 
             inst.particles.push_back(p);
 
-            // Diagnostic: flame fixtures report their first birth too, so a
-            // model that emits but never draws can be told apart from one that
-            // never emits at all.
-            if (!gpu.isSpellEffect && inst.particles.size() == 1 &&
-                (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire)) {
-                static std::unordered_set<std::string> bornReported;
-                if (bornReported.insert(gpu.name).second) {
-                    LOG_WARNING("Flame born: '", gpu.name, "' emitter=", ei,
-                                " rate=", rate, " life=", life,
-                                " tex=", (ei < gpu.particleTextures.size() &&
-                                          gpu.particleTextures[ei]) ? "ok" : "NULL",
-                                " blend=", gpu.particleEmitters[ei].blendingType);
-                }
-            }
             // Diagnostic: log first particle birth per spell effect instance
             if (gpu.isSpellEffect && inst.particles.size() == 1) {
                 LOG_INFO("SpellEffect: first particle for '", gpu.name,
@@ -556,19 +554,6 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         const auto& gpu = *inst.cachedModel;
         if (gpu.isInstancePortal) continue;
 
-        // Diagnostic counterpart to "Flame born": how many live particles a
-        // flame fixture presents to the draw pass, reported once per model.
-        const bool flameFixture = !gpu.isSpellEffect &&
-            (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire);
-        bool reportThisModel = false;
-        if (flameFixture) {
-            static std::unordered_set<std::string> drawReported;
-            if (drawReported.insert(gpu.name).second) {
-                reportThisModel = true;
-                LOG_WARNING("Flame draw: '", gpu.name, "' liveParticles=",
-                            inst.particles.size());
-            }
-        }
 
         // Cache the last emitter's per-emitter state so adjacent particles
         // sharing an emitter (the common case — particles from one source
@@ -634,17 +619,6 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 color = glm::mix(color, glm::vec3(1.0f), 0.7f);
                 if (rawScale > 2.0f) alpha *= 0.02f;
                 if (cachedBlendType == 3 || cachedBlendType == 4) alpha *= 0.05f;
-            }
-            if (reportThisModel) {
-                reportThisModel = false;
-                LOG_WARNING("Flame particle: '", gpu.name,
-                            "' lifeRatio=", lifeRatio,
-                            " rawScale=", rawScale,
-                            " scaleKeys=", em.particleScale.floatValues.size(),
-                            " alpha=", alpha,
-                            " alphaKeys=", em.particleAlpha.floatValues.size(),
-                            " colorKeys=", em.particleColor.vec3Values.size(),
-                            " blend=", static_cast<int>(cachedBlendType));
             }
             float scale = rawScale;
             if (gpu.isSpellEffect) {
