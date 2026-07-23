@@ -150,7 +150,29 @@ public:
     GossipMessageData& currentGossipRef() { return currentGossip_; }
     std::unordered_map<uint64_t, QuestGiverStatus>& npcQuestStatusRef() { return npcQuestStatus_; }
 
+    // Drives the quest-giver status requery cooldown; called once per frame by
+    // GameHandler::update alongside the other quest bookkeeping.
+    void tickQuestGiverStatusRequery(float deltaTime);
+
 private:
+    // Request fresh quest-giver status for nearby NPCs so the !/? markers update
+    // live (e.g. the moment an objective completes) instead of only when the
+    // player leaves and re-enters the area.
+    //
+    // Rate-limited rather than sent on the spot: one call fans out to a packet
+    // per nearby quest giver, and completion events arrive in bursts (a killing
+    // blow that finishes two quests, a loot that fills several objectives).
+    // Requests inside the cooldown set a pending flag and are coalesced into a
+    // single sweep when it expires, so no refresh is dropped.
+    void requeryNearbyQuestGiverStatus();
+    void sendQuestGiverStatusQueries();
+
+    // Minimum spacing between requery sweeps. Marker freshness is a cosmetic
+    // concern, so a second of latency is imperceptible next to the packet cost.
+    static constexpr float kQuestGiverRequeryIntervalSec = 1.0f;
+    float questGiverRequeryCooldown_ = 0.0f;
+    bool questGiverRequeryPending_ = false;
+
     // --- Packet handlers ---
     void handleGossipMessage(network::Packet& packet);
     void handleQuestgiverQuestList(network::Packet& packet);

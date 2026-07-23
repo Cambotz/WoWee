@@ -562,6 +562,7 @@ void GameHandler::updateTimers(float deltaTime) {
     // GameHandler previously ticked its own never-populated copies, so lost
     // or rejected quest accepts were never resynced or unblocked).
     if (questHandler_) {
+        questHandler_->tickQuestGiverStatusRequery(deltaTime);
         auto& acceptTimeouts = questHandler_->pendingQuestAcceptTimeoutsRef();
         auto& acceptNpcGuids = questHandler_->pendingQuestAcceptNpcGuidsRef();
         for (auto it = acceptTimeouts.begin(); it != acceptTimeouts.end();) {
