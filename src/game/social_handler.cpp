@@ -1660,6 +1660,13 @@ void SocialHandler::clearMainAssist() {
 
 void SocialHandler::setRaidMark(uint64_t guid, uint8_t icon) {
     if (owner_.getState() != WorldState::IN_WORLD || !owner_.getSocket()) return;
+    // Raid marks are group state: the server drops MSG_RAID_TARGET_UPDATE from a
+    // player with no group and broadcasts nothing back, so a solo mark silently
+    // did nothing and read as a broken feature. Say so instead.
+    if (!isInGroup()) {
+        owner_.addSystemChatMessage("You must be in a party or raid to set a target marker.");
+        return;
+    }
     if (icon == 0xFF) {
         for (int i = 0; i < 8; ++i) {
             if (raidTargetGuids_[i] == guid) {
