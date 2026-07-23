@@ -208,6 +208,21 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
 
             inst.particles.push_back(p);
 
+            // Diagnostic: where a flame fixture's first particle is actually born.
+            // Emitters are placed by bone, and a fixture whose emitters sit off
+            // the model axis (a chandelier's arms) depends on those matrices
+            // being right, whereas a candle or torch emits straight up the
+            // origin and looks correct even without them.
+            if (!gpu.isSpellEffect && inst.particles.size() == 1 &&
+                (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire)) {
+                static std::unordered_set<std::string> posReported;
+                if (posReported.insert(gpu.name).second) {
+                    LOG_WARNING("Flame pos: '", gpu.name, "' emitter=", ei,
+                                " bone=", em.bone, " boneCount=", inst.boneMatrices.size(),
+                                " particle=(", p.position.x, ",", p.position.y, ",", p.position.z, ")",
+                                " instance=(", inst.position.x, ",", inst.position.y, ",", inst.position.z, ")");
+                }
+            }
             // Diagnostic: log first particle birth per spell effect instance
             if (gpu.isSpellEffect && inst.particles.size() == 1) {
                 LOG_INFO("SpellEffect: first particle for '", gpu.name,
