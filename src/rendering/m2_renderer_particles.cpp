@@ -196,6 +196,20 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
 
             inst.particles.push_back(p);
 
+            // Diagnostic: flame fixtures report their first birth too, so a
+            // model that emits but never draws can be told apart from one that
+            // never emits at all.
+            if (!gpu.isSpellEffect && inst.particles.size() == 1 &&
+                (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire)) {
+                static std::unordered_set<std::string> bornReported;
+                if (bornReported.insert(gpu.name).second) {
+                    LOG_WARNING("Flame born: '", gpu.name, "' emitter=", ei,
+                                " rate=", rate, " life=", life,
+                                " tex=", (ei < gpu.particleTextures.size() &&
+                                          gpu.particleTextures[ei]) ? "ok" : "NULL",
+                                " blend=", gpu.particleEmitters[ei].blendingType);
+                }
+            }
             // Diagnostic: log first particle birth per spell effect instance
             if (gpu.isSpellEffect && inst.particles.size() == 1) {
                 LOG_INFO("SpellEffect: first particle for '", gpu.name,
@@ -541,6 +555,18 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         if (!inst.cachedModel) continue;
         const auto& gpu = *inst.cachedModel;
         if (gpu.isInstancePortal) continue;
+
+        // Diagnostic counterpart to "Flame born": how many live particles a
+        // flame fixture presents to the draw pass, reported once per model.
+        const bool flameFixture = !gpu.isSpellEffect &&
+            (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire);
+        if (flameFixture) {
+            static std::unordered_set<std::string> drawReported;
+            if (drawReported.insert(gpu.name).second) {
+                LOG_WARNING("Flame draw: '", gpu.name, "' liveParticles=",
+                            inst.particles.size());
+            }
+        }
 
         // Cache the last emitter's per-emitter state so adjacent particles
         // sharing an emitter (the common case — particles from one source
