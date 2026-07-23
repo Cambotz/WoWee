@@ -101,28 +101,14 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
         float life = interpFloat(em.lifespan, inst.animTime, inst.globalSequenceTime,
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
-        // Distance travelled is speed times lifespan, and the no-speed fallback
-        // further down gives these particles a wide drift. Over CHANDELIER01's
-        // six second lifespan that spreads its candle flames well across the
-        // room. Trim the lifespan a little to pull them back in — only a little,
-        // because cutting it hard keeps the particles near the emitter, and near
-        // the emitter is precisely where they cannot be seen. Applied before the
-        // density floor below, which divides by lifespan and so holds the
-        // population steady.
-        const bool flameFixture = gpu.isLanternLike || gpu.isTorch ||
-                                  gpu.isBrazierOrFire || gpu.isKoboldFlame;
-        if (flameFixture) {
-            constexpr float kMaxFlameLifeSeconds = 4.5f;
-            life = std::min(life, kMaxFlameLifeSeconds);
-        }
-
         // A flame reads as a flame only when enough particles are alive at once.
         // Authored rates vary wildly for the same visual intent — a candle asks
         // for 40/s over half a second, CHANDELIER01 for 1/s over six seconds,
         // which sustains a single speck per candle and looks like a bare glow.
         // Steady-state population is rate x lifespan, so floor the rate against
         // the lifespan to hold every fixture at a comparable density.
-        if (rate > 0.0f && life > 0.0f && flameFixture) {
+        if (rate > 0.0f && life > 0.0f &&
+            (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire || gpu.isKoboldFlame)) {
             constexpr float kMinLiveParticles = 15.0f;
             rate = std::max(rate, kMinLiveParticles / std::max(life, 0.1f));
         }
