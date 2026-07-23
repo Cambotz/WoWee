@@ -1,4 +1,5 @@
 #include "rendering/m2_renderer.hpp"
+#include <unordered_set>
 #include "rendering/m2_renderer_internal.h"
 #include "rendering/vk_context.hpp"
 #include "rendering/vk_buffer.hpp"
@@ -100,7 +101,25 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
         float life = interpFloat(em.lifespan, inst.animTime, inst.globalSequenceTime,
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
-        if (rate <= 0.0f || life <= 0.0f) continue;
+        if (rate <= 0.0f || life <= 0.0f) {
+            // Diagnostic: a lamp or flame whose emitter never fires produces a
+            // fixture that glows but shows no flame. Report each model once so a
+            // default-level log says whether emission is the cause.
+            if (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire) {
+                static std::unordered_set<std::string> reported;
+                if (reported.insert(gpu.name).second) {
+                    LOG_WARNING("Flame emitter idle: '", gpu.name, "' emitter=", ei,
+                                " rate=", rate, " life=", life,
+                                " animTime=", inst.animTime,
+                                " seqIdx=", inst.currentSequenceIndex,
+                                " gsTime=", inst.globalSequenceTime,
+                                " rateSeqs=", em.emissionRate.sequences.size(),
+                                " lifeSeqs=", em.lifespan.sequences.size(),
+                                " rateGlobalSeq=", em.emissionRate.globalSequence);
+                }
+            }
+            continue;
+        }
 
         inst.emitterAccumulators[ei] += rate * dt;
 
