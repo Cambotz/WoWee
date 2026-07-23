@@ -1315,14 +1315,6 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                                 constexpr float kMaxHaloRadius = 0.75f;
                                 gs.size = std::min(gs.size, kMaxHaloRadius * inst.scale);
                             }
-                            static std::unordered_set<std::string> glowReported;
-                            if (model.isLanternLike && !model.particleEmitters.empty() &&
-                                glowReported.insert(model.name).second) {
-                                LOG_WARNING("Flame halo: '", model.name,
-                                            "' glowSize=", batch.glowSize,
-                                            " spriteSize=", gs.size,
-                                            " scale=", inst.scale);
-                            }
 
                             // Flame guttering. The phase comes from the lamp's own
                             // world position, so two lanterns on the same street

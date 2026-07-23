@@ -208,21 +208,6 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
 
             inst.particles.push_back(p);
 
-            // Diagnostic: where a flame fixture's first particle is actually born.
-            // Emitters are placed by bone, and a fixture whose emitters sit off
-            // the model axis (a chandelier's arms) depends on those matrices
-            // being right, whereas a candle or torch emits straight up the
-            // origin and looks correct even without them.
-            if (!gpu.isSpellEffect && inst.particles.size() == 1 &&
-                (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire)) {
-                static std::unordered_set<std::string> posReported;
-                if (posReported.insert(gpu.name).second) {
-                    LOG_WARNING("Flame pos: '", gpu.name, "' emitter=", ei,
-                                " bone=", em.bone, " boneCount=", inst.boneMatrices.size(),
-                                " particle=(", p.position.x, ",", p.position.y, ",", p.position.z, ")",
-                                " instance=(", inst.position.x, ",", inst.position.y, ",", inst.position.z, ")");
-                }
-            }
             // Diagnostic: log first particle birth per spell effect instance
             if (gpu.isSpellEffect && inst.particles.size() == 1) {
                 LOG_INFO("SpellEffect: first particle for '", gpu.name,
@@ -265,10 +250,22 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
                                       inst.animTime, inst.globalSequenceTime,
                                       inst.currentSequenceIndex, gpu.globalSequenceDurations);
             if (grav == 0.0f && !gpu.isFireflyEffect) {
-                float emSpeed = interpFloat(pem.emissionSpeed,
-                                             inst.animTime, inst.globalSequenceTime,
-                                             inst.currentSequenceIndex, gpu.globalSequenceDurations);
-                grav = (std::abs(emSpeed) > 0.1f) ? 4.0f : 1.5f;
+                // Flames do not fall. The fabricated pull below stands in for
+                // models that authored no gravity but clearly want dust or
+                // debris to settle; applied to fire it drags the flame off its
+                // wick, and the longer the particle lives the further it goes —
+                // CHANDELIER01 gives its candles six seconds, which at 1.5
+                // carries them 27 units down and turns the flames into a rain of
+                // embers across the room. Leave fire where it was emitted.
+                if (gpu.isLanternLike || gpu.isTorch ||
+                    gpu.isBrazierOrFire || gpu.isKoboldFlame) {
+                    grav = 0.0f;
+                } else {
+                    float emSpeed = interpFloat(pem.emissionSpeed,
+                                                 inst.animTime, inst.globalSequenceTime,
+                                                 inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                    grav = (std::abs(emSpeed) > 0.1f) ? 4.0f : 1.5f;
+                }
             }
             emitterGrav[e] = grav;
         }
@@ -647,16 +644,6 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 gpu.isBrazierOrFire || gpu.isKoboldFlame) {
                 color = glm::max(color, glm::vec3(0.50f, 0.26f, 0.09f));
                 alpha = std::max(alpha, 0.30f);
-                static std::unordered_set<std::string> colReported;
-                if (colReported.insert(gpu.name).second) {
-                    LOG_WARNING("Flame shade: '", gpu.name, "' lifeRatio=", lifeRatio,
-                                " colorKeys=", em.particleColor.vec3Values.size(),
-                                " rawColor=(", interpFBlockVec3(em.particleColor, lifeRatio).r,
-                                ",", interpFBlockVec3(em.particleColor, lifeRatio).g,
-                                ",", interpFBlockVec3(em.particleColor, lifeRatio).b, ")",
-                                " rawAlpha=", interpFBlockFloat(em.particleAlpha, lifeRatio),
-                                " rawScale=", rawScale);
-                }
             }
 
             float scale = rawScale;
