@@ -1658,13 +1658,35 @@ void SocialHandler::clearMainAssist() {
     owner_.addSystemChatMessage("Main assist cleared.");
 }
 
+void SocialHandler::setRaidMarkLocally(uint64_t guid, uint8_t icon) {
+    // Mirrors what the server does for a group: an icon is unique, and a unit
+    // carries at most one mark, so placing one clears any previous holder.
+    if (icon == 0xFF) {
+        for (uint32_t i = 0; i < kRaidMarkCount; ++i) {
+            if (raidTargetGuids_[i] == guid) raidTargetGuids_[i] = 0;
+        }
+    } else if (icon < kRaidMarkCount) {
+        for (uint32_t i = 0; i < kRaidMarkCount; ++i) {
+            if (raidTargetGuids_[i] == guid) raidTargetGuids_[i] = 0;
+        }
+        raidTargetGuids_[icon] = guid;
+    } else {
+        return;
+    }
+    owner_.fireAddonEvent("RAID_TARGET_UPDATE", {});
+}
+
 void SocialHandler::setRaidMark(uint64_t guid, uint8_t icon) {
     if (owner_.getState() != WorldState::IN_WORLD || !owner_.getSocket()) return;
-    // Raid marks are group state: the server drops MSG_RAID_TARGET_UPDATE from a
-    // player with no group and broadcasts nothing back, so a solo mark silently
-    // did nothing and read as a broken feature. Say so instead.
+    // Raid marks are group state on the server: it drops MSG_RAID_TARGET_UPDATE
+    // from an ungrouped player and broadcasts nothing back, so a solo mark used
+    // to do nothing at all. Apply it locally instead — a deliberate divergence
+    // from Blizzlike behaviour, since a solo player marking their own targets
+    // harms nobody and the alternative is a feature that cannot be used, or
+    // tested, without a second player. Joining a group later is safe: the
+    // server's full list is authoritative and replaces these marks wholesale.
     if (!isInGroup()) {
-        owner_.addSystemChatMessage("You must be in a party or raid to set a target marker.");
+        setRaidMarkLocally(guid, icon);
         return;
     }
     if (icon == 0xFF) {

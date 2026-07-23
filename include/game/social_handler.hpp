@@ -202,6 +202,10 @@ public:
     void clearMainTank();
     void clearMainAssist();
     void setRaidMark(uint64_t guid, uint8_t icon);
+    // Apply a mark without the server round-trip, used when the player has no
+    // group (the server would drop the request). Grouped marking stays
+    // server-authoritative so every member sees the same icons.
+    void setRaidMarkLocally(uint64_t guid, uint8_t icon);
     void requestRaidInfo();
 
     // Instance lockouts
