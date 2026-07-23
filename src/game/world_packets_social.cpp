@@ -1123,6 +1123,37 @@ network::Packet RaidTargetUpdatePacket::build(uint8_t targetIndex, uint64_t targ
     return packet;
 }
 
+bool RaidTargetUpdateParser::parse(network::Packet& packet, RaidTargetUpdateData& data) {
+    data = RaidTargetUpdateData{};
+    if (!packet.hasRemaining(1)) return false;
+
+    const uint8_t type = packet.readUInt8();
+    if (type == 1) {
+        // Full list — variable length, only the icons that are set.
+        data.fullList = true;
+        while (packet.hasRemaining(9)) {
+            const uint8_t  icon = packet.readUInt8();
+            const uint64_t guid = packet.readUInt64();
+            data.marks.emplace_back(icon, guid);
+        }
+        return true;
+    }
+
+    // Single set. WotLK: whoGuid + icon + targetGuid (17 bytes); classic/TBC:
+    // icon + targetGuid (9). Size tells them apart, so no expansion check is
+    // needed and a server that differs from its era still decodes.
+    const size_t remaining = packet.getRemainingSize();
+    if (remaining >= 17) {
+        packet.readUInt64();  // whoGuid — who placed the mark, not needed
+    } else if (remaining < 9) {
+        return false;
+    }
+    const uint8_t  icon = packet.readUInt8();
+    const uint64_t guid = packet.readUInt64();
+    data.marks.emplace_back(icon, guid);
+    return true;
+}
+
 network::Packet RequestRaidInfoPacket::build() {
     network::Packet packet(wireOpcode(Opcode::CMSG_REQUEST_RAID_INFO));
     LOG_DEBUG("Built CMSG_REQUEST_RAID_INFO");

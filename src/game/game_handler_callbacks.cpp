@@ -1592,6 +1592,18 @@ void GameHandler::setRaidMark(uint64_t guid, uint8_t icon) {
     if (socialHandler_) socialHandler_->setRaidMark(guid, icon);
 }
 
+// The marks live in SocialHandler — MSG_RAID_TARGET_UPDATE writes them there.
+// GameHandler kept a second, identical array that nothing ever wrote, so every
+// caller of these (target frame, nameplates, minimap, social panel) read an
+// array of zeros and no marker icon was ever drawn.
+uint64_t GameHandler::getRaidMarkGuid(uint32_t icon) const {
+    return socialHandler_ ? socialHandler_->getRaidMarkGuid(icon) : 0;
+}
+
+uint8_t GameHandler::getEntityRaidMark(uint64_t guid) const {
+    return socialHandler_ ? socialHandler_->getEntityRaidMark(guid) : 0xFF;
+}
+
 void GameHandler::requestRaidInfo() {
     if (socialHandler_) socialHandler_->requestRaidInfo();
 }

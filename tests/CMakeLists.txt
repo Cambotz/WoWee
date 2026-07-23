@@ -184,6 +184,37 @@ endif()
 add_test(NAME mail_packets COMMAND test_mail_packets)
 register_test_target(test_mail_packets)
 
+# ── test_raid_target_packets ────────────────────────────────
+add_executable(test_raid_target_packets
+    test_raid_target_packets.cpp
+    ${TEST_COMMON_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/network/packet.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/opcode_table.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/expansion_profile.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/character.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/spline_packet.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/world_packets.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/world_packets_world.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/world_packets_entity.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/world_packets_social.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/world_packets_economy.cpp
+    ${CMAKE_SOURCE_DIR}/src/auth/crypto.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/packet_parsers_classic.cpp
+    ${CMAKE_SOURCE_DIR}/src/game/packet_parsers_tbc.cpp
+)
+target_include_directories(test_raid_target_packets PRIVATE ${TEST_INCLUDE_DIRS})
+target_include_directories(test_raid_target_packets SYSTEM PRIVATE ${TEST_SYSTEM_INCLUDE_DIRS})
+target_link_libraries(test_raid_target_packets PRIVATE catch2_main SDL2::SDL2 ZLIB::ZLIB
+                                                 OpenSSL::SSL OpenSSL::Crypto)
+if(TARGET glm::glm)
+    target_link_libraries(test_raid_target_packets PRIVATE glm::glm)
+endif()
+if(TARGET Vulkan::Vulkan)
+    target_link_libraries(test_raid_target_packets PRIVATE Vulkan::Vulkan)
+endif()
+add_test(NAME raid_target_packets COMMAND test_raid_target_packets)
+register_test_target(test_raid_target_packets)
+
 # ── test_entity ──────────────────────────────────────────────
 add_executable(test_entity
     test_entity.cpp

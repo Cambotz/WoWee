@@ -1375,6 +1375,31 @@ public:
     static network::Packet build(uint8_t targetIndex, uint64_t targetGuid);
 };
 
+/** Decoded MSG_RAID_TARGET_UPDATE broadcast from the server */
+struct RaidTargetUpdateData {
+    /// True for the full list, which is authoritative: icons missing from it
+    /// are unmarked. False for a single mark being set or cleared.
+    bool fullList = false;
+    /// icon index (0-7) -> marked GUID, 0 meaning the icon was cleared
+    std::vector<std::pair<uint8_t, uint64_t>> marks;
+};
+
+/** MSG_RAID_TARGET_UPDATE parser (server -> client) */
+class RaidTargetUpdateParser {
+public:
+    /**
+     * Parse a raid target marker broadcast.
+     *
+     * Two shapes share the opcode, distinguished by a leading type byte:
+     *   type 1 — full list: only the icons that are actually set, so the
+     *            length varies; it is not a fixed 8 entries.
+     *   type 0 — single set: WotLK leads with the GUID of the player who
+     *            placed the mark, classic/TBC/Turtle omit it. Told apart by
+     *            remaining size so both wire layouts decode correctly.
+     */
+    static bool parse(network::Packet& packet, RaidTargetUpdateData& data);
+};
+
 /** CMSG_REQUEST_RAID_INFO packet builder */
 class RequestRaidInfoPacket {
 public:

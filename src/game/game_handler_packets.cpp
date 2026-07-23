@@ -1241,31 +1241,21 @@ void GameHandler::registerOpcodeHandlers() {
 
     // ---- MSG_RAID_TARGET_UPDATE ----
     dispatchTable_[Opcode::MSG_RAID_TARGET_UPDATE] = [this](network::Packet& packet) {
-        // uint8 type: 0 = full update (8 × (uint8 icon + uint64 guid)),
-        //             1 = single update (uint8 icon + uint64 guid)
-        size_t remRTU = packet.getRemainingSize();
-        if (remRTU < 1) return;
-        uint8_t rtuType = packet.readUInt8();
-        if (rtuType == 0) {
-            // Full update: always 8 entries
-            for (uint32_t i = 0; i < kRaidMarkCount; ++i) {
-                if (!packet.hasRemaining(9)) return;
-                uint8_t  icon = packet.readUInt8();
-                uint64_t guid = packet.readUInt64();
-                if (socialHandler_)
-                    socialHandler_->setRaidTargetGuid(icon, guid);
+        RaidTargetUpdateData rtu;
+        if (!RaidTargetUpdateParser::parse(packet, rtu)) return;
+
+        if (socialHandler_) {
+            // The full list is authoritative, so icons absent from it are gone.
+            if (rtu.fullList) {
+                for (uint32_t i = 0; i < kRaidMarkCount; ++i)
+                    socialHandler_->setRaidTargetGuid(static_cast<uint8_t>(i), 0);
             }
-        } else {
-            // Single update
-            if (packet.hasRemaining(9)) {
-                uint8_t  icon = packet.readUInt8();
-                uint64_t guid = packet.readUInt64();
-                if (socialHandler_)
-                    socialHandler_->setRaidTargetGuid(icon, guid);
-            }
+            for (const auto& [icon, guid] : rtu.marks)
+                socialHandler_->setRaidTargetGuid(icon, guid);
         }
-        LOG_DEBUG("MSG_RAID_TARGET_UPDATE: type=", static_cast<int>(rtuType));
-                    fireAddonEvent("RAID_TARGET_UPDATE", {});
+        LOG_DEBUG("MSG_RAID_TARGET_UPDATE: fullList=", rtu.fullList,
+                  " marks=", rtu.marks.size());
+        fireAddonEvent("RAID_TARGET_UPDATE", {});
     };
 
     // ---- SMSG_CRITERIA_UPDATE ----
