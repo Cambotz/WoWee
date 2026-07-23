@@ -1312,8 +1312,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                                 // Matches the phase used for this lamp's local
                                 // light, so the sprite and the pool of light it
                                 // casts breathe together.
+                                // Same clock and parameters as the local light in
+                                // gatherLocalLights, so the sprite and the pool of
+                                // light it casts rise and fall together.
                                 const float flicker = lampFlicker(
-                                    inst.position, lavaAnimSeconds, 0.88f, 0.10f, 0.03f);
+                                    inst.position, lampFlickerClockSeconds(),
+                                    0.82f, 0.12f, 0.06f);
                                 gs.color.a *= flicker;
                                 gs.size    *= 0.98f + 0.02f * flicker;
                             }

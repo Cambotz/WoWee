@@ -337,10 +337,10 @@ inline void computeBoneMatrices(const M2ModelGPU& model, M2Instance& instance) {
 // artifact rather than firelight — and it stays stable frame to frame because
 // it derives from a fixed position rather than a counter.
 //
-// Two detuned sines with periods of roughly 15 and 6 seconds, sharing no common
-// multiple over any watchable span. This is deliberately a slow drift rather
-// than a flame effect: it should register as ambience noticed out of the corner
-// of the eye, never as something moving.
+// Two detuned sines with periods of roughly 3.7 and 1.6 seconds, sharing no
+// common multiple over any watchable span. Slower than this and the eye adapts
+// to the change and stops seeing it at all — a 15-second swell is invisible no
+// matter how deep it goes — while faster reads as a strobe.
 //
 // phaseSeed must be a position that does not move frame to frame — the fixture's
 // placement, never an animated bone centre or a sprite offset toward the camera.
@@ -354,8 +354,8 @@ inline float lampFlicker(const glm::vec3& phaseSeed, float seconds,
     float h = std::sin(cell.x * 12.9898f + cell.y * 78.233f +
                        cell.z * 37.719f) * 43758.5453f;
     const float phase = (h - std::floor(h)) * 6.2831853f;
-    return base + slowAmp * std::sin(seconds * 0.42f + phase)
-                + fastAmp * std::sin(seconds * 0.97f + phase * 1.7f);
+    return base + slowAmp * std::sin(seconds * 1.70f + phase)
+                + fastAmp * std::sin(seconds * 3.90f + phase * 1.7f);
 }
 
 /// Seconds since process start, shared by the flicker animations.
