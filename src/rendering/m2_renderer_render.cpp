@@ -1313,9 +1313,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                                 // light, so the sprite and the pool of light it
                                 // casts breathe together.
                                 const float flicker = lampFlicker(
-                                    worldPos, lavaAnimSeconds, 0.86f, 0.11f, 0.05f);
+                                    worldPos, lavaAnimSeconds, 0.955f, 0.04f, 0.015f);
                                 gs.color.a *= flicker;
-                                gs.size    *= 0.94f + 0.06f * flicker;
+                                gs.size    *= 0.98f + 0.02f * flicker;
                             }
                             glowSprites_.push_back(gs);
                             GlowSprite halo = gs;

@@ -337,15 +337,17 @@ inline void computeBoneMatrices(const M2ModelGPU& model, M2Instance& instance) {
 // artifact rather than firelight — and it stays stable frame to frame because
 // it derives from a fixed position rather than a counter.
 //
-// Two detuned sines, slow enough to read as a flame breathing rather than a
-// strobe, with periods that share no common multiple over any watchable span.
+// Two detuned sines with periods of roughly 15 and 6 seconds, sharing no common
+// multiple over any watchable span. This is deliberately a slow drift rather
+// than a flame effect: it should register as ambience noticed out of the corner
+// of the eye, never as something moving.
 inline float lampFlicker(const glm::vec3& worldPos, float seconds,
                          float base, float slowAmp, float fastAmp) {
     float h = std::sin(worldPos.x * 12.9898f + worldPos.y * 78.233f +
                        worldPos.z * 37.719f) * 43758.5453f;
     const float phase = (h - std::floor(h)) * 6.2831853f;
-    return base + slowAmp * std::sin(seconds * 1.3f + phase)
-                + fastAmp * std::sin(seconds * 2.9f + phase * 1.7f);
+    return base + slowAmp * std::sin(seconds * 0.42f + phase)
+                + fastAmp * std::sin(seconds * 0.97f + phase * 1.7f);
 }
 
 /// Seconds since process start, shared by the flicker animations.

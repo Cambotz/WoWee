@@ -225,7 +225,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         outColorIntensity[i] = candidates[i].colorIntensity;
         if (candidates[i].flame) {
             outColorIntensity[i].w *= lampFlicker(glm::vec3(candidates[i].posRadius),
-                                                  flickerSeconds, 0.86f, 0.11f, 0.05f);
+                                                  flickerSeconds, 0.955f, 0.04f, 0.015f);
         }
     }
     return count;
