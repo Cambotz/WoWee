@@ -27,6 +27,41 @@ QuestGiverStatus QuestHandler::getQuestGiverStatus(uint64_t guid) const {
     return (it != npcQuestStatus_.end()) ? it->second : QuestGiverStatus::NONE;
 }
 
+void QuestHandler::requeryNearbyQuestGiverStatus() {
+    if (questGiverRequeryCooldown_ > 0.0f) {
+        questGiverRequeryPending_ = true;
+        return;
+    }
+    sendQuestGiverStatusQueries();
+    questGiverRequeryCooldown_ = kQuestGiverRequeryIntervalSec;
+}
+
+void QuestHandler::tickQuestGiverStatusRequery(float deltaTime) {
+    if (questGiverRequeryCooldown_ <= 0.0f) return;
+    questGiverRequeryCooldown_ -= deltaTime;
+    if (questGiverRequeryCooldown_ > 0.0f) return;
+
+    questGiverRequeryCooldown_ = 0.0f;
+    if (questGiverRequeryPending_) {
+        questGiverRequeryPending_ = false;
+        sendQuestGiverStatusQueries();
+        questGiverRequeryCooldown_ = kQuestGiverRequeryIntervalSec;
+    }
+}
+
+void QuestHandler::sendQuestGiverStatusQueries() {
+    if (!owner_.getSocket()) return;
+    for (const auto& [guid, entity] : owner_.getEntityManager().getEntities()) {
+        if (entity->getType() != ObjectType::UNIT) continue;
+        auto unit = std::static_pointer_cast<Unit>(entity);
+        if (unit->getNpcFlags() & 0x02) { // UNIT_NPC_FLAG_QUESTGIVER
+            network::Packet qsPkt(wireOpcode(Opcode::CMSG_QUESTGIVER_STATUS_QUERY));
+            qsPkt.writeUInt64(guid);
+            owner_.getSocket()->send(qsPkt);
+        }
+    }
+}
+
 
 static std::string formatCopperAmount(uint32_t amount) {
     uint32_t gold = amount / 10000;
@@ -535,17 +570,7 @@ void QuestHandler::registerOpcodes(DispatchTable& table) {
             owner_.addonEventCallbackRef()("UNIT_QUEST_LOG_CHANGED", {"player"});
         }
         // Re-query all nearby quest giver NPCs so markers refresh
-        if (owner_.getSocket()) {
-            for (const auto& [guid, entity] : owner_.getEntityManager().getEntities()) {
-                if (entity->getType() != ObjectType::UNIT) continue;
-                auto unit = std::static_pointer_cast<Unit>(entity);
-                if (unit->getNpcFlags() & 0x02) {
-                    network::Packet qsPkt(wireOpcode(Opcode::CMSG_QUESTGIVER_STATUS_QUERY));
-                    qsPkt.writeUInt64(guid);
-                    owner_.getSocket()->send(qsPkt);
-                }
-            }
-        }
+        requeryNearbyQuestGiverStatus();
     };
 
     // ---- SMSG_QUESTUPDATE_ADD_KILL ----
@@ -608,6 +633,10 @@ void QuestHandler::registerOpcodes(DispatchTable& table) {
 
                     LOG_INFO("Updated kill count for quest ", questId, ": ",
                              count, "/", reqCount);
+                    // When this objective just finished, a quest may have become
+                    // turn-in-able — refresh nearby giver markers (! → ?) now
+                    // instead of only after leaving and re-entering the area.
+                    if (reqCount > 0 && count >= reqCount) requeryNearbyQuestGiverStatus();
                     break;
                 }
             }
@@ -623,6 +652,7 @@ void QuestHandler::registerOpcodes(DispatchTable& table) {
                     break;
                 }
             }
+            requeryNearbyQuestGiverStatus();
         }
     };
 
@@ -641,6 +671,7 @@ void QuestHandler::registerOpcodes(DispatchTable& table) {
             }
 
             bool updatedAny = false;
+            bool maybeCompletedObjective = false;
             for (auto& quest : questLog_) {
                 if (quest.complete) continue;
                 bool tracksItem =
@@ -667,6 +698,14 @@ void QuestHandler::registerOpcodes(DispatchTable& table) {
                     ? required
                     : current + count;
                 updatedAny = true;
+                // An unknown requirement (no SMSG_QUEST_QUERY_RESPONSE yet) can't
+                // be compared against, so assume it may have just filled rather
+                // than leaving those quests without a marker refresh. The requery
+                // is rate-limited, so guessing wide costs nothing.
+                const bool requiredKnown = required != std::numeric_limits<uint32_t>::max();
+                if (!requiredKnown || quest.itemCounts[itemId] >= required) {
+                    maybeCompletedObjective = true;
+                }
             }
             owner_.addSystemChatMessage("Quest item: " + buildItemLink(itemId, questItemQuality, itemLabel) + " (" + std::to_string(count) + ")");
 
@@ -693,6 +732,9 @@ void QuestHandler::registerOpcodes(DispatchTable& table) {
                 owner_.addonEventCallbackRef()("QUEST_LOG_UPDATE", {});
                 owner_.addonEventCallbackRef()("UNIT_QUEST_LOG_CHANGED", {"player"});
             }
+            // Refresh nearby giver markers now if collecting this item may have
+            // made a quest turn-in-able (! → ?), rather than on leave/return.
+            if (maybeCompletedObjective) requeryNearbyQuestGiverStatus();
             LOG_INFO("Quest item update: itemId=", itemId, " count=", count,
                      " trackedQuestsUpdated=", updatedAny);
         }
@@ -1274,6 +1316,9 @@ void QuestHandler::completeQuest() {
     pendingTurnInQuestId_ = currentQuestRequestItems_.questId;
     pendingTurnInNpcGuid_ = currentQuestRequestItems_.npcGuid;
     pendingTurnInRewardRequest_ = currentQuestRequestItems_.isCompletable();
+
+    LOG_DEBUG("completeQuest: questId=", currentQuestRequestItems_.questId,
+              " completable=", currentQuestRequestItems_.isCompletable());
 
     auto packet = QuestgiverCompleteQuestPacket::build(
         currentQuestRequestItems_.npcGuid, currentQuestRequestItems_.questId);
