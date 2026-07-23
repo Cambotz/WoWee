@@ -265,6 +265,12 @@ void M2Renderer::removeInstance(uint32_t instanceId) {
     }
 }
 
+void M2Renderer::setInstanceIsGameObject(uint32_t instanceId, bool isGameObject) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return;
+    instances[idxIt->second].isGameObject = isGameObject;
+}
+
 void M2Renderer::setSkipCollision(uint32_t instanceId, bool skip) {
     for (auto& inst : instances) {
         if (inst.id == instanceId) {
@@ -379,10 +385,13 @@ void M2Renderer::clear() {
         }
     }
     models.clear();
+    pinnedModelIds_.clear();
     instances.clear();
     spatialGrid.clear();
     instanceIndexById.clear();
     instanceDedupMap_.clear();
+    for (auto& ids : cullSubmittedIds_) ids.clear();
+    for (auto& ids : cullReadableIds_) ids.clear();
     smokeParticles.clear();
     smokeInstanceIndices_.clear();
     portalInstanceIndices_.clear();
@@ -413,6 +422,8 @@ void M2Renderer::clearInstances() {
     spatialGrid.clear();
     instanceIndexById.clear();
     instanceDedupMap_.clear();
+    for (auto& ids : cullSubmittedIds_) ids.clear();
+    for (auto& ids : cullReadableIds_) ids.clear();
     smokeInstanceIndices_.clear();
     portalInstanceIndices_.clear();
     animatedInstanceIndices_.clear();
@@ -535,6 +546,15 @@ void M2Renderer::gatherCandidates(const glm::vec3& queryMin, const glm::vec3& qu
     }
 }
 
+void M2Renderer::setModelPinned(uint32_t modelId, bool pinned) {
+    if (pinned) {
+        pinnedModelIds_.insert(modelId);
+        modelUnusedSince_.erase(modelId);
+    } else {
+        pinnedModelIds_.erase(modelId);
+    }
+}
+
 void M2Renderer::cleanupUnusedModels() {
     // Build set of model IDs that are still referenced by instances
     std::unordered_set<uint32_t> usedModelIds;
@@ -551,8 +571,9 @@ void M2Renderer::cleanupUnusedModels() {
     // instance-free between despawn and respawn cycles.
     std::vector<uint32_t> toRemove;
     for (const auto& [id, model] : models) {
-        if (usedModelIds.find(id) != usedModelIds.end()) {
-            // Model still in use — clear any pending unused timestamp
+        if (usedModelIds.find(id) != usedModelIds.end() ||
+            pinnedModelIds_.find(id) != pinnedModelIds_.end()) {
+            // Model still in use or pinned — clear any pending unused timestamp
             modelUnusedSince_.erase(id);
             continue;
         }
@@ -611,6 +632,7 @@ void M2Renderer::unloadModel(uint32_t modelId) {
     destroyModelGPU(it->second);
     models.erase(it);
     modelUnusedSince_.erase(modelId);
+    pinnedModelIds_.erase(modelId);
     reapedModelIds_.push_back(modelId);
 }
 

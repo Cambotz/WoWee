@@ -78,6 +78,14 @@ public:
     bool isModelLoaded(uint32_t id) const;
 
     /**
+     * Check if a WMO instance is still live in the renderer. Owners that cache
+     * instance IDs use this to detect an instance dropped underneath them
+     * (e.g. by a renderer-wide clear) instead of addressing a dead handle.
+     * @param instanceId Instance identifier returned by createInstance
+     */
+    bool hasInstance(uint32_t instanceId) const;
+
+    /**
      * Unload WMO model and free GPU resources
      * @param id WMO model identifier
      */
