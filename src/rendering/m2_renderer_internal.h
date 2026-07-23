@@ -341,10 +341,18 @@ inline void computeBoneMatrices(const M2ModelGPU& model, M2Instance& instance) {
 // multiple over any watchable span. This is deliberately a slow drift rather
 // than a flame effect: it should register as ambience noticed out of the corner
 // of the eye, never as something moving.
-inline float lampFlicker(const glm::vec3& worldPos, float seconds,
+//
+// phaseSeed must be a position that does not move frame to frame — the fixture's
+// placement, never an animated bone centre or a sprite offset toward the camera.
+// The hash is chaotic by design, so a seed that drifts even slightly re-rolls the
+// phase every frame and the result is a strobe rather than a flicker. It is also
+// quantised to a one-unit grid here as insurance against a caller passing
+// something that creeps.
+inline float lampFlicker(const glm::vec3& phaseSeed, float seconds,
                          float base, float slowAmp, float fastAmp) {
-    float h = std::sin(worldPos.x * 12.9898f + worldPos.y * 78.233f +
-                       worldPos.z * 37.719f) * 43758.5453f;
+    const glm::vec3 cell = glm::floor(phaseSeed);
+    float h = std::sin(cell.x * 12.9898f + cell.y * 78.233f +
+                       cell.z * 37.719f) * 43758.5453f;
     const float phase = (h - std::floor(h)) * 6.2831853f;
     return base + slowAmp * std::sin(seconds * 0.42f + phase)
                 + fastAmp * std::sin(seconds * 0.97f + phase * 1.7f);

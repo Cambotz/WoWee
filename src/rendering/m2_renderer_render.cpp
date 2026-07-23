@@ -1313,7 +1313,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                                 // light, so the sprite and the pool of light it
                                 // casts breathe together.
                                 const float flicker = lampFlicker(
-                                    worldPos, lavaAnimSeconds, 0.955f, 0.04f, 0.015f);
+                                    inst.position, lavaAnimSeconds, 0.88f, 0.10f, 0.03f);
                                 gs.color.a *= flicker;
                                 gs.size    *= 0.98f + 0.02f * flicker;
                             }

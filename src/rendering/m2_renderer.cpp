@@ -118,6 +118,9 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         glm::vec4 posRadius;
         glm::vec4 colorIntensity;
         bool flame = false;  // lamps/torches/braziers gutter; lava burns steady
+        // Fixture placement, used only to seed the flicker phase. The light's own
+        // position animates with the flame, which would re-roll the phase every frame.
+        glm::vec3 phaseSeed{0.0f};
     };
     std::vector<Candidate> candidates;
 
@@ -135,7 +138,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                                                 10.0f, 35.0f);
                 candidates.push_back({distSq, glm::vec4(worldPos, radius),
                                       glm::vec4(1.0f, 0.28f, 0.035f, 1.75f),
-                                      /*flame=*/false});
+                                      /*flame=*/false, instance.position});
             }
         }
 
@@ -171,7 +174,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
             if (batch.glowTint == 1) color = glm::vec3(0.42f, 0.68f, 1.0f);
             else if (batch.glowTint == 2) color = glm::vec3(1.0f, 0.24f, 0.14f);
             candidates.push_back({distSq, glm::vec4(worldPos, radius),
-                                  glm::vec4(color, 1.35f), /*flame=*/true});
+                                  glm::vec4(color, 1.35f), /*flame=*/true,
+                                  instance.position});
             hasBatchLight = true;
         }
 
@@ -204,7 +208,7 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
                         glm::vec4(worldPos, chandelier ? 10.0f : 5.0f),
                         glm::vec4(1.0f, 0.58f, 0.22f,
                                   chandelier ? 1.25f : 0.85f),
-                        /*flame=*/true});
+                        /*flame=*/true, instance.position});
                 }
             }
         }
@@ -224,8 +228,8 @@ uint32_t M2Renderer::gatherLocalLights(const glm::vec3& cameraPos,
         outPosRadius[i] = candidates[i].posRadius;
         outColorIntensity[i] = candidates[i].colorIntensity;
         if (candidates[i].flame) {
-            outColorIntensity[i].w *= lampFlicker(glm::vec3(candidates[i].posRadius),
-                                                  flickerSeconds, 0.955f, 0.04f, 0.015f);
+            outColorIntensity[i].w *= lampFlicker(candidates[i].phaseSeed,
+                                                  flickerSeconds, 0.88f, 0.10f, 0.03f);
         }
     }
     return count;
