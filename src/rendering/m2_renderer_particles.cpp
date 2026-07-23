@@ -101,26 +101,14 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
         float life = interpFloat(em.lifespan, inst.animTime, inst.globalSequenceTime,
                                  inst.currentSequenceIndex, gpu.globalSequenceDurations);
-        // Fire is short-lived. A particle that lives six seconds has to go
-        // somewhere over that time: pushed down it rains as embers, held still
-        // it stacks on the wick inside the candle geometry. Real flame
-        // particles rise a little and die quickly, so cap the lifespan and let
-        // the density floor below restore the population the shorter life
-        // costs. Clamped first because that floor divides by lifespan.
-        const bool flameFixture = gpu.isLanternLike || gpu.isTorch ||
-                                  gpu.isBrazierOrFire || gpu.isKoboldFlame;
-        if (flameFixture) {
-            constexpr float kMaxFlameLifeSeconds = 1.2f;
-            life = std::min(life, kMaxFlameLifeSeconds);
-        }
-
         // A flame reads as a flame only when enough particles are alive at once.
         // Authored rates vary wildly for the same visual intent — a candle asks
         // for 40/s over half a second, CHANDELIER01 for 1/s over six seconds,
         // which sustains a single speck per candle and looks like a bare glow.
         // Steady-state population is rate x lifespan, so floor the rate against
         // the lifespan to hold every fixture at a comparable density.
-        if (rate > 0.0f && life > 0.0f && flameFixture) {
+        if (rate > 0.0f && life > 0.0f &&
+            (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire || gpu.isKoboldFlame)) {
             constexpr float kMinLiveParticles = 15.0f;
             rate = std::max(rate, kMinLiveParticles / std::max(life, 0.1f));
         }
@@ -197,18 +185,6 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
                         distN(particleRng_) * 0.6f,
                         distN(particleRng_) * 0.3f
                     );
-                } else if (gpu.isLanternLike || gpu.isTorch ||
-                           gpu.isBrazierOrFire || gpu.isKoboldFlame) {
-                    // Fire rises in a tight column. The mist fallback below
-                    // scatters a particle sideways by up to a unit and pushes it
-                    // downward, which for a flame throws it off the wick and into
-                    // the fixture — the reason a chandelier's candles showed
-                    // embers drifting down rather than flame standing up.
-                    p.velocity = rotMat * glm::vec3(
-                        distN(particleRng_) * 0.06f,
-                        distN(particleRng_) * 0.06f,
-                        0.25f + dist01(particleRng_) * 0.20f
-                    );
                 } else {
                     p.velocity = rotMat * glm::vec3(
                         distN(particleRng_) * 1.0f,
@@ -274,27 +250,10 @@ void M2Renderer::updateParticles(M2Instance& inst, float dt) {
                                       inst.animTime, inst.globalSequenceTime,
                                       inst.currentSequenceIndex, gpu.globalSequenceDurations);
             if (grav == 0.0f && !gpu.isFireflyEffect) {
-                // Flames do not fall. The fabricated pull below stands in for
-                // models that authored no gravity but clearly want dust or
-                // debris to settle; applied to fire it drags the flame off its
-                // wick, and the longer the particle lives the further it goes —
-                // CHANDELIER01 gives its candles six seconds, which at 1.5
-                // carries them 27 units down and turns the flames into a rain of
-                // embers across the room. Leave fire where it was emitted.
-                if (gpu.isLanternLike || gpu.isTorch ||
-                    gpu.isBrazierOrFire || gpu.isKoboldFlame) {
-                    // Negative pulls upward: fire rises. Held at exactly zero the
-                    // particles stack on the emitter point and sit inside the
-                    // candle, which is invisible. Paired with the clamped
-                    // lifespan this lifts a flame a few tenths of a unit over its
-                    // life — a flame licking upward, not a plume.
-                    grav = -0.2f;
-                } else {
-                    float emSpeed = interpFloat(pem.emissionSpeed,
-                                                 inst.animTime, inst.globalSequenceTime,
-                                                 inst.currentSequenceIndex, gpu.globalSequenceDurations);
-                    grav = (std::abs(emSpeed) > 0.1f) ? 4.0f : 1.5f;
-                }
+                float emSpeed = interpFloat(pem.emissionSpeed,
+                                             inst.animTime, inst.globalSequenceTime,
+                                             inst.currentSequenceIndex, gpu.globalSequenceDurations);
+                grav = (std::abs(emSpeed) > 0.1f) ? 4.0f : 1.5f;
             }
             emitterGrav[e] = grav;
         }
