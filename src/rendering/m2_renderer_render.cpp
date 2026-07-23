@@ -1309,15 +1309,13 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                             // visibly. Alpha and size move together, since a
                             // brighter flame also looks slightly larger.
                             {
-                                float h = std::sin(worldPos.x * 12.9898f +
-                                                   worldPos.y * 78.233f +
-                                                   worldPos.z * 37.719f) * 43758.5453f;
-                                const float phase = (h - std::floor(h)) * 6.2831853f;
-                                const float flicker =
-                                    0.90f + 0.07f * std::sin(lavaAnimSeconds * 1.3f + phase)
-                                          + 0.03f * std::sin(lavaAnimSeconds * 2.9f + phase * 1.7f);
+                                // Matches the phase used for this lamp's local
+                                // light, so the sprite and the pool of light it
+                                // casts breathe together.
+                                const float flicker = lampFlicker(
+                                    worldPos, lavaAnimSeconds, 0.86f, 0.11f, 0.05f);
                                 gs.color.a *= flicker;
-                                gs.size    *= 0.97f + 0.03f * flicker;
+                                gs.size    *= 0.94f + 0.06f * flicker;
                             }
                             glowSprites_.push_back(gs);
                             GlowSprite halo = gs;
