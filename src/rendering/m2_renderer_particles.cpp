@@ -560,9 +560,11 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         // flame fixture presents to the draw pass, reported once per model.
         const bool flameFixture = !gpu.isSpellEffect &&
             (gpu.isLanternLike || gpu.isTorch || gpu.isBrazierOrFire);
+        bool reportThisModel = false;
         if (flameFixture) {
             static std::unordered_set<std::string> drawReported;
             if (drawReported.insert(gpu.name).second) {
+                reportThisModel = true;
                 LOG_WARNING("Flame draw: '", gpu.name, "' liveParticles=",
                             inst.particles.size());
             }
@@ -632,6 +634,17 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 color = glm::mix(color, glm::vec3(1.0f), 0.7f);
                 if (rawScale > 2.0f) alpha *= 0.02f;
                 if (cachedBlendType == 3 || cachedBlendType == 4) alpha *= 0.05f;
+            }
+            if (reportThisModel) {
+                reportThisModel = false;
+                LOG_WARNING("Flame particle: '", gpu.name,
+                            "' lifeRatio=", lifeRatio,
+                            " rawScale=", rawScale,
+                            " scaleKeys=", em.particleScale.floatValues.size(),
+                            " alpha=", alpha,
+                            " alphaKeys=", em.particleAlpha.floatValues.size(),
+                            " colorKeys=", em.particleColor.vec3Values.size(),
+                            " blend=", static_cast<int>(cachedBlendType));
             }
             float scale = rawScale;
             if (gpu.isSpellEffect) {
