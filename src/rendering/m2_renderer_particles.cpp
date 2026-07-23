@@ -158,8 +158,12 @@ void M2Renderer::emitParticles(M2Instance& inst, const M2ModelGPU& gpu, float dt
             p.maxLife = life;
             p.tileIndex = 0.0f;
 
-            // Position: emitter position transformed by bone matrix
+            // Position: emitter position transformed by bone matrix, raised clear
+            // of the model's own geometry where it would otherwise be buried.
             glm::vec3 localPos = em.position;
+            if (ei < gpu.particleSpawnLift.size()) {
+                localPos.z += gpu.particleSpawnLift[ei];
+            }
             glm::mat4 boneXform = glm::mat4(1.0f);
             if (em.bone < inst.boneMatrices.size()) {
                 boneXform = inst.boneMatrices[em.bone];

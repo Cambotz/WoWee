@@ -155,6 +155,11 @@ struct M2ModelGPU {
     // Particle emitter data (kept from M2Model)
     std::vector<pipeline::M2ParticleEmitter> particleEmitters;
     std::vector<VkTexture*> particleTextures;    // Resolved Vulkan textures per emitter
+    // Per-emitter upward lift, in model space, that clears the model's own
+    // geometry. Particles are point sprites with a single depth value, so one
+    // born inside the mesh it belongs to is discarded whole rather than being
+    // partly occluded. Computed once at load; zero for emitters already clear.
+    std::vector<float> particleSpawnLift;
     std::vector<VkDescriptorSet> particleTexSets; // Pre-allocated descriptor sets per emitter (stable, avoids per-frame alloc)
 
     // Ribbon emitter data (kept from M2Model)
