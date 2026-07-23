@@ -1,5 +1,39 @@
 # Changelog
 
+## [v2.0.29-preview] — 2026-07-23
+
+### World
+- **Game objects went missing after leaving an area and coming back, for the rest of the session.** Walking away dropped every instance of a mailbox or chest model, and the 60-second unused-model reaper then evicted the model itself; the reload on return did not reliably produce a drawn object. Game object models are now pinned in the renderer, so the reap/reload cycle never happens for them. They are a small bounded set — one per display ID actually encountered — and ambient doodads are still reaped normally
+- Game objects are exempt from the adaptive doodad render distance. That distance collapses to its densest-scene value in any populated area, which in a city means roughly 200 units, so mailboxes and chests vanished well inside the range the server still considered them visible. They now hold a 600-unit floor; frustum and occlusion culling are unaffected
+- GPU cull results are matched back to instances by ID rather than array index. The visibility buffer is read a full frame-slot cycle after it is written, and instances are appended and swap-removed in between, so a respawned object landing at the volatile tail of the array could inherit the verdict of whatever transient object held that slot two frames earlier
+
+### Lighting
+- **Hearth fires, campfires and forges cast light.** Fires express their flame as particle emitters rather than a glow card, and the path that turns emitters into a light was gated on lantern-like models — so a fireplace full of burning wood lit nothing at all. Open flame now takes that path, with a wider, warmer light than a candle wick, and forges are classified as the contained fires they are
+- **Forges rendered as black windows.** `BLACKSMITHFORGE.m2` is nothing but the fire in the hearth, an effect card on a black background, but the additive override that handles exactly that shape was gated on spell effects, so it drew opaque and filled the opening with a black rectangle. Its black backing is colour-keyed too: the texture is `ARMORREFLECT`, whose name carries none of the flame or glow tokens the colour-key hint looks for
+- Lamps, torches and braziers gutter. Each fixture's phase is hashed from its own placement, so no two pulse together — a synchronised row of street lamps reads as a rendering artifact rather than firelight — and the guttering drives the light each one casts, not just its glow sprite, since the pool of light on the ground is what the eye actually reads as fire
+- Darkshire's town hall clock face is lit by a fire behind it. WMO emissive was a flag tuned for Stormwind's lamp glass, far too bright for a clock face, and is now a level: the new one keeps normal daylight shading, adds a warm glow that fades up as the scene darkens, and wavers on three detuned sines so the flame never visibly loops. A tight sun highlight and a Fresnel sheen sell the pane of glass over the dial
+- Hearth fire light no longer turns the surrounding brickwork orange. Local lights are unshadowed, so their radius is how far the glow reaches straight through whatever surrounds the fire; at 11 units a hearth lit its entire chimney from the inside out
+
+### UI
+- **Raid target markers never appeared on marked enemies.** Three separate faults stacked: `GameHandler` kept its own copy of the marks that nothing ever wrote, so the target frame, nameplates, minimap and party list all read zeros; the wire format was inverted, with the full list (which carries only the icons that are set, not a fixed eight) and the single-mark form (which leads with the setter's GUID on WotLK but not on classic or TBC) swapped; and the marks were drawn as text symbols the font has no code points for, so they rendered as '?' boxes. Marks now use Blizzard's icon artwork, floating above the unit as in the original client, and are covered by tests across both wire layouts
+- Solo players can set target markers. The server only broadcasts them to a group, so marking while ungrouped did nothing and the feature could not be used, or tested, without a second player. Grouped marking stays server-authoritative
+- The DPS meter sits under the target frame instead of near the bottom of the screen, and can be dragged; the position persists, and right-click returns it home
+- The keyring is interactive and always visible when enabled
+- AddOns can be enabled and disabled from a manager on character select, and unimplemented addon widget methods fall back to no-ops rather than erroring
+- The target frame no longer stays stuck at a previous target's width
+
+### Quests
+- Quest giver markers refresh as soon as an objective completes, rather than only after leaving and re-entering the area. Sweeps are coalesced behind a one-second cooldown, since one request fans out to a packet per nearby giver and completion events arrive in bursts
+- Key-locked chests open by using the key item on them; unlocked and quest-gated chests open instead of being refused
+
+### Audio
+- Capital City Bells volume is independent of the ambient slider
+
+### Character
+- Barber shop appearance changes apply without a restart
+
+---
+
 ## [v2.0.7-preview] — 2026-07-12
 
 ### Camera
