@@ -1800,7 +1800,16 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                  (!tcls.likelyFlame || modelLanternFamily));
             bgpu.glowCardLike = bgpu.lanternGlowHint &&
                 (tcls.hasGlowCardToken || tcls.softGlowSurface);
-            bgpu.preserveGlowMesh = tcls.softGlowSurface;
+            // A flame texture is the fire itself, not a flat card standing in for
+            // one, so swapping it for a featureless sprite deletes the visible
+            // flame — chandeliers and candelabra lit their surroundings while
+            // their candles sat unlit. Braziers already keep their flame mesh for
+            // this reason (see fireGlowCard above); FLAMELICK counts as a
+            // glow-card token, so lantern-family models were not getting the same
+            // treatment. Keep the mesh and let the sprite glow behind it.
+            const bool flameCard = tcls.hasFlameToken || tcls.likelyFlame;
+            bgpu.preserveGlowMesh = tcls.softGlowSurface ||
+                                    (bgpu.lanternGlowHint && flameCard);
             bgpu.glowTint = tcls.glowTint;
             if (tex != nullptr && tex != whiteTexture_.get()) {
                 auto pit = texturePropsByPtr_.find(tex);
