@@ -457,7 +457,7 @@ void GameScreen::render(game::GameHandler& gameHandler) {
     combatUI_.renderBattlegroundScore(gameHandler);
     combatUI_.renderRaidWarningOverlay(gameHandler);
     combatUI_.renderCombatText(gameHandler);
-    combatUI_.renderDPSMeter(gameHandler, settingsPanel_);
+    combatUI_.renderDPSMeter(gameHandler, settingsPanel_, lastTargetFrameBottom_);
     renderDurabilityWarning(gameHandler);
     renderUIErrors(gameHandler, ImGui::GetIO().DeltaTime);
     toastManager_.renderEarlyToasts(ImGui::GetIO().DeltaTime, gameHandler);

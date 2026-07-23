@@ -1562,6 +1562,15 @@ void GameScreen::saveSettings() {
     out << "show_minimap_coordinates=" << (settingsPanel_.pendingShowMinimapCoordinates ? 1 : 0) << "\n";
     out << "show_latency_meter=" << (settingsPanel_.pendingShowLatencyMeter ? 1 : 0) << "\n";
     out << "show_dps_meter=" << (settingsPanel_.showDPSMeter_ ? 1 : 0) << "\n";
+    {
+        // Only written once the user has dragged it; otherwise the meter keeps
+        // following the target frame on the next launch.
+        ImVec2 dpsPos = combatUI_.getDPSMeterPos();
+        if (dpsPos.x >= 0.0f) {
+            out << "dps_meter_x=" << dpsPos.x << "\n";
+            out << "dps_meter_y=" << dpsPos.y << "\n";
+        }
+    }
     out << "show_cooldown_tracker=" << (settingsPanel_.showCooldownTracker_ ? 1 : 0) << "\n";
     out << "show_rare_tracker=" << (settingsPanel_.showRareTracker_ ? 1 : 0) << "\n";
     out << "show_chest_tracker=" << (settingsPanel_.showChestTracker_ ? 1 : 0) << "\n";
@@ -1724,6 +1733,12 @@ void GameScreen::loadSettings() {
                 settingsPanel_.pendingShowLatencyMeter = settingsPanel_.showLatencyMeter_;
             } else if (key == "show_dps_meter") {
                 settingsPanel_.showDPSMeter_ = (std::stoi(val) != 0);
+            } else if (key == "dps_meter_x") {
+                dpsMeterSavedX_ = std::stof(val);
+                if (dpsMeterSavedY_ >= 0.0f) combatUI_.setDPSMeterPos(dpsMeterSavedX_, dpsMeterSavedY_);
+            } else if (key == "dps_meter_y") {
+                dpsMeterSavedY_ = std::stof(val);
+                if (dpsMeterSavedX_ >= 0.0f) combatUI_.setDPSMeterPos(dpsMeterSavedX_, dpsMeterSavedY_);
             } else if (key == "show_cooldown_tracker") {
                 settingsPanel_.showCooldownTracker_ = (std::stoi(val) != 0);
             } else if (key == "show_rare_tracker") {

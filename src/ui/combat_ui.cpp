@@ -684,7 +684,8 @@ void CombatUI::renderCombatText(game::GameHandler& gameHandler) {
 // ============================================================
 
 void CombatUI::renderDPSMeter(game::GameHandler& gameHandler,
-                              const SettingsPanel& settings) {
+                              const SettingsPanel& settings,
+                              float targetFrameBottom) {
     if (!settings.showDPSMeter_) return;
     if (gameHandler.getState() != game::WorldState::IN_WORLD) return;
 
@@ -794,14 +795,33 @@ void CombatUI::renderDPSMeter(game::GameHandler& gameHandler,
     if (showEnc && encHPS > 0.5f) ++extraRows;
     float WIN_H = 18.0f + extraRows * 14.0f;
     if (dps > 0.5f || hps > 0.5f) WIN_H = std::max(WIN_H, 36.0f);
-    float wx = screenW * 0.5f + 160.0f;   // right of cast bar
-    float wy = screenH - 130.0f;           // above action bar area
+    // Default home is directly under the target frame, centred on it. When there
+    // is no target the frame is not drawn, so fall back to the height it would
+    // have occupied rather than letting the meter jump to a different spot.
+    constexpr float kTargetFrameGap = 6.0f;
+    constexpr float kNoTargetFallbackY = 30.0f + 96.0f;  // frame top + typical height
+    const float defaultX = screenW * 0.5f - WIN_W * 0.5f;
+    const float defaultY = (targetFrameBottom > 0.0f)
+                         ? targetFrameBottom + kTargetFrameGap
+                         : kNoTargetFallbackY + kTargetFrameGap;
 
-    ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove    |
+    // NoMove/NoInputs are deliberately absent: the meter is draggable, which
+    // needs the window to receive mouse input and own its position once moved.
+    ImGuiWindowFlags flags = ImGuiWindowFlags_NoResize |
                              ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar |
-                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav    |
-                             ImGuiWindowFlags_NoInputs;
-    ImGui::SetNextWindowPos(ImVec2(wx, wy), ImGuiCond_Always);
+                             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoNav;
+    if (dpsMeterUserPositioned_) {
+        // ImGui owns the position from here on; seed it once from the saved value.
+        ImGui::SetNextWindowPos(dpsMeterPos_, ImGuiCond_Once);
+        // Keep it on screen if the window was resized smaller since it was saved.
+        if (dpsMeterPos_.x > screenW - WIN_W || dpsMeterPos_.y > screenH - WIN_H) {
+            dpsMeterPos_.x = std::min(dpsMeterPos_.x, std::max(0.0f, screenW - WIN_W));
+            dpsMeterPos_.y = std::min(dpsMeterPos_.y, std::max(0.0f, screenH - WIN_H));
+            ImGui::SetNextWindowPos(dpsMeterPos_, ImGuiCond_Always);
+        }
+    } else {
+        ImGui::SetNextWindowPos(ImVec2(defaultX, defaultY), ImGuiCond_Always);
+    }
     ImGui::SetNextWindowSize(ImVec2(WIN_W, WIN_H), ImGuiCond_Always);
     ImGui::SetNextWindowBgAlpha(0.55f);
 
@@ -830,6 +850,25 @@ void CombatUI::renderDPSMeter(game::GameHandler& gameHandler,
             ImGui::TextColored(ImVec4(0.50f, 1.0f, 0.50f, 0.80f), "%s", encHpsBuf);
             ImGui::SameLine(0, 2);
             ImGui::TextDisabled("enc");
+        }
+
+        // Grabbing the window latches it out of auto-placement: from the next
+        // frame the position is no longer forced, so ImGui's own drag handling
+        // takes over and the result is remembered across sessions.
+        if (!dpsMeterUserPositioned_ &&
+            ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            dpsMeterUserPositioned_ = true;
+        }
+        if (dpsMeterUserPositioned_) dpsMeterPos_ = ImGui::GetWindowPos();
+
+        if (ImGui::IsWindowHovered() && ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            // Right-click sends it home, so a meter dragged off-screen or into
+            // the way is always recoverable without touching a config file.
+            dpsMeterUserPositioned_ = false;
+            dpsMeterPos_ = ImVec2(-1.0f, -1.0f);
+        }
+        if (ImGui::IsWindowHovered()) {
+            ImGui::SetTooltip("Drag to move — right-click to reset position");
         }
     }
     ImGui::End();

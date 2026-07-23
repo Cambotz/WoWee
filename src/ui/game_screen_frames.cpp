@@ -950,7 +950,10 @@ void GameScreen::renderTotemFrame(game::GameHandler& gameHandler) {
 
 void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
     auto target = gameHandler.getTarget();
-    if (!target) return;
+    if (!target) {
+        lastTargetFrameBottom_ = -1.0f;  // nothing targeted: frame is not drawn
+        return;
+    }
 
     auto* window = services_.window;
     float screenW = window ? static_cast<float>(window->getWidth()) : 1280.0f;
@@ -1034,6 +1037,9 @@ void GameScreen::renderTargetFrame(game::GameHandler& gameHandler) {
         // Record the auto-fitted width so next frame can center the window correctly.
         frameW = ImGui::GetWindowSize().x;
         lastTargetFrameWidth_ = frameW;
+        // Same one-frame lag as the width above: the auto-resized size is last
+        // frame's, which is close enough for parking another window underneath.
+        lastTargetFrameBottom_ = ImGui::GetWindowPos().y + ImGui::GetWindowSize().y;
         // Raid mark icon (Star/Circle/Diamond/Triangle/Moon/Square/Cross/Skull),
         // drawn from the Blizzard artwork — the font has no glyphs for most of
         // these symbols, so the previous text version rendered as '?' boxes.
