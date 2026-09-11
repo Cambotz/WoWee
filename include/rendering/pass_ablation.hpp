@@ -78,6 +78,17 @@ public:
     /// Number of phases in a run, the two baselines included.
     static std::size_t phaseCount();
 
+    /// Which phase this is, counting from one, for saying so out loud.
+    std::size_t phaseNumber() const { return phase_ + 1; }
+
+    /// Roughly how long a whole run takes, in milliseconds of world frames.
+    /// The caller says this at the start so the run is not quit halfway - the
+    /// first attempt at ten phases was abandoned eight phases in, with nothing
+    /// logged the whole time to say how far it had got.
+    double expectedRunMs() const {
+        return settleMs_ + static_cast<double>(phaseCount()) * (warmupMs_ + phaseMs_);
+    }
+
 private:
     struct Sample {
         int frames = 0;

@@ -689,9 +689,12 @@ bool Renderer::initialize(core::Window* win) {
     // and whether serialising the recording moves the frame time at all.
     if (std::getenv("WOWEE_PASS_ABLATION") != nullptr) {
         passAblation_ = std::make_unique<PassAblation>();
-        LOG_WARNING("Pass ablation enabled - each world pass is switched off in turn "
-                    "for a few seconds; the table is reported when the run finishes. "
-                    "Stand still outdoors and do not move the camera.");
+        LOG_WARNING("Pass ablation enabled - ", PassAblation::phaseCount(),
+                    " phases over about ",
+                    static_cast<int>(passAblation_->expectedRunMs() / 1000.0),
+                    "s of being in the world, the first 10s of it settling. Stand "
+                    "still outdoors, do not move the camera, and do not quit before "
+                    "the table is logged.");
     }
 
     static const bool forceSingleThread = std::getenv("WOWEE_SINGLE_THREAD_RECORD") != nullptr;
@@ -1029,8 +1032,20 @@ void Renderer::beginFrame() {
         // through the former and its terrain phase through the latter - it
         // reported that terrain was worth minus 110 milliseconds.
         if (worldDrawnLastFrame_ && lastFrameStart_.time_since_epoch().count() != 0) {
+            const bool wasSettling = passAblation_->settling();
+            const AblationPass before = passAblation_->current();
             passAblation_->frame(std::chrono::duration<double, std::milli>(
                 now - lastFrameStart_).count());
+            // Say where it has got to. A run is the better part of a minute of
+            // standing still and the first one silently went eight phases deep
+            // before it was quit, with no way to tell it had started.
+            if (passAblation_->running() &&
+                (passAblation_->current() != before || (wasSettling && !passAblation_->settling()))) {
+                LOG_WARNING("Pass ablation ", passAblation_->phaseNumber(), "/",
+                            PassAblation::phaseCount(), ": ",
+                            ablationPassName(passAblation_->current()),
+                            passAblation_->current() == AblationPass::None ? "" : " off");
+            }
         }
         lastFrameStart_ = now;
         worldDrawnLastFrame_ = false;
