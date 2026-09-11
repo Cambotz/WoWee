@@ -1888,7 +1888,7 @@ bool WMORenderer::initializeShadow(VkRenderPass shadowRenderPass) {
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
-    pc.size = 128;  // lightSpaceMatrix (64) + model (64)
+    pc.size = sizeof(ShadowPush);  // one combined matrix, plus the sway slot
     shadowPipelineLayout_ = createPipelineLayout(device, {shadowParams_.layout}, {pc});
     if (!shadowPipelineLayout_) {
         core::Logger::getInstance().error("WMORenderer: failed to create shadow pipeline layout");
@@ -1955,9 +1955,10 @@ void WMORenderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceM
         if (modelIt == loadedModels.end()) continue;
         const ModelData& model = modelIt->second;
 
-        ShadowPush push{.lightSpaceMatrix = lightSpaceMatrix, .model = instance.modelMatrix};
+        // A building does not sway, so the sway slot stays zero.
+        ShadowPush push{.lightSpaceModel = lightSpaceMatrix * instance.modelMatrix};
         vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
-                           0, 128, &push);
+                           0, sizeof(ShadowPush), &push);
 
         for (size_t gi = 0; gi < model.groups.size(); ++gi) {
             const auto& group = model.groups[gi];

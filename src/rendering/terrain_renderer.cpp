@@ -928,7 +928,7 @@ bool TerrainRenderer::initializeShadow(VkRenderPass shadowRenderPass) {
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
-    pc.size = 128;
+    pc.size = sizeof(ShadowPush);  // one combined matrix, plus the sway slot
     shadowPipelineLayout_ = createPipelineLayout(device, {shadowParams_.layout}, {pc});
     if (!shadowPipelineLayout_) {
         LOG_ERROR("TerrainRenderer: failed to create shadow pipeline layout");
@@ -981,10 +981,11 @@ void TerrainRenderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSp
         0, 1, &shadowParams_.set, 0, nullptr);
 
     // Identity model matrix - terrain vertices are already in world space
-    static const glm::mat4 identity(1.0f);
-    ShadowPush push{ .lightSpaceMatrix = lightSpaceMatrix, .model = identity };
+    // Terrain is already in world space, so the model matrix it used to push
+    // was the identity: the combined matrix is the light-space one.
+    ShadowPush push{.lightSpaceModel = lightSpaceMatrix};
     vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
-                       0, 128, &push);
+                       0, sizeof(ShadowPush), &push);
 
     // Bind mega buffers once for shadow pass (same as opaque)
     const bool useMegaShadow = (megaVB_ && megaIB_);

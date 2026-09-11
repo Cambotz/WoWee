@@ -1,8 +1,18 @@
 #version 450
 
+// The caster side of the shadow map, for terrain, buildings and doodads.
+//
+// The wind here has to be the wind in m2.vert.glsl, vertex for vertex. A tree
+// whose shadow sways by a different amount, or with a different profile up its
+// trunk, drops a dappled pattern that drifts against its own canopy as the
+// phase advances - which from the ground reads as the shadow flickering under
+// a tree that looks perfectly still. This shader used to say it matched while
+// normalising height against a hardcoded twenty yards at an amplitude of one,
+// so the two agreed for a tree exactly twenty yards tall and for nothing else.
+// Both sides are handed the same numbers now, from m2_sway.hpp.
 layout(push_constant) uniform Push {
-    mat4 lightSpaceMatrix;
-    mat4 model;
+    mat4 lightSpaceModel;   // light-space * model, multiplied on the CPU
+    vec4 sway;              // xy world origin (phase), z reference height, w amplitude
 } push;
 
 layout(set = 0, binding = 1) uniform ShadowParams {
@@ -20,38 +30,37 @@ layout(location = 2) in vec4 aBoneWeights;
 layout(location = 3) in vec4 aBoneIndicesF;
 
 layout(location = 0) out vec2 TexCoord;
-layout(location = 1) out vec3 WorldPos;
 
 void main() {
     vec4 pos = vec4(aPos, 1.0);
 
-    // Wind vertex displacement for foliage (matches m2.vert.glsl)
+    // Wind vertex displacement for foliage - the same three layers, the same
+    // constants and the same per-instance phase as m2.vert.glsl.
     if (foliageSway != 0) {
-        vec3 worldRef = push.model[3].xyz;
-        float heightFactor = clamp(pos.z / 20.0, 0.0, 1.0);
-        heightFactor *= heightFactor;
+        vec2 worldRef = push.sway.xy;
+        float heightFactor = clamp(pos.z / max(push.sway.z, 0.01), 0.0, 1.0);
+        heightFactor *= heightFactor;   // quadratic - the base stays planted
+        float amp = push.sway.w * heightFactor;
 
-        // Layer 1: Trunk sway
-        float trunkPhase = windTime * 0.8 + dot(worldRef.xy, vec2(0.1, 0.13));
-        float trunkSwayX = sin(trunkPhase) * 0.35 * heightFactor;
-        float trunkSwayY = cos(trunkPhase * 0.7) * 0.25 * heightFactor;
+        // Layer 1: Trunk sway - slow, large amplitude
+        float trunkPhase = windTime * 0.8 + dot(worldRef, vec2(0.1, 0.13));
+        float trunkSwayX = sin(trunkPhase) * 0.35 * amp;
+        float trunkSwayY = cos(trunkPhase * 0.7) * 0.25 * amp;
 
-        // Layer 2: Branch sway
-        float branchPhase = windTime * 1.7 + dot(worldRef.xy, vec2(0.37, 0.71));
-        float branchSwayX = sin(branchPhase + pos.y * 0.4) * 0.15 * heightFactor;
-        float branchSwayY = cos(branchPhase * 1.1 + pos.x * 0.3) * 0.12 * heightFactor;
+        // Layer 2: Branch sway - medium frequency, per-branch phase
+        float branchPhase = windTime * 1.7 + dot(worldRef, vec2(0.37, 0.71));
+        float branchSwayX = sin(branchPhase + pos.y * 0.4) * 0.15 * amp;
+        float branchSwayY = cos(branchPhase * 1.1 + pos.x * 0.3) * 0.12 * amp;
 
-        // Layer 3: Leaf flutter
+        // Layer 3: Leaf flutter - fast, small amplitude, per-vertex
         float leafPhase = windTime * 4.5 + dot(aPos, vec3(1.7, 2.3, 0.9));
-        float leafFlutterX = sin(leafPhase) * 0.06 * heightFactor;
-        float leafFlutterY = cos(leafPhase * 1.3) * 0.05 * heightFactor;
+        float leafFlutterX = sin(leafPhase) * 0.06 * amp;
+        float leafFlutterY = cos(leafPhase * 1.3) * 0.05 * amp;
 
         pos.x += trunkSwayX + branchSwayX + leafFlutterX;
         pos.y += trunkSwayY + branchSwayY + leafFlutterY;
     }
 
-    vec4 worldPos = push.model * pos;
-    WorldPos = worldPos.xyz;
     TexCoord = aTexCoord;
-    gl_Position = push.lightSpaceMatrix * worldPos;
+    gl_Position = push.lightSpaceModel * pos;
 }

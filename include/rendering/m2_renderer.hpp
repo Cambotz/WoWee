@@ -628,6 +628,11 @@ private:
     /// Blend disabled with alpha-to-coverage on, which is what turns the
     /// shader's sharpened alpha into per-sample coverage.
     VkPipeline cutoutPipeline_ = VK_NULL_HANDLE;
+    /// Said once: a foliage batch reached the shadow pass with no texture.
+    bool warnedShadowNoTexture_ = false;
+    /// Foliage casters drawn into the shadow map last frame, for spotting a
+    /// caster count that swings while nothing is moving.
+    uint32_t lastFoliageCasters_ = 0;
     VkPipeline alphaTestPipeline_ = VK_NULL_HANDLE;     // blend mode 1
     VkPipeline alphaPipeline_ = VK_NULL_HANDLE;         // blend mode 2
     VkPipeline additivePipeline_ = VK_NULL_HANDLE;      // blend mode 3+
@@ -851,7 +856,21 @@ private:
     size_t textureCacheBytes_ = 0;
     uint64_t textureCacheCounter_ = 0;
     size_t textureCacheBudgetBytes_ = 2048ull * 1024 * 1024;
+    /// Make room for `bytesNeeded` by dropping textures nothing is looking at,
+    /// oldest first. Returns what it actually freed.
+    ///
+    /// The cache hands out raw VkTexture* and a model's batches, particle
+    /// emitters and ribbons all keep one, so age alone cannot decide: a
+    /// referenced texture would leave those pointers dangling whatever
+    /// lastUse says about it. What model unloading leaves behind is exactly
+    /// what this collects.
+    size_t evictUnreferencedTextures(size_t bytesNeeded);
+
     std::unordered_set<std::string> failedTextureCache_;
+    /// Keys refused for want of budget rather than because the file is bad.
+    /// Cleared when eviction frees something, so they are retried at once
+    /// instead of waiting out a timer set when the cache was full.
+    std::unordered_set<std::string> budgetRejected_;
     std::unordered_map<std::string, uint64_t> failedTextureRetryAt_;
     std::unordered_set<std::string> loggedTextureLoadFails_;
     uint64_t textureLookupSerial_ = 0;

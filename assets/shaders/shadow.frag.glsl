@@ -12,7 +12,6 @@ layout(set = 0, binding = 1) uniform ShadowParams {
 };
 
 layout(location = 0) in vec2 TexCoord;
-layout(location = 1) in vec3 WorldPos;
 
 void main() {
     if (useTexture != 0) {

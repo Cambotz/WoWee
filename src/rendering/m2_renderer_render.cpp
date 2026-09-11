@@ -1,6 +1,7 @@
 #include "rendering/shadow_params.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "rendering/m2_renderer_internal.h"
+#include "rendering/m2_sway.hpp"
 #include "rendering/m2_blend_mode.hpp"
 #include "rendering/m2_glow_card.hpp"
 #include "core/thread_pool.hpp"
@@ -1208,44 +1209,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     // neighbour should not sway ten times less. Both ends reproduce the numbers
     // that were there: a 20-yard tree still throws 0.35 model units at the tip.
     auto fillSway = [](M2PushConstants& pc, const M2ModelGPU& mdl, bool sky) {
-        pc.swayRefHeight = 20.0f;
-        pc.swayAmp = 1.0f;
-        pc.plantHeight = 0.0f;
-        if (sky) {
-            pc.isFoliage = -1;
-            return;
-        }
-        if (mdl.isHangingCloth) {
-            // Held at the top and free at the hem, so the shader is given the
-            // top rather than a height to normalise against. The throw is a
-            // twentieth of the cloth's own drop: a banner indoors breathes,
-            // it does not flap.
-            const float span = std::max(mdl.boundMax.z - mdl.boundMin.z, 0.05f);
-            pc.isFoliage = 3;
-            pc.swayRefHeight = mdl.boundMax.z;
-            pc.plantHeight = span;
-            pc.swayAmp = span * 0.05f;
-            return;
-        }
-        if (!mdl.shadowWindFoliage) {
-            pc.isFoliage = 0;
-            return;
-        }
-        pc.isFoliage = mdl.isGroundDetail ? 2 : 1;
-
-        // Height above the model's own base, not above the origin: a few
-        // detail doodads sit with geometry below z=0.
-        const float height = std::max(mdl.boundMax.z - std::min(mdl.boundMin.z, 0.0f), 0.05f);
-        pc.plantHeight = height;
-        pc.swayRefHeight = height;
-
-        // How far the tip travels as a fraction of the plant's own height:
-        // about a tenth for grass, a fiftieth for a tree, and the blend between
-        // them for everything in the middle. 0.35 is the trunk layer's throw in
-        // the shader, so dividing by it turns a fraction back into that scale.
-        const float t = std::clamp((height - 1.0f) / 19.0f, 0.0f, 1.0f);
-        const float relativeThrow = 0.105f + (0.0175f - 0.105f) * t;
-        pc.swayAmp = relativeThrow * height / 0.35f;
+        const M2Sway sway = m2SwayFor(sky, mdl.isHangingCloth, mdl.shadowWindFoliage,
+                                      mdl.isGroundDetail, mdl.boundMin.z, mdl.boundMax.z);
+        pc.isFoliage = sway.mode;
+        pc.swayRefHeight = sway.refHeight;
+        pc.swayAmp = sway.amp;
+        pc.plantHeight = sway.plantHeight;
     };
 
     auto appendInstancePortalGlow = [&](const M2Instance& instance, float distSq) {
@@ -2049,7 +2018,7 @@ bool M2Renderer::initializeShadow(VkRenderPass shadowRenderPass) {
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
-    pc.size = 128;  // lightSpaceMatrix (64) + model (64)
+    pc.size = sizeof(ShadowPush);  // one combined matrix, plus the sway slot
     shadowPipelineLayout_ = createPipelineLayout(device, {shadowParams_.layout}, {pc});
     if (!shadowPipelineLayout_) {
         LOG_ERROR("M2Renderer: failed to create shadow pipeline layout");
@@ -2156,6 +2125,10 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
         return set;
     };
 
+    // How many casters each pass drew, so a shadow that comes and goes can say
+    // whether its caster was culled or its texture was missing.
+    uint32_t castersDrawn[2] = {0, 0};
+
     // Helper lambda to draw instances with a given foliageSway setting
     auto drawPass = [&](bool foliagePass) {
         ShadowParamsUBO params{};
@@ -2214,12 +2187,42 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
                 vkCmdBindIndexBuffer(cmd, currentModel->indexBuffer, 0, VK_INDEX_TYPE_UINT16);
             }
 
-            ShadowPush push{.lightSpaceMatrix = lightSpaceMatrix, .model = instance.modelMatrix};
+            ++castersDrawn[foliagePass ? 1 : 0];
+            // The same bend the main pass gives this model, from the same
+            // rule. A shadow that sways differently from its tree is a
+            // dappled pattern drifting against the canopy above it.
+            const M2Sway sway = m2SwayFor(false, model.isHangingCloth, model.shadowWindFoliage,
+                                          model.isGroundDetail, model.boundMin.z, model.boundMax.z);
+            const glm::vec3 origin = glm::vec3(instance.modelMatrix[3]);
+            ShadowPush push{
+                .lightSpaceModel = lightSpaceMatrix * instance.modelMatrix,
+                .sway = glm::vec4(origin.x, origin.y, sway.refHeight, sway.amp)};
             vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
-                               0, 128, &push);
+                               0, sizeof(ShadowPush), &push);
 
             for (const auto& batch : model.batches) {
                 if (batch.submeshLevel > 0) continue;
+                // A leaf card with no texture is a shadow with no caster.
+                //
+                // The else below binds the white set, whose alpha test passes
+                // everywhere, so a batch that arrived without its texture casts
+                // the shadow of a solid quad - while the main pass skips that
+                // same batch for want of a material set. The result is a black
+                // rectangle on the ground under a tree that looks fine, coming
+                // and going as the texture cache lets the sheet back in.
+                //
+                // Only on the foliage pass, and only when there is no texture
+                // at all: an opaque batch legitimately casts its whole shape,
+                // which is what the white set is there for.
+                if (foliagePass && !batch.texture) {
+                    if (!warnedShadowNoTexture_) {
+                        warnedShadowNoTexture_ = true;
+                        LOG_WARNING("Shadow pass: a foliage batch of ", model.name,
+                                    " has no texture; skipping it rather than casting a "
+                                    "solid quad. The texture cache is the usual reason.");
+                    }
+                    continue;
+                }
                 // For foliage: bind per-batch texture for alpha-tested shadows
                 if (foliagePass && batch.hasAlpha && batch.texture) {
                     VkDescriptorSet texSet = getTexDescSet(batch.texture);
@@ -2239,6 +2242,31 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
     drawPass(false);
     // Pass 2: foliage (wind displacement enabled, per-batch alpha-tested textures)
     drawPass(true);
+
+    // A shadow that flickers is a caster that was drawn last frame and is not
+    // drawn this one. The cull is in light space and the light turns with the
+    // hour, so a tree on the boundary can cross it while the player stands
+    // still - and from the ground that reads as the shadow blinking. Said at
+    // most once a second, and only when the count actually swings, so an
+    // ordinary walk through a forest stays quiet.
+    {
+        const uint32_t foliageNow = castersDrawn[1];
+        const uint32_t foliageWas = lastFoliageCasters_;
+        lastFoliageCasters_ = foliageNow;
+        const uint32_t larger = std::max(foliageNow, foliageWas);
+        const uint32_t delta = larger - std::min(foliageNow, foliageWas);
+        if (foliageWas != 0 && larger >= 8 && delta * 10 > larger) {
+            static std::chrono::steady_clock::time_point lastLog{};
+            const auto now = std::chrono::steady_clock::now();
+            if (now - lastLog > std::chrono::seconds(1)) {
+                lastLog = now;
+                LOG_WARNING("Shadow casters swung ", foliageWas, " -> ", foliageNow,
+                            " foliage instances in one frame (", castersDrawn[0],
+                            " solid). A shadow that blinks with the player standing "
+                            "still is one of these crossing the light-space cull.");
+            }
+        }
+    }
 }
 
 } // namespace rendering

@@ -3199,7 +3199,7 @@ bool CharacterRenderer::initializeShadow(VkRenderPass shadowRenderPass) {
     VkPushConstantRange pc{};
     pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
     pc.offset = 0;
-    pc.size = 128;
+    pc.size = sizeof(ShadowPush);  // one combined matrix, plus the sway slot
     VkPipelineLayoutCreateInfo plCI{.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO};
     plCI.setLayoutCount = 2;
     plCI.pSetLayouts = setLayouts;
@@ -3375,8 +3375,9 @@ void CharacterRenderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& light
             0, 2, sets, 0, nullptr);
         currentTexSet = shadowParams_.set;
 
-        ShadowPush push{.lightSpaceMatrix = lightSpaceMatrix, .model = modelMat};
-        vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT, 0, 128, &push);
+        ShadowPush push{.lightSpaceModel = lightSpaceMatrix * modelMat};
+        vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                           0, sizeof(ShadowPush), &push);
 
         VkDeviceSize offset = 0;
         vkCmdBindVertexBuffers(cmd, 0, 1, &gpuModel.vertexBuffer, &offset);

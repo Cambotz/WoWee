@@ -624,6 +624,72 @@ void M2Renderer::unloadModel(uint32_t modelId) {
     reapedModelIds_.push_back(modelId);
 }
 
+size_t M2Renderer::evictUnreferencedTextures(size_t bytesNeeded) {
+    if (textureCache.empty() || bytesNeeded == 0) return 0;
+
+    // What a loaded model still points at. A batch, a particle emitter and a
+    // ribbon each keep a raw pointer into this cache, and the per-frame
+    // particle and ribbon groups are rebuilt from those - so anything a model
+    // refers to is off limits however old it is.
+    std::unordered_set<const VkTexture*> inUse;
+    inUse.reserve(textureCache.size());
+    for (const auto& [modelId, model] : models) {
+        for (const auto& batch : model.batches) {
+            if (batch.texture) inUse.insert(batch.texture);
+        }
+        for (const VkTexture* tex : model.particleTextures) {
+            if (tex) inUse.insert(tex);
+        }
+        for (const VkTexture* tex : model.ribbonTextures) {
+            if (tex) inUse.insert(tex);
+        }
+    }
+
+    std::vector<std::pair<uint64_t, std::string>> candidates;
+    candidates.reserve(textureCache.size());
+    for (const auto& [key, entry] : textureCache) {
+        if (!entry.texture || inUse.count(entry.texture.get()) != 0) continue;
+        candidates.emplace_back(entry.lastUse, key);
+    }
+    if (candidates.empty()) return 0;
+    std::sort(candidates.begin(), candidates.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    size_t freed = 0;
+    size_t dropped = 0;
+    for (const auto& [lastUse, key] : candidates) {
+        if (freed >= bytesNeeded) break;
+        auto it = textureCache.find(key);
+        if (it == textureCache.end()) continue;
+        freed += it->second.approxBytes;
+        textureCacheBytes_ -= std::min(textureCacheBytes_, it->second.approxBytes);
+        texturePropsByPtr_.erase(it->second.texture.get());
+        // A command buffer submitted a frame or two ago may still be reading
+        // it, so the texture outlives this call and dies once every frame slot
+        // has fenced. std::function needs a copyable capture, hence the shared
+        // pointer around what was a unique one.
+        auto doomed = std::shared_ptr<VkTexture>(it->second.texture.release());
+        vkCtx_->deferAfterAllFrameFences([doomed]() mutable { doomed.reset(); });
+        textureCache.erase(it);
+        ++dropped;
+    }
+
+    if (freed > 0) {
+        // Whatever was refused while the cache was full can be asked for again
+        // now. Only those: a texture that failed because its file is missing
+        // is not worth retrying every time something else is evicted.
+        for (const auto& key : budgetRejected_) {
+            failedTextureCache_.erase(key);
+            failedTextureRetryAt_.erase(key);
+        }
+        budgetRejected_.clear();
+        LOG_INFO("M2 texture cache: evicted ", dropped, " unreferenced texture(s), freed ",
+                 freed / (1024 * 1024), " MB (now ", textureCacheBytes_ / (1024 * 1024),
+                 " MB / ", textureCacheBudgetBytes_ / (1024 * 1024), " MB)");
+    }
+    return freed;
+}
+
 VkTexture* M2Renderer::loadTexture(const std::string& path, uint32_t texFlags) {
     constexpr uint64_t kFailedTextureRetryLookups = 512;
     auto normalizeKey = [](std::string key) {
@@ -682,7 +748,18 @@ VkTexture* M2Renderer::loadTexture(const std::string& path, uint32_t texFlags) {
 
     const size_t approxBytes = blp.approxUploadBytes();
     if (textureCacheBytes_ + approxBytes > textureCacheBudgetBytes_) {
+        // Make room before giving up. lastUse has been recorded on every hit
+        // and every insert since this cache was written and nothing ever read
+        // it: over budget, the newest texture the player looked at was refused
+        // and handed back the white one, permanently, while whatever filled
+        // the cache first kept its place. A tree whose leaf sheet was refused
+        // renders nothing in the main pass and casts the shadow of a solid
+        // quad, and the retry timer below is what made that come and go.
+        evictUnreferencedTextures(approxBytes);
+    }
+    if (textureCacheBytes_ + approxBytes > textureCacheBudgetBytes_) {
         static constexpr size_t kMaxFailedTextureCache = 200000;
+        budgetRejected_.insert(key);
         if (failedTextureCache_.size() < kMaxFailedTextureCache) {
             // Cache budget-rejected keys too; without this we repeatedly decode/load
             // the same textures every frame once budget is saturated.

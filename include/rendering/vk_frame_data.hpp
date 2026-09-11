@@ -45,10 +45,19 @@ struct WMOPushConstants {
     glm::vec4 cloth{0.0f};
 };
 
-// Push constants for shadow rendering passes
+// Push constants for shadow rendering passes.
+//
+// Two matrices filled 128 bytes exactly, which is all Vulkan guarantees for
+// push constants - and left no room for the sway a foliage caster needs to
+// match the tree it belongs to. The light-space and model matrices are
+// multiplied on the CPU instead, since nothing in the shadow shaders wanted
+// them apart: the fragment shader's world position was never read.
 struct ShadowPush {
-    glm::mat4 lightSpaceMatrix;
-    glm::mat4 model;
+    glm::mat4 lightSpaceModel;
+    /// xy: the instance's world origin, which gives the wind its per-tree
+    /// phase. z: the height the bend is normalised against. w: its amplitude.
+    /// All zero for anything that does not sway.
+    glm::vec4 sway{0.0f};
 };
 
 // Uniform buffer for shadow rendering parameters (matches shader std140 layout)
