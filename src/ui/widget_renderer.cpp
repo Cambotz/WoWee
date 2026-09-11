@@ -12,12 +12,14 @@
 #include "pipeline/blp_loader.hpp"
 #include "rendering/vk_context.hpp"
 #include "core/app_clock.hpp"
+#include "core/env_flag.hpp"
 #include "ui/interface_fonts.hpp"
 #include "core/logger.hpp"
 
 #include "imgui.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cfloat>
 #include <cstdlib>
 #include <cmath>
@@ -1072,15 +1074,53 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
         }
     }
 
-    sizeTooltips(tree);
+    // Timed one pass at a time, under WOWEE_FRAME_PROFILE.
+    //
+    // This function is 5ms of a 23ms frame - a fifth of it - and the stage
+    // around it cannot see inside. Two guesses at which part were both wrong:
+    // the offscreen character renders turned out to be 0.47ms between them,
+    // and the two say-once diagnostics at the end turned out to be nothing at
+    // all. So it is measured rather than reasoned about.
+    static const bool profile = core::envFlagEnabled("WOWEE_FRAME_PROFILE", false);
+    struct PassTimes {
+        double tooltips = 0.0, fontStrings = 0.0, textures = 0.0, solve = 0.0;
+        int frames = 0;
+        double reportedAt = 0.0;
+    };
+    static PassTimes times;
+    const auto mark = [&](double& into, auto&& fn) {
+        if (!profile) { fn(); return; }
+        const auto t0 = std::chrono::steady_clock::now();
+        fn();
+        into += std::chrono::duration<double, std::milli>(
+            std::chrono::steady_clock::now() - t0).count();
+    };
+
+    mark(times.tooltips, [&] { sizeTooltips(tree); });
     // Same reason, for every label that never stated a size: it takes the size
     // of its own text, and anything anchored to it is placed from that.
-    sizeFontStrings(tree);
+    mark(times.fontStrings, [&] { sizeFontStrings(tree); });
     // Before the solve, like the two above: this decides a size the solve
     // then places.
-    sizeTextures(tree);
+    mark(times.textures, [&] { sizeTextures(tree); });
 
-    tree.layout(screenW, screenH);
+    mark(times.solve, [&] { tree.layout(screenW, screenH); });
+
+    if (profile) {
+        ++times.frames;
+        if (times.reportedAt == 0.0) times.reportedAt = now;
+        if (now - times.reportedAt > 10.0 && times.frames > 0) {
+            const double n = times.frames;
+            LOG_WARNING("  WidgetRenderer::layout over ", times.frames,
+                        " frames: tooltips ", times.tooltips / n,
+                        "ms, fontStrings ", times.fontStrings / n,
+                        "ms, textures ", times.textures / n,
+                        "ms, anchor solve ", times.solve / n,
+                        "ms/frame, over ", tree.size(), " widgets");
+            times = PassTimes{};
+            times.reportedAt = now;
+        }
+    }
 
     // The two below are diagnostics, and each says a given name once and
     // never again. Both walk every widget in the tree, and the first walks
