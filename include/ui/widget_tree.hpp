@@ -994,6 +994,24 @@ private:
     /// Bumped whenever anything moves. A widget resolved in this generation
     /// needs no further work; one from an older generation is stale.
     uint64_t layoutGeneration_ = 1;
+    // What the last full pass cost and whether it needed to run. Read by the
+    // frame profile; see WidgetTree::layout.
+    double lastWalkMs_ = 0.0;
+    double lastDrawOrderMs_ = 0.0;
+    uint64_t generationAtLastPass_ = 0;
+    uint64_t cleanPasses_ = 0;
+    uint64_t totalPasses_ = 0;
+
+public:
+    /// The anchor walk and the draw-order collection of the last full pass,
+    /// and how many passes since the last reset had nothing to do.
+    [[nodiscard]] double lastWalkMs() const { return lastWalkMs_; }
+    [[nodiscard]] double lastDrawOrderMs() const { return lastDrawOrderMs_; }
+    [[nodiscard]] uint64_t cleanPasses() const { return cleanPasses_; }
+    [[nodiscard]] uint64_t totalPasses() const { return totalPasses_; }
+    void resetPassCounts() { cleanPasses_ = 0; totalPasses_ = 0; }
+
+private:
 
     /// The size the last full pass ran at, so an on-demand one can match it.
     float lastPixelW_ = 0.0f;

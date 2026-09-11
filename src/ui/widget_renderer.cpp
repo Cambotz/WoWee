@@ -1117,6 +1117,12 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
                         "ms, textures ", times.textures / n,
                         "ms, anchor solve ", times.solve / n,
                         "ms/frame, over ", tree.size(), " widgets");
+            LOG_WARNING("    of that solve: anchor walk ", tree.lastWalkMs(),
+                        "ms, draw order ", tree.lastDrawOrderMs(),
+                        "ms (last frame); ", tree.cleanPasses(), " of ",
+                        tree.totalPasses(),
+                        " passes had nothing to lay out");
+            tree.resetPassCounts();
             times = PassTimes{};
             times.reportedAt = now;
         }

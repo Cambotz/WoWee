@@ -1,5 +1,7 @@
 #include "ui/widget_tree.hpp"
 
+#include <chrono>
+
 #include <algorithm>
 #include <climits>
 #include <cmath>
@@ -743,6 +745,8 @@ void WidgetTree::layout(float pixelW, float pixelH) {
     // ceiling made the options frame unreachable rather than merely large.
     const float screenH = (uiScale_ > 0.0f) ? (pixelH / uiScale_) : pixelH;
 
+    const auto solveStart = std::chrono::steady_clock::now();
+
     Widget& rootW = widgets_[rootId_];
     rootW.left = 0.0f;
     rootW.bottom = 0.0f;
@@ -775,7 +779,25 @@ void WidgetTree::layout(float pixelW, float pixelH) {
         if (child == uiParentId_) continue;
         layoutWidget(child, screenW, screenH);
     }
+    lastWalkMs_ = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - solveStart).count();
+
+    const auto drawOrderStart = std::chrono::steady_clock::now();
     collectDrawOrder();
+    lastDrawOrderMs_ = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - drawOrderStart).count();
+
+    // Whether this pass had to happen at all.
+    //
+    // The generation counter is bumped by everything that moves a widget, and
+    // the on-demand resolve already skips a widget whose generation matches.
+    // The full pass does not look: it walks all 28018 of them every frame,
+    // for 3.6ms, whether or not anything changed. Skipping a clean frame is
+    // only worth building if clean frames exist, so count them before
+    // believing they do.
+    if (layoutGeneration_ == generationAtLastPass_) ++cleanPasses_;
+    ++totalPasses_;
+    generationAtLastPass_ = layoutGeneration_;
 }
 
 void WidgetTree::layoutWidget(uint32_t id, float screenW, float screenH) {
