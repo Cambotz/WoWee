@@ -257,7 +257,10 @@ void main() {
     TexCoord = (push.texCoordSet == 1 ? aTexCoord2 : aTexCoord) + uvOff;
 
     InstanceOrigin = model[3].xyz;
-    ModelHeight = pos.z;
+    // How far up the plant this vertex is, as a fraction of the plant's own
+    // height. The fragment shader shades a canopy with it, and dividing by a
+    // constant there could only be right for one size of plant.
+    ModelHeight = push.plantHeight > 0.0 ? clamp(pos.z / push.plantHeight, 0.0, 1.0) : 1.0;
     vFadeAlpha = fade;
     vSkyMode = push.isFoliage < 0 ? 1 : 0;
     vHighlight = instanceData[instIdx].highlight;

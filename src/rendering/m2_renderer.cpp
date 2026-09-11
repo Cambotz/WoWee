@@ -330,8 +330,19 @@ bool M2Renderer::buildMainPassPipelines(VkDescriptorSetLayout perFrameLayout) {
     opaquePipeline_ = buildM2Pipeline(PipelineBuilder::blendDisabled(), true,
                                       VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT);
     alphaTestPipeline_ = buildM2Pipeline(PipelineBuilder::blendAlpha(), true,
-                                         VK_PIPELINE_CREATE_DERIVATIVE_BIT, opaquePipeline_,
-                                         /*alphaToCoverage=*/true);
+                                         VK_PIPELINE_CREATE_DERIVATIVE_BIT, opaquePipeline_);
+    // Every alpha-tested batch - a canopy, a fern, a tuft of clutter - is drawn
+    // through this one. Alpha-to-coverage spreads the shader's sharpened alpha
+    // across the samples, so a leaf edge is a coverage ramp rather than a
+    // binary in-or-out, and the distance fade has somewhere to land: on the
+    // opaque pipeline the cutout path used to bind, both were computed and
+    // then thrown away, which is why a canopy read as one hard-edged blob and
+    // a doodad popped rather than faded. Blending stays off, so it is still an
+    // opaque pass: order-independent, depth written, no halo where a leaf
+    // drawn early sits over the sky.
+    cutoutPipeline_ = buildM2Pipeline(PipelineBuilder::blendDisabled(), true,
+                                      VK_PIPELINE_CREATE_DERIVATIVE_BIT, opaquePipeline_,
+                                      /*alphaToCoverage=*/true);
     alphaPipeline_ = buildM2Pipeline(PipelineBuilder::blendAlpha(), false,
                                      VK_PIPELINE_CREATE_DERIVATIVE_BIT, opaquePipeline_);
     additivePipeline_ = buildM2Pipeline(PipelineBuilder::blendAdditive(), false,
@@ -1118,6 +1129,7 @@ void M2Renderer::shutdown() {
     // Destroy pipelines
     auto destroyPipeline = [&](VkPipeline& p) { if (p) { vkDestroyPipeline(device, p, nullptr); p = VK_NULL_HANDLE; } };
     destroyPipeline(opaquePipeline_);
+    destroyPipeline(cutoutPipeline_);
     destroyPipeline(alphaTestPipeline_);
     destroyPipeline(alphaPipeline_);
     destroyPipeline(additivePipeline_);

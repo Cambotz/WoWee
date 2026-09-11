@@ -131,14 +131,20 @@ void main() {
 
     bool isFoliage = (alphaTest == 2);
 
-    // Fix DXT fringe: transparent edge texels have garbage (black) RGB.
-    // At low alpha the original RGB is untrustworthy - replace with the
-    // averaged color from nearby opaque texels (high mip).  The lower
-    // the alpha the more we distrust the original color.
-    if (alphaTest != 0 && texColor.a > 0.01 && texColor.a < 1.0) {
+    // Fix DXT fringe: transparent edge texels have garbage (black) RGB, and
+    // bilinear drags it into the leaf's edge. The blurred high mip is the
+    // colour the edge should have been.
+    //
+    // Only where the fringe actually is. This used to run on everything below
+    // full alpha and trust the texel in proportion to it, so a leaf texel at
+    // half alpha - which is leaf, not fringe, and the canopy is full of them -
+    // came out sixty percent a blurred sixteen-pixel average of the whole
+    // sheet. That is what took the contrast and the colour out of a lit
+    // canopy and left it looking milky. A quarter alpha is where the fringe
+    // stops and the leaf starts.
+    if (alphaTest != 0 && texColor.a > 0.01 && texColor.a < 0.25) {
         vec3 mipColor = textureLod(uTexture, TexCoord, 4.0).rgb;
-        // trust = 0 at alpha 0, trust = 1 at alpha ~0.9
-        float trust = smoothstep(0.0, 0.9, texColor.a);
+        float trust = smoothstep(0.0, 0.25, texColor.a);
         texColor.rgb = mix(mipColor, texColor.rgb, trust);
     }
 
@@ -154,8 +160,11 @@ void main() {
     // canopies to skeletons. Boost alpha with mip level so perceived leaf
     // density stays constant with distance.
     if (isFoliage && hasTexture != 0) {
+        // Gentler than it was: at 0.18 a mip-4 canopy came back with every
+        // leaf texel above 0.23 alpha opaque, which is a solid green mass
+        // rather than a thinned one. Coverage carries the rest now.
         float mip = textureQueryLod(uTexture, TexCoord).x;
-        texColor.a *= 1.0 + clamp(mip, 0.0, 4.0) * 0.18;
+        texColor.a *= 1.0 + clamp(mip, 0.0, 4.0) * 0.11;
     }
     if (alphaTest != 0) {
         // Screen-space sharpened alpha: rescale so the cutoff maps to the
@@ -172,12 +181,18 @@ void main() {
     }
     if (blendMode == 1 && texColor.a < 0.004) discard;
 
-    // Per-instance color variation (foliage only)
+    // Per-instance color variation (foliage only).
+    //
+    // Half what it was. A thirty-point spread in brightness is a third of the
+    // way to another time of day, and two canopies of the same tree standing
+    // in each other reads as a seam down the middle of the crown rather than
+    // as two trees. Enough to break the copy, not enough to be seen as a
+    // difference in light.
     if (isFoliage) {
         float hash = fract(sin(dot(InstanceOrigin.xy, vec2(127.1, 311.7))) * 43758.5453);
-        float hueShiftR = 1.0 + (hash - 0.5) * 0.16;       // ±8% red
-        float hueShiftB = 1.0 + (fract(hash * 7.13) - 0.5) * 0.16; // ±8% blue
-        float brightness = 0.85 + hash * 0.30;               // 85–115%
+        float hueShiftR = 1.0 + (hash - 0.5) * 0.10;       // ±5% red
+        float hueShiftB = 1.0 + (fract(hash * 7.13) - 0.5) * 0.10; // ±5% blue
+        float brightness = 0.93 + hash * 0.14;               // 93-107%
         texColor.rgb *= vec3(hueShiftR, 1.0, hueShiftB) * brightness;
     }
 
@@ -259,10 +274,13 @@ void main() {
         }
     }
 
-    // Canopy ambient occlusion (foliage only)
+    // Canopy ambient occlusion (foliage only). ModelHeight arrives as the
+    // fraction of the plant's own height, so the shading sits in the same
+    // place on a forty-yard tree and on a knee-high fern; it used to be raw
+    // model-space z against a hardcoded eighteen, which put the darkening on
+    // the trunk of anything tall and over the whole of anything short.
     if (isFoliage) {
-        float normalizedHeight = clamp(ModelHeight / 18.0, 0.0, 1.0);
-        float aoFactor = mix(0.55, 1.0, smoothstep(0.0, 0.6, normalizedHeight));
+        float aoFactor = mix(0.55, 1.0, smoothstep(0.0, 0.6, ModelHeight));
         result *= aoFactor;
     }
 
@@ -288,6 +306,17 @@ void main() {
     // opaque after the discard.
     if (colorKeyBlack != 0 && alphaTest == 0) {
         outAlpha = vFadeAlpha;
+    }
+    // The distance fade, for a batch drawn with no blending to fade through.
+    // Sixteen ordered steps against the fragment's own screen position: a tree
+    // at the edge of the draw distance thins out rather than switching off,
+    // and it reads the same at every sample count, where leaving the fade in
+    // the coverage alone would give two steps at 2x MSAA and none with MSAA
+    // off. Multiplying it into the coverage as well would take the leaf edges
+    // with it, so the cutout keeps its own alpha.
+    if (alphaTest != 0 && blendMode <= 1) {
+        if (vFadeAlpha <= bayerDither4x4(ivec2(gl_FragCoord.xy))) discard;
+        outAlpha = texColor.a;
     }
     // Pressed on. The real client lifts the whole model while the button is
     // down over it, which is what says "this one, and the click landed": a

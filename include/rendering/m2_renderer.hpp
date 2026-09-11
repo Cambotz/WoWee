@@ -624,6 +624,10 @@ private:
 
     // Vulkan pipelines (one per blend mode)
     VkPipeline opaquePipeline_ = VK_NULL_HANDLE;       // blend mode 0
+    /// Cutout: leaves, ground clutter, anything the fragment shader alpha-tests.
+    /// Blend disabled with alpha-to-coverage on, which is what turns the
+    /// shader's sharpened alpha into per-sample coverage.
+    VkPipeline cutoutPipeline_ = VK_NULL_HANDLE;
     VkPipeline alphaTestPipeline_ = VK_NULL_HANDLE;     // blend mode 1
     VkPipeline alphaPipeline_ = VK_NULL_HANDLE;         // blend mode 2
     VkPipeline additivePipeline_ = VK_NULL_HANDLE;      // blend mode 3+

@@ -1365,8 +1365,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                     fadeAlpha = std::clamp((entry.effectiveMaxDistSq - entry.distSq) /
                                           (entry.effectiveMaxDistSq - fadeStartDistSq), 0.0f, 1.0f);
                 }
+                // Ground detail used to be held at 0.82 here. This is the
+                // opaque pass: nothing blended it, so it was a number with no
+                // effect - and now that the cutout pipeline turns alpha into
+                // coverage, keeping it would punch a fifth of the pixels out
+                // of every tuft of grass in reach.
                 float instanceFadeAlpha = fadeAlpha;
-                if (model.isGroundDetail) instanceFadeAlpha *= 0.82f;
 
                 // Bone readiness check
                 if (modelNeedsAnimation && instance.boneMatrices.empty()) continue;
@@ -1674,7 +1678,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
 
                     VkPipeline desiredPipeline;
                     if (forceCutout) {
-                        desiredPipeline = opaquePipeline_;
+                        desiredPipeline = cutoutPipeline_;
                     } else {
                         switch (effectiveBlendMode) {
                             case 0: desiredPipeline = opaquePipeline_; break;

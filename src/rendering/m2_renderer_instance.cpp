@@ -1304,6 +1304,7 @@ void M2Renderer::recreatePipelines() {
 
     // Destroy old main-pass pipelines (NOT shadow, NOT pipeline layouts)
     destroy(device, opaquePipeline_);
+    destroy(device, cutoutPipeline_);
     destroy(device, alphaTestPipeline_);
     destroy(device, alphaPipeline_);
     destroy(device, additivePipeline_);
@@ -1313,7 +1314,7 @@ void M2Renderer::recreatePipelines() {
     destroy(device, ribbonPipeline_);
     destroy(device, ribbonAdditivePipeline_);
 
-    // The same nine pipelines initialize() builds, built by the same
+    // The same ten pipelines initialize() builds, built by the same
     // function. The layouts are untouched above, so it makes none.
     buildMainPassPipelines(perFrameLayout_);
 
