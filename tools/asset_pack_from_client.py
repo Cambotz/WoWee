@@ -204,9 +204,16 @@ def main() -> int:
                     help="the expansion the pack is for, e.g. .../expansions/wotlk")
     ap.add_argument("--include", action="append", default=[],
                     help="path fragment to take models from (repeatable)")
+    ap.add_argument("--model-list", type=Path,
+                    help="a file of model paths, one per line, taken instead of --include; "
+                         "for a pack chosen by measurement rather than by where things sit")
     ap.add_argument("--name", help="pack name, used for the folder")
     ap.add_argument("--out", type=Path, default=REPO_ROOT / "asset_packs",
                     help="where to write the pack folder (default: ./asset_packs)")
+    ap.add_argument("--refuse-collision-changes", action="store_true",
+                    help="hold back a replacement whose collision hull differs from the "
+                         "target's. Reported either way; refusing is a judgement about how "
+                         "much divergence from the server is worth a better-looking model")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--install", type=Path, metavar="PACK",
                     help="lay a built pack into <against>/override/ and stop")
@@ -217,8 +224,8 @@ def main() -> int:
     if args.install or args.uninstall:
         return install_pack(args.install or args.uninstall, args.against.resolve(),
                             remove=bool(args.uninstall))
-    if not args.include or not args.name:
-        ap.error("--include and --name are required when building a pack")
+    if not (args.include or args.model_list) or not args.name:
+        ap.error("--include (or --model-list) and --name are required when building a pack")
 
     source = args.source.resolve()
     target = args.against.resolve()
@@ -226,6 +233,14 @@ def main() -> int:
         sys.exit(f"Source extraction not found: {source}")
     known = load_target_paths(target)
     fragments = [slashed(f) for f in args.include]
+    # A pack can be named model by model instead of by where the models sit.
+    # Cataclysm re-authored about three hundred of the twenty-one thousand
+    # models it shares with 3.3.5 and left the rest alone, so "every tree" is
+    # eight thousand files to get thirty upgrades; the list is the thirty.
+    listed = None
+    if args.model_list:
+        listed = {slashed(line.strip()) for line in args.model_list.read_text().splitlines()
+                  if line.strip() and not line.lstrip().startswith("#")}
 
     models = []
     for pattern in ("*.m2", "*.wmo"):
@@ -233,7 +248,10 @@ def main() -> int:
             if model.name.startswith("._"):
                 continue
             rel = slashed(model.relative_to(source))
-            if not any(f in rel for f in fragments):
+            if listed is not None:
+                if rel not in listed:
+                    continue
+            elif not any(f in rel for f in fragments):
                 continue
             if any(rel.startswith(p) for p in REFUSED_PREFIXES):
                 continue
@@ -246,6 +264,8 @@ def main() -> int:
     take = {}          # relative path -> source file
     dropped = []
     refused_models = []
+    collision_changed = []
+    skinless = []
     for model in models:
         rel_model = slashed(model.relative_to(source))
         # Curate's rule (1), applied before the files are ever laid down: a
@@ -254,7 +274,38 @@ def main() -> int:
         if rel_model.startswith("character/") and norm(rel_model) in known:
             refused_models.append(rel_model)
             continue
+        # Whether a replacement keeps its collision hull, which is reported
+        # rather than decided here.
+        #
+        # The client stops a player against a doodad's hull and the server
+        # validated that movement against vmaps built from the hull it has -
+        # the target's, not the pack's. A building is nearly all collision and
+        # has no place in a pack at all; a doodad is the same thing in
+        # miniature, and how much of it to accept for a better-looking tree is
+        # the packer's call, not this tool's. 54 of Cataclysm's 286 rebuilt
+        # models change their hull - Elwynn's canopy goes 30 vertices to 217.
+        if model.suffix.lower() == ".m2" and norm(rel_model) in known:
+            here = m2_textures.collision_mesh(model.read_bytes())
+            try:
+                theirs = m2_textures.collision_mesh((target / rel_model).read_bytes())
+            except OSError:
+                theirs = None
+            if here and theirs and here != theirs:
+                collision_changed.append((rel_model, theirs, here))
+                if args.refuse_collision_changes:
+                    continue
+
         files, textures, decides = dependencies(model, source)
+        # An M2 without its skin is not a model.
+        #
+        # The skin holds the index data - which vertices make which triangles -
+        # and it lives in a file of its own. Ship the model without it and the
+        # client pairs a new vertex list with the target's old indices: the
+        # geometry explodes into spikes, which is what Elwynn's trees did when
+        # a source extraction filtered on ".m2" quietly matched no ".skin".
+        if model.suffix.lower() == ".m2" and not any(f.endswith(".skin") for f in files):
+            skinless.append(rel_model)
+            continue
         # A pack of changed files is not a client: most of what a model draws
         # is already in the expansion it is going over, and only a texture that
         # is in neither is actually missing. Checking the source alone dropped
@@ -285,6 +336,17 @@ def main() -> int:
               f"neither the pack nor the target, so they would render white:")
         for rel, missing in dropped[:5]:
             print(f"     {rel}  (missing {missing[0]})")
+    if skinless:
+        print(f"  {len(skinless)} model(s) dropped: no .skin beside them in the source, and a "
+              f"model whose index data comes from elsewhere renders as spikes")
+        for rel in skinless[:3]:
+            print(f"     {rel}")
+    if collision_changed:
+        verb = "held back" if args.refuse_collision_changes else "shipped anyway"
+        print(f"  {len(collision_changed)} model(s) {verb}: their collision hull differs from "
+              f"the target's, and the server still has the target's")
+        for rel, theirs, here in collision_changed[:3]:
+            print(f"     {theirs[0]}v/{theirs[1]}t -> {here[0]}v/{here[1]}t  {rel}")
     if refused_models:
         print(f"  {len(refused_models)} character model(s) refused: they replace a model "
               f"this expansion already has, which is the swap that breaks")
@@ -324,9 +386,13 @@ def main() -> int:
         "source": source_build(source),
         "for_expansion": target.name,
         "include": fragments,
+        "model_list": sorted(listed) if listed is not None else None,
         "counts": {"models": len(models), "files": len(entries),
                    "replace": len(replace), "add": len(add),
                    "dropped_models": len(dropped),
+                   "dropped_skinless": len(skinless),
+                   "collision_hull_changed": len(collision_changed),
+                   "collision_changes_refused": bool(args.refuse_collision_changes),
                    "refused_character_models": len(refused_models)},
         "entries": entries,
     }, indent=1, sort_keys=True) + "\n")

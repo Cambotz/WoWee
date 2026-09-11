@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The texture list an M2 carries, and where in the header to find it.
+"""What an M2's header says: its texture list, and its collision mesh.
 
     tools/m2_textures.py
 
@@ -41,6 +41,12 @@ _VANILLA = {
 TEXTURE_WRAP_X = 1
 TEXTURE_WRAP_Y = 2
 
+# Byte offset of the bounding (collision) arrays in a WotLK-layout header:
+# every M2Array pair up to the UV-animation lookup, then the 56 bytes of
+# vertexBox, vertexRadius, boundingBox and boundingRadius.
+_WOTLK_COLLISION_OFFSET = (4 + 4 + 8 + 4 + 8 + 8 + 8 + 8 + 8 + 8 + 4
+                           + 8 * 11) + 56
+
 
 def header_offset(version: int, field: str) -> int:
     """Byte offset of a header field for a model of this version."""
@@ -53,6 +59,30 @@ def m2_array(data: bytes, version: int, field: str):
     n = struct.unpack_from("<I", data, header_offset(version, f"n{field}"))[0]
     o = struct.unpack_from("<I", data, header_offset(version, f"ofs{field}"))[0]
     return n, o
+
+
+def collision_mesh(data: bytes):
+    """(vertices, triangles) of the model's collision hull, or None.
+
+    This is the shape the client stops a player against, and - for a doodad
+    the map marks collidable - the shape the server built its vmaps from. A
+    replacement whose hull differs from the one everybody else is standing on
+    is a player walking into something that is not there for anyone else, so
+    it is worth knowing before a pack ships one.
+
+    WotLK-layout headers only; a vanilla model returns None rather than a
+    number read from the wrong place.
+    """
+    if len(data) < 16 or data[:4] != b"MD20":
+        return None
+    version = struct.unpack_from("<I", data, 4)[0]
+    if version < 264:
+        return None
+    off = _WOTLK_COLLISION_OFFSET
+    if off + 16 > len(data):
+        return None
+    n_triangle_indices, _ofs_tri, n_vertices, _ofs_vert = struct.unpack_from("<4I", data, off)
+    return n_vertices, n_triangle_indices // 3
 
 
 def texture_entries(data: bytes) -> list:
