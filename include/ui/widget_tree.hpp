@@ -522,6 +522,16 @@ struct Widget {
     /// SetTooltipMoney measures the money frame, asks the tooltip whether it is
     /// already that wide, and widens it if not.
     float tooltipMinWidth = 0.0f;
+    /// The width the sizing pass wrapped this tooltip's lines at, in interface
+    /// units, and the width the draw must wrap them at too.
+    ///
+    /// The two used to arrive at it separately: the sizing pass counted rows
+    /// by wrapping at a width it computed, and the draw wrapped at whatever
+    /// the anchor solve had made the frame. They agreed by coincidence. When
+    /// they did not, the text wrapped to more rows than `lines` recorded and
+    /// every block after the first was drawn on top of the one before it -
+    /// the micro button's tooltip put its framerate over its latency.
+    float tooltipWrapWidth = 0.0f;
 
     // FontString regions.
     std::string text;

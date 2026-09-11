@@ -426,6 +426,9 @@ void WidgetRenderer::sizeTooltipWidget(Widget* w, ImFont* font, WidgetTree& tree
     const float wrapW = std::clamp(widest > 0.0f ? widest : kMinWrap,
                                    kMinWrap, kMaxWrap);
 
+    // What the draw must wrap at as well; see Widget::tooltipWrapWidth.
+    w->tooltipWrapWidth = wrapW;
+
     int rows = 0;
     for (const auto& line : w->tooltipLines) {
         // Every line, wrapping or not: one carrying |n is two rows tall
@@ -2109,7 +2112,16 @@ void WidgetRenderer::draw(WidgetTree& tree, float screenW, float screenH) {
                 const float lineH = size * 1.2f;
                 const float pad = 10.0f * ws;
                 float y = y0 + pad;
-                const float textW = (x1 - x0) - pad * 2.0f;
+                // The width the sizing pass counted rows at, not one derived
+                // again from the rect. Deriving it twice is what put the
+                // framerate block over the latency block: the solve can hand
+                // the frame a rect narrower than the sizing assumed, the text
+                // then wraps to more rows than `line.lines` recorded, and the
+                // next line is drawn into the middle of this one. Falls back
+                // to the rect for a tooltip drawn before it was ever sized.
+                const float sizedW = w->tooltipWrapWidth * ws;
+                const float textW = sizedW > 0.0f ? sizedW
+                                                  : (x1 - x0) - pad * 2.0f;
                 for (const auto& line : w->tooltipLines) {
                     float lc[4] = {line.lc[0], line.lc[1], line.lc[2], line.lc[3]};
                     drawMarkupText(dl, font, size, ImVec2(x0 + pad, y),
