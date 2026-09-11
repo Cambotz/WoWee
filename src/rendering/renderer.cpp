@@ -2664,7 +2664,8 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         }
 
         // --- Execute all secondary buffers in correct draw order ---
-        VkCommandBuffer validCmds[6];
+        VkCommandBuffer validCmds[8];
+        const char* validLabels[8];
         uint32_t numCmds = 0;
         // Terrain first, then the sky. Every sky layer sits on the far plane
         // and depth-tests against what is already there, so drawing it after
@@ -2674,18 +2675,44 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         // blended windows and doodads carry leaves and particles, and blended
         // pixels leave no depth behind, so a sky drawn after them would paint
         // over whichever of them stood against it.
+        const auto queue = [&](VkCommandBuffer buffer, const char* label) {
+            validLabels[numCmds] = label;
+            validCmds[numCmds++] = buffer;
+        };
         if (terrainRenderer && camera && terrainEnabled && !skipTerrain)
-            validCmds[numCmds++] = secondaryCmds_[SEC_TERRAIN][frameIdx];
-        validCmds[numCmds++] = secondaryCmds_[SEC_SKY][frameIdx];
+            queue(secondaryCmds_[SEC_TERRAIN][frameIdx], "terrain");
+        queue(secondaryCmds_[SEC_SKY][frameIdx], "sky");
         if (wmoRenderer && camera && !skipWMO)
-            validCmds[numCmds++] = secondaryCmds_[SEC_WMO][frameIdx];
-        validCmds[numCmds++] = secondaryCmds_[SEC_SELECTION][frameIdx];
-        validCmds[numCmds++] = secondaryCmds_[SEC_CHARS][frameIdx];
+            queue(secondaryCmds_[SEC_WMO][frameIdx], "wmo");
+        queue(secondaryCmds_[SEC_SELECTION][frameIdx], "selection");
+        queue(secondaryCmds_[SEC_CHARS][frameIdx], "characters");
         if (m2Renderer && camera && !skipM2)
-            validCmds[numCmds++] = secondaryCmds_[SEC_M2][frameIdx];
-        validCmds[numCmds++] = secondaryCmds_[SEC_POST][frameIdx];
+            queue(secondaryCmds_[SEC_M2][frameIdx], "m2");
+        queue(secondaryCmds_[SEC_POST][frameIdx], "water/effects");
 
-        vkCmdExecuteCommands(currentCmd, numCmds, validCmds);
+        // One at a time, with a mark after each.
+        //
+        // Batched, the whole world was a single gap in the timeline and its
+        // 43 of 48 milliseconds could not be attributed to a pass. The
+        // secondaries execute in this order either way; issuing them
+        // separately costs six calls on the CPU and nothing on the GPU, and
+        // buys the breakdown that says which pass to look at. The marks are
+        // written from the primary buffer, so the threads that recorded the
+        // secondaries never touch the shared mark counter.
+        for (uint32_t i = 0; i < numCmds; ++i) {
+            vkCmdExecuteCommands(currentCmd, 1, &validCmds[i]);
+            if (vkCtx) vkCtx->gpuMark(currentCmd, validLabels[i]);
+        }
+        // The world, as one mark.
+        //
+        // Every pass inside it is marked on the single-threaded path below and
+        // none of them are here, because these were recorded into secondary
+        // buffers. So on the path this machine actually takes, the next mark
+        // after shadows was post-process - and the gap to it, which is the
+        // whole scene, was being read as the cost of post-processing. 46 of a
+        // 50ms frame landed under a label that did not earn it.
+        // ...and the whole of it, for the one-line answer.
+        if (vkCtx) vkCtx->gpuMark(currentCmd, "world total");
 
     } else {
         // ── Fallback: single-threaded inline recording (original path) ──
