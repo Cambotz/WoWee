@@ -1655,6 +1655,21 @@ endif()
 if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR)
     add_executable(mpq_build tools/mpq_build/main.cpp)
     target_include_directories(mpq_build PRIVATE ${STORMLIB_INCLUDE_DIR})
+    # Which spelling of "last error" this StormLib has - see the note beside
+    # lastStormError(). Asked of the header rather than of the platform: the
+    # two Linux packages do not agree with each other either.
+    include(CheckCXXSymbolExists)
+    set(CMAKE_REQUIRED_INCLUDES ${STORMLIB_INCLUDE_DIR})
+    # With the library, not just the header: the check takes the symbol's
+    # address, so without something to link against it answers "no" even where
+    # the declaration is right there.
+    set(CMAKE_REQUIRED_LIBRARIES ${STORMLIB_LIBRARY})
+    check_cxx_symbol_exists(SErrGetLastError "StormLib.h" WOWEE_STORMLIB_SERR)
+    unset(CMAKE_REQUIRED_INCLUDES)
+    unset(CMAKE_REQUIRED_LIBRARIES)
+    if(WOWEE_STORMLIB_SERR)
+        target_compile_definitions(mpq_build PRIVATE WOWEE_STORMLIB_SERR=1)
+    endif()
     target_link_libraries(mpq_build PRIVATE ${STORMLIB_LIBRARY} ZLIB::ZLIB Threads::Threads)
     if(NOT WIN32)
         find_library(BZ2_LIB NAMES bz2 bzip2)

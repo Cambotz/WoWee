@@ -63,6 +63,20 @@ std::string toArchiveName(const fs::path& relative, const std::string& prefix) {
     return head + name;
 }
 
+/// StormLib's name for "what went wrong" differs by platform. The Homebrew
+/// build declares SErrGetLastError and not GetLastError; Ubuntu's
+/// libstorm-dev declares the Win32-shaped GetLastError and not the other.
+/// Each one's compiler helpfully suggests the name it does not have, which is
+/// how this reached CI compiling on one platform and not the other. CMake asks
+/// the header which it is and defines WOWEE_STORMLIB_SERR when it is the first.
+unsigned lastStormError() {
+#ifdef WOWEE_STORMLIB_SERR
+    return static_cast<unsigned>(SErrGetLastError());
+#else
+    return static_cast<unsigned>(GetLastError());
+#endif
+}
+
 /// Files the packer has no business carrying into an archive: macOS writes the
 /// first two beside anything it copies to a foreign filesystem, and the third
 /// is this project's own note to itself.
@@ -151,7 +165,7 @@ int main(int argc, char** argv) {
     HANDLE archive = nullptr;
     if (!SFileCreateArchive(outputFile.string().c_str(), createFlags, maxFileCount, &archive)) {
         std::cerr << "Error: could not create " << outputFile << " (StormLib error "
-                  << SErrGetLastError() << ")\n";
+                  << lastStormError() << ")\n";
         return 1;
     }
 
@@ -170,7 +184,7 @@ int main(int argc, char** argv) {
         const std::string name = toArchiveName(fs::relative(file, inputDir, ec), namePrefix);
         if (!SFileAddFileEx(archive, file.string().c_str(), name.c_str(), addFlags,
                             MPQ_COMPRESSION_ZLIB, MPQ_COMPRESSION_NEXT_SAME)) {
-            std::cerr << "  FAILED " << name << " (StormLib error " << SErrGetLastError() << ")\n";
+            std::cerr << "  FAILED " << name << " (StormLib error " << lastStormError() << ")\n";
             ++failed;
             continue;
         }
