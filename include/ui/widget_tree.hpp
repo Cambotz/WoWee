@@ -1001,6 +1001,8 @@ private:
     uint64_t generationAtLastPass_ = 0;
     uint64_t cleanPasses_ = 0;
     uint64_t totalPasses_ = 0;
+    uint32_t visibleThisPass_ = 0;
+    uint32_t lastVisibleCount_ = 0;
 
 public:
     /// The anchor walk and the draw-order collection of the last full pass,
@@ -1009,6 +1011,8 @@ public:
     [[nodiscard]] double lastDrawOrderMs() const { return lastDrawOrderMs_; }
     [[nodiscard]] uint64_t cleanPasses() const { return cleanPasses_; }
     [[nodiscard]] uint64_t totalPasses() const { return totalPasses_; }
+    /// How many widgets the last full pass placed that were actually visible.
+    [[nodiscard]] uint32_t lastVisibleCount() const { return lastVisibleCount_; }
     void resetPassCounts() { cleanPasses_ = 0; totalPasses_ = 0; }
 
 private:

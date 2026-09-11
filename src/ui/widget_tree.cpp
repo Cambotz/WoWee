@@ -746,6 +746,7 @@ void WidgetTree::layout(float pixelW, float pixelH) {
     const float screenH = (uiScale_ > 0.0f) ? (pixelH / uiScale_) : pixelH;
 
     const auto solveStart = std::chrono::steady_clock::now();
+    visibleThisPass_ = 0;
 
     Widget& rootW = widgets_[rootId_];
     rootW.left = 0.0f;
@@ -795,6 +796,8 @@ void WidgetTree::layout(float pixelW, float pixelH) {
     // for 3.6ms, whether or not anything changed. Skipping a clean frame is
     // only worth building if clean frames exist, so count them before
     // believing they do.
+    lastVisibleCount_ = visibleThisPass_;
+    visibleThisPass_ = 0;
     if (layoutGeneration_ == generationAtLastPass_) ++cleanPasses_;
     ++totalPasses_;
     generationAtLastPass_ = layoutGeneration_;
@@ -857,6 +860,11 @@ void WidgetTree::layoutWidgetSelf(uint32_t id, float screenW, float screenH) {
     // Inherited from the parent's chain rather than its `visible`, or a child
     // of an unanchored driver frame would stop running too.
     w->visibleChain = w->shown && (!parent || parent->visibleChain);
+    // How much of the tree the walk placed that nobody can see. The whole
+    // pass is 3.4ms over 28018 widgets every frame, and a hidden frame's rect
+    // is already re-derived on demand by resolveWidget when something asks
+    // for it - so if most of these are hidden, not walking them is the fix.
+    if (w->visibleChain) ++visibleThisPass_;
     // Drawing inherits from the parent's *drawing*, not from the chain: an
     // anchored child of an unanchored frame has nowhere to be either, because
     // the thing it is anchored to has no position. Deriving this from the

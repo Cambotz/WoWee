@@ -1121,7 +1121,8 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
                         "ms, draw order ", tree.lastDrawOrderMs(),
                         "ms (last frame); ", tree.cleanPasses(), " of ",
                         tree.totalPasses(),
-                        " passes had nothing to lay out");
+                        " passes had nothing to lay out; ", tree.lastVisibleCount(),
+                        " of ", tree.size(), " widgets were visible");
             tree.resetPassCounts();
             times = PassTimes{};
             times.reportedAt = now;
