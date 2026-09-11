@@ -1832,6 +1832,20 @@ int lua_Tooltip_SetText(lua_State* L) {
     if (!isTooltipFrame) { lua_pushboolean(L, 0); return 1; }
     w->isTooltip = true;
     w->tooltipLines.clear();
+    // SetText starts a tooltip over, so whatever it was showing is no longer
+    // what it is showing. __itemId is what GameTooltip:GetItem() answers from
+    // and what GameTooltip_ShowCompareItem needs before it will do anything,
+    // and nothing ever cleared it - so it named the last item hovered for the
+    // rest of the session, and holding shift over the game menu button
+    // compared the bags from whichever bag slot the cursor had last crossed.
+    //
+    // Safe here because the item path sets it after its own SetText:
+    // _WoweePopulateItemTooltip titles the tooltip first and records the item
+    // at the end of its run.
+    if (lua_istable(L, 1)) {
+        lua_pushnil(L);
+        lua_setfield(L, 1, "__itemId");
+    }
     wowee::ui::Widget::TooltipLine line;
     line.left = luaL_optstring(L, 2, "");
     line.lc[0] = static_cast<float>(luaL_optnumber(L, 3, 1.0));
@@ -3069,6 +3083,19 @@ int lua_Tooltip_SetGuildBankItem(lua_State* L) {
 
 int lua_Tooltip_ClearLines(lua_State* L) {
     if (auto* w = widgetOf(L, 1)) w->tooltipLines.clear();
+    // And what the tooltip was showing, which is a different question from
+    // what is written in it.
+    //
+    // __itemId is what GameTooltip:GetItem() answers from, and
+    // GameTooltip_ShowCompareItem returns on its first line without one. It
+    // was set by every item setter and cleared by nothing, so it named
+    // whatever item had last been hovered for the rest of the session: hold
+    // shift over the game menu button and the interface dutifully compared
+    // the bags from the last bag slot the cursor crossed.
+    if (lua_istable(L, 1)) {
+        lua_pushnil(L);
+        lua_setfield(L, 1, "__itemId");
+    }
     // GameTooltip declares OnTooltipCleared and nothing fired it. What it runs
     // is GameTooltip_ClearMoney, so a tooltip that had shown a price kept its
     // money line when it was next filled with something that has none - the

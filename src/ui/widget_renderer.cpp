@@ -431,14 +431,27 @@ void WidgetRenderer::sizeTooltipWidget(Widget* w, ImFont* font, WidgetTree& tree
 
     int rows = 0;
     for (const auto& line : w->tooltipLines) {
-        // Every line, wrapping or not: one carrying |n is two rows tall
-        // whether or not it is also being broken to fit.
-        line.lines = static_cast<int>(
-            wrapText(parseMarkup(line.left), line.wrap ? wrapW : 0.0f, false,
-                     [&](const std::string& piece) {
-                         return font->CalcTextSizeA(size, FLT_MAX, 0.0f,
-                                                    piece.c_str()).x;
-                     }).size());
+        // Every line is at least one row, and wrapText does not promise that:
+        // it returns nothing at all for empty text, and nothing for a zero
+        // wrap width. A tooltip's blank separator lines are the first, and
+        // every line that does not wrap was asking it the second - so this
+        // counted 3 rows for the 8 lines of the micro button's tooltip, gave
+        // the frame a height for 3, and the other 5 were drawn out of the
+        // bottom of the box.
+        //
+        // A line that does not wrap is one row by definition; only a wrapping
+        // one has to be measured. Which is what the draw has always done -
+        // the two now count the same way.
+        int n = 1;
+        if (line.wrap) {
+            n = static_cast<int>(
+                wrapText(parseMarkup(line.left), wrapW, false,
+                         [&](const std::string& piece) {
+                             return font->CalcTextSizeA(size, FLT_MAX, 0.0f,
+                                                        piece.c_str()).x;
+                         }).size());
+        }
+        line.lines = n > 0 ? n : 1;
         rows += line.lines;
     }
 
@@ -449,6 +462,22 @@ void WidgetRenderer::sizeTooltipWidget(Widget* w, ImFont* font, WidgetTree& tree
     w->width  = std::max(std::max(widest, wrapW) + kPad * 2.0f,
                          w->tooltipMinWidth);
     w->height = lineH * static_cast<float>(rows) + kPad * 2.0f;
+    if (std::getenv("WOWEE_TOOLTIP_DIAG") != nullptr) {
+        // The arithmetic, printed rather than reasoned about: the caller was
+        // reporting the same height whether this counted three rows or eight,
+        // which is not something this line can produce - and that is what
+        // showed the early return above was being taken.
+        static double saidAt = 0.0;
+        const double now = core::appTimeSeconds();
+        if (now - saidAt > 0.4) {
+            saidAt = now;
+            LOG_WARNING("  sizeTooltip '", w->name, "': rows=", rows,
+                        " fontHeight=", w->fontHeight, " size=", size,
+                        " lineH=", lineH, " -> height=", w->height,
+                        " width=", w->width, " (widest=", widest,
+                        " wrapW=", wrapW, " minW=", w->tooltipMinWidth, ")");
+        }
+    }
 
     // Put the per-line regions over the lines they stand for.
     //
@@ -1125,13 +1154,15 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
             std::chrono::steady_clock::now() - t0).count();
     };
 
-    // Tooltips first - they place the font strings they own, and those have
-    // to be placed before anything measures one. Then labels and textures
-    // together, in a single scan; see sizeArtAndText.
-    mark(times.sizing, [&] {
-        sizeTooltips(tree);
-        sizeArtAndText(tree);
-    });
+    // Labels and textures, in a single scan; see sizeArtAndText.
+    //
+    // Tooltips are not sized here any more. This pass runs before FrameXML's
+    // OnUpdate handlers, and the micro button's tooltip is rebuilt by one of
+    // them every frame, so sizing it here measured the lines it had last
+    // frame and the draw then measured the lines it has now - two answers per
+    // frame, and the tooltip flicked between the two widths they gave it.
+    // WidgetRenderer::draw sizes them once, after FrameXML has finished.
+    mark(times.sizing, [&] { sizeArtAndText(tree); });
 
     mark(times.solve, [&] { tree.layout(screenW, screenH); });
 
@@ -1838,6 +1869,96 @@ void WidgetRenderer::draw(WidgetTree& tree, float screenW, float screenH) {
     // clickable for one more, which is the smaller of the two faults.
     tree.clearLinkRects();
 
+    // Size the tooltips again, now that FrameXML has finished with them.
+    //
+    // sizeTooltips runs in the layout stage; FrameXML adds to a tooltip after
+    // that, from OnUpdate handlers which run between that stage and this one.
+    // The micro button's carries a latency and a framerate appended every
+    // frame, so the pass that decides how tall it is has never seen the lines
+    // it will be drawn with. Its box came out two lines tall while six were
+    // painted, and the rest hung out of the bottom over the action bar.
+    //
+    // Growing the box here instead was not enough: a box drawn taller is
+    // still a frame the solve placed at the wrong height, so the tooltip ran
+    // off the bottom of the screen rather than growing upward from its
+    // anchor the way it should. So it is re-sized and re-placed - sizing sets
+    // the height and resolveWidget re-applies the anchors against it, which
+    // is what moves a bottom-anchored tooltip up to make room.
+    {
+        // WOWEE_TOOLTIP_DIAG prints what each tooltip asked for and what the
+        // solve gave it. Worth keeping: it is what finally showed that the
+        // sizing pass was returning early on the frames that mattered, after
+        // six rounds of reasoning about the code had each been wrong.
+        static const bool tipDiag = std::getenv("WOWEE_TOOLTIP_DIAG") != nullptr;
+        int seenTooltip = 0, seenVisible = 0, seenWithLines = 0, sized = 0;
+        for (size_t id = 1; id < tree.size(); ++id) {
+            Widget* w = tree.get(static_cast<uint32_t>(id));
+            if (!w || !w->isTooltip) continue;
+            ++seenTooltip;
+            if (w->visible) ++seenVisible;
+            if (!w->tooltipLines.empty()) ++seenWithLines;
+            if (!w->visible || w->tooltipLines.empty()) continue;
+            // The same face the draw uses, not a different lookup: asking for
+            // "frizqt__" here and falling back to ImGui's font skipped the
+            // whole pass whenever that face was not loaded, which is why four
+            // builds of this changed nothing at all.
+            ImFont* tipFont = interfaceFaceOrDefault(w->fontFace);
+            if (!tipFont) continue;
+            ++sized;
+            sizeTooltipWidget(w, tipFont, tree);
+            // Say so, or the re-place below does nothing.
+            //
+            // sizeTooltipWidget writes width and height as plain fields, and
+            // resolveWidget refuses a widget whose generation already matches
+            // - which after the frame's own layout pass it always does. So
+            // the new height was recorded and never placed, the rect stayed a
+            // frame behind the text, and the tooltip flicked between the size
+            // it had and the size it wanted.
+            tree.markLayoutDirty();
+            const float wantW = w->width, wantH = w->height;
+            tree.resolveWidget(static_cast<uint32_t>(id));
+
+            // What the tooltip asked for against what it got, a few times a
+            // second. Four rounds of reasoning about this have each been
+            // wrong; the numbers say whether the re-place happens at all,
+            // whether the clamp fires, and which frame the rect belongs to.
+            if (tipDiag) {
+                static double saidAt = 0.0;
+                const double now = core::appTimeSeconds();
+                if (now - saidAt > 0.4) {
+                    saidAt = now;
+                    LOG_WARNING("tooltip '", w->name, "' lines=", w->tooltipLines.size(),
+                                " rows=", [&]{ int r = 0; for (const auto& l : w->tooltipLines) r += l.lines; return r; }(),
+                                " asked ", wantW, "x", wantH,
+                                " got ", w->rectW, "x", w->rectH,
+                                " at (", w->left, ",", w->bottom, ")",
+                                " clamped=", w->clampedToScreen ? 1 : 0,
+                                " screen=", screenW, "x", screenH,
+                                " scale=", tree.uiScale());
+                }
+            }
+
+            // Keeping it on screen is layoutWidgetSelf's job and it already
+            // does it: GameTooltipTemplate declares clampedToScreen and the
+            // solve pulls a clamped frame back inside. It could not fire
+            // before only because the re-place above was being refused.
+        }
+        // Said even when nothing matched, because "nothing matched" is what
+        // the first run of this diagnostic reported by printing no lines at
+        // all, and an absent line is indistinguishable from a diagnostic that
+        // was never compiled in.
+        if (tipDiag && seenVisible > 0) {
+            static double sweepAt = 0.0;
+            const double now = core::appTimeSeconds();
+            if (now - sweepAt > 1.0) {
+                sweepAt = now;
+                LOG_WARNING("tooltip sweep: ", seenTooltip, " flagged, ",
+                            seenVisible, " visible, ", seenWithLines,
+                            " with lines, ", sized, " sized");
+            }
+        }
+    }
+
     // The item on the cursor, drawn over everything. FrameXML never draws this
     // - in WoW the client does - so without it picking something up looked
     // exactly like nothing happening.
@@ -2096,32 +2217,92 @@ void WidgetRenderer::draw(WidgetTree& tree, float screenW, float screenH) {
                              ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f),
                              packColor(w->color, w->alpha));
             }
+            // A tooltip's rows, counted once: the box below is drawn to hold
+            // them and the text further down is laid out by them.
+            //
+            // Not read back from Widget::lines, which sizeTooltipWidget fills
+            // during the layout stage. FrameXML adds to this tooltip after
+            // that - the micro button's carries a latency and a framerate
+            // appended every frame - so by the time it is drawn there are
+            // lines the sizing pass never saw, each still carrying the
+            // default of one row. A paragraph wrapping to four advanced by
+            // one, the next block landed in the middle of it, and the box was
+            // drawn for the two lines the sizing pass did see while the other
+            // four spilled out of the bottom onto the action bar.
+            const bool isGameTooltip = w->isTooltip &&
+                                       w->objectType == "GameTooltip" &&
+                                       !w->tooltipLines.empty();
+            ImFont* tipFont = nullptr;
+            float tipSize = 0.0f, tipLineH = 0.0f, tipPad = 0.0f, tipTextW = 0.0f;
+            std::vector<int> tipRows;
+            float tipHeight = 0.0f;
+            if (isGameTooltip) {
+                tipFont = interfaceFaceOrDefault(w->fontFace);
+                tipSize = interfaceFontSize(w->fontHeight) * ws;
+                tipLineH = tipSize * 1.2f;
+                tipPad = 10.0f * ws;
+                tipTextW = (x1 - x0) - tipPad * 2.0f;
+                tipRows.reserve(w->tooltipLines.size());
+                int rows = 0;
+                for (const auto& line : w->tooltipLines) {
+                    int n = 1;
+                    if (line.wrap && tipFont) {
+                        const auto broken = wrapText(
+                            parseMarkup(line.left), tipTextW, false,
+                            [&](const std::string& piece) {
+                                return tipFont->CalcTextSizeA(
+                                    tipSize, FLT_MAX, 0.0f, piece.c_str()).x;
+                            });
+                        n = static_cast<int>(broken.empty() ? 1 : broken.size());
+                    }
+                    tipRows.push_back(n);
+                    rows += n;
+                }
+                tipHeight = tipLineH * static_cast<float>(rows) + tipPad * 2.0f;
+            }
+
+            // The box, grown to hold them and then moved up until it fits.
+            //
+            // Grown rather than corrected in the rect, because the rect is
+            // what everything else measured against this frame has already
+            // been placed from. Moved because the micro button sits on the
+            // bottom edge of the screen and its tooltip is anchored to it: no
+            // amount of getting the height right stops a frame anchored there
+            // from reaching past the bottom, it only changes how far past.
+            //
+            // This is the last word on where the tooltip is drawn, on purpose.
+            // The sizing pass, the anchor solve and the clamp all have a say
+            // in the rect and between them they kept producing one that ran
+            // off the screen; whatever they decide, what gets painted is on
+            // screen.
+            float boxY0 = y0;
+            float boxY1 = y1;
+            if (isGameTooltip) {
+                if (tipHeight > boxY1 - boxY0) boxY1 = boxY0 + tipHeight;
+                if (boxY1 > screenH) {
+                    const float lift = std::min(boxY1 - screenH, boxY0);
+                    boxY0 -= lift;
+                    boxY1 -= lift;
+                }
+            }
+
             // With the frame's own scale in it: a backdrop's insets and edge
             // size are in the frame's units, the same as a font height, and a
             // scaled frame's border is drawn to the same ruler as its rect.
-            if (w->hasBackdrop) drawBackdrop(dl, *w, ws, x0, y0, x1, y1);
+            if (w->hasBackdrop) drawBackdrop(dl, *w, ws, x0, boxY0, x1, boxY1);
             if (w->isStatusBar) drawStatusBar(dl, *w, x0, y0, x1, y1);
             if (w->isSlider) drawSlider(dl, *w, x0, y0, x1, y1);
             if (w->isCooldown) drawCooldown(dl, *w, x0, y0, x1, y1);
             // A tooltip reads downward from the top, which is the other way
             // round from chat.
-            if (w->isTooltip && w->objectType == "GameTooltip" &&
-            !w->tooltipLines.empty()) {
-                ImFont* font = interfaceFaceOrDefault(w->fontFace);
-                const float size = interfaceFontSize(w->fontHeight) * ws;
-                const float lineH = size * 1.2f;
-                const float pad = 10.0f * ws;
-                float y = y0 + pad;
-                // The width the sizing pass counted rows at, not one derived
-                // again from the rect. Deriving it twice is what put the
-                // framerate block over the latency block: the solve can hand
-                // the frame a rect narrower than the sizing assumed, the text
-                // then wraps to more rows than `line.lines` recorded, and the
-                // next line is drawn into the middle of this one. Falls back
-                // to the rect for a tooltip drawn before it was ever sized.
-                const float sizedW = w->tooltipWrapWidth * ws;
-                const float textW = sizedW > 0.0f ? sizedW
-                                                  : (x1 - x0) - pad * 2.0f;
+            if (isGameTooltip) {
+                ImFont* font = tipFont;
+                const float size = tipSize;
+                const float lineH = tipLineH;
+                const float pad = tipPad;
+                float y = boxY0 + pad;
+                const float textW = tipTextW;
+                size_t rowIdx = 0;
                 for (const auto& line : w->tooltipLines) {
                     float lc[4] = {line.lc[0], line.lc[1], line.lc[2], line.lc[3]};
                     drawMarkupText(dl, font, size, ImVec2(x0 + pad, y),
@@ -2134,10 +2315,11 @@ void WidgetRenderer::draw(WidgetTree& tree, float screenW, float screenH) {
                         drawMarkupText(dl, font, size, ImVec2(x1 - pad - rw, y),
                                        packColor(rc, w->alpha), w->alpha, line.right);
                     }
-                    // A wrapped line is as tall as the rows it produced, which
-                    // the sizing pass counted - otherwise the next line draws
-                    // over the middle of this one.
-                    y += lineH * static_cast<float>(line.lines > 0 ? line.lines : 1);
+                    // As tall as the rows counted for it above, which were
+                    // counted against this same width.
+                    y += lineH * static_cast<float>(
+                        rowIdx < tipRows.size() ? tipRows[rowIdx] : 1);
+                    ++rowIdx;
                 }
             }
 
