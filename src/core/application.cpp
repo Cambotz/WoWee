@@ -3938,6 +3938,7 @@ void Application::render() {
                                        clampDim(frame->rectH * scale));
                 };
 
+            runRenderStage("addonWidgets/paperdoll", [&] {
                 // The paperdoll's figure, on the same terms as the portrait:
                 // rendered only while a frame is there to show it, and told to
                 // the widget every frame because the render target is rebuilt
@@ -4182,6 +4183,8 @@ void Application::render() {
                     }
                 }
 
+            });
+            runRenderStage("addonWidgets/portrait", [&] {
                 if (portrait) {
                     sizeFor(unitPortrait_, portrait);
                     unitPortrait_.update(*gameHandler, assetManager.get(),
@@ -4370,6 +4373,7 @@ void Application::render() {
                         if (ui::Widget* w = widgets.get(id)) w->externalTexture = drawn;
                     }
                 }
+            });
             }
 
             // Lay out first: hit testing reads the rects this produces, so
