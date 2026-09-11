@@ -1082,8 +1082,22 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
 
     tree.layout(screenW, screenH);
 
-    reportOverflowingText(tree);
-    reportLetteredAmounts(tree);
+    // The two below are diagnostics, and each says a given name once and
+    // never again. Both walk every widget in the tree, and the first walks
+    // each font string's parent chain on top of that, so between them they
+    // were 4.98ms of a 21ms frame - a fifth of the frame spent, once the
+    // interface had settled, confirming there was nothing to report.
+    //
+    // On a timer instead, the way the unresolved-suppression retry above is
+    // and for the same reason. Text changes while the game runs, so they
+    // cannot simply stop; a few times a second catches the same labels and
+    // costs nothing measurable.
+    static double lastReportScan = 0.0;
+    if (now - lastReportScan > 1.0) {
+        lastReportScan = now;
+        reportOverflowingText(tree);
+        reportLetteredAmounts(tree);
+    }
 }
 
 /// Labels whose glyphs are wider than the rect they were given.
