@@ -1289,6 +1289,23 @@ public:
     static std::string getCharacterConfigDir();
 
     // Auras - delegate to SpellHandler as canonical authority
+    /// Whether the player is currently carrying this spell's aura.
+    ///
+    /// The reliable way to ask "am I already riding the mount this button
+    /// summons": the mount you are on put its own aura on you, and no other
+    /// mount's aura is there. mountAuraSpellId_ is a guess by comparison - it
+    /// is whatever the client could work out at the moment the mount appeared,
+    /// and when the player did not cast it themselves (a login already mounted,
+    /// a taxi, a server-applied aura) the blind scan behind it can land on a
+    /// racial or a tracking buff instead.
+    [[nodiscard]] bool playerCarriesAura(uint32_t spellId) const {
+        if (spellId == 0) return false;
+        for (const auto& aura : getPlayerAuras()) {
+            if (!aura.isEmpty() && aura.spellId == spellId) return true;
+        }
+        return false;
+    }
+
     const std::vector<AuraSlot>& getPlayerAuras() const {
         if (spellHandler_) return spellHandler_->getPlayerAuras();
         static const std::vector<AuraSlot> empty;

@@ -1860,7 +1860,8 @@ void InventoryHandler::dispatchUseItem(uint8_t wowBag, uint8_t wowSlot, uint64_t
     // Pre-WotLK mounts are items, so the same rule applies to them: using the
     // one you are riding dismounts you rather than re-summoning it.
     if (useSpellId != 0 && owner_.isMounted() &&
-        useSpellId == owner_.getMountAuraSpellId()) {
+        (useSpellId == owner_.getMountAuraSpellId() ||
+         owner_.playerCarriesAura(useSpellId))) {
         owner_.dismount();
         LOG_INFO("Dismount via mount item: entry=", item.itemId, " spell=", useSpellId);
         return;

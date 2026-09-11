@@ -789,8 +789,18 @@ void SpellHandler::castSpell(uint32_t spellId, uint64_t targetGuid) {
         // Pressing the mount you are already riding dismounts you and stops
         // there. Falling through to the cast would put the player straight back
         // on the same mount, so the button appeared to do nothing.
+        //
+        // Asked of the player's own auras as well as of mountAuraSpellId_. The
+        // latter is what the client worked out when the mount appeared, and it
+        // is only as good as what it had to go on: with no cast of the player's
+        // own to point at - logging in already mounted, or an aura the server
+        // applied - the scan behind it keeps whichever indefinite aura it saw
+        // last, which is as easily a racial or a tracking buff. The mount you
+        // are on is carrying its own aura, and no other mount's, so that is the
+        // question with an answer.
         const bool ridingThisMount =
-            spellId != 0 && spellId == owner_.getMountAuraSpellId();
+            spellId != 0 && (spellId == owner_.getMountAuraSpellId() ||
+                             owner_.playerCarriesAura(spellId));
         owner_.dismount();
         if (ridingThisMount) {
             LOG_INFO("Dismount via mount action: spell=", spellId);
