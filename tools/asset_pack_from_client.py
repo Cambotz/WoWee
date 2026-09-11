@@ -24,12 +24,14 @@ header names, and for a .wmo its group files and their MOTX list. A model whose
 texture is missing from the source is dropped rather than shipped, because a
 model with no base texture renders white rather than failing.
 
-Character models are refused outright, whatever the include says. The HD player
-models carry a different geoset set and a differently composited body texture,
-and this client has no compositor for them - tools/asset_pack_curate.py has the
-measurements. That is also the answer to "can we take Legion's faces": beyond
-being CASC and chunked MD21, which nothing here reads, they are the one class
-of model a swap cannot work for.
+A character model that REPLACES one this expansion already has is refused,
+whatever the include says. The HD player models carry a different geoset set
+and a differently composited body texture, and this client has no compositor
+for them - tools/asset_pack_curate.py has the measurements, and this is its
+rule (1) applied before installation rather than after. A character model the
+expansion has never had is a different thing: the naga in a model pack are NPCs
+that no player race wears, so they are judged on their textures like anything
+else.
 
 Every file is classified as it is taken:
 
@@ -51,13 +53,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import m2_textures
-from asset_files import sha256_of, wmo_texture_names
+from asset_files import is_reflection, sha256_of, wmo_texture_names
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Paths a pack must not carry, whatever was asked for. The first is measured in
-# asset_pack_curate.py; the rest are the client's own furniture rather than art.
-REFUSED_PREFIXES = ("character/", "dbfilesclient/", "interface/")
+# The client's own furniture, never art: a pack has no business replacing
+# either, and asset_pack_curate.py drops them out of an installed overlay for
+# the same reason.
+REFUSED_PREFIXES = ("dbfilesclient/", "interface/")
 
 
 def norm(rel: str) -> str:
@@ -70,14 +73,22 @@ def slashed(rel: str) -> str:
 
 
 def dependencies(model: Path, source_root: Path):
-    """(files the model needs, texture paths it names) - relative, slashed.
+    """(files the model needs, textures it names, the one that decides).
 
-    Skins and group files travel with the model; textures are returned
-    separately because whether they are missing decides if the model ships.
+    Skins and group files travel with the model. Textures are returned apart
+    from them because whether they resolve decides if the model ships at all,
+    and the third value is the only one that decides: the model's first slot,
+    and then only when it is a type 0 - the slot that names its own art. A
+    later slot is a reflection or a glow laid over the surface, and types 11 to
+    13 are filled from CreatureDisplayInfo at spawn over whatever the file
+    says, so a name in either that resolves to nothing costs nothing. The rule
+    and the reasons for it are asset_pack_curate.py's, measured on a pack that
+    lost 47 working meshes to a blunter version of it.
     """
     rel = slashed(model.relative_to(source_root))
     files = [rel]
     textures = []
+    decides = None
 
     if model.suffix.lower() == ".m2":
         for skin in sorted(model.parent.glob(model.stem + "*.skin")):
@@ -86,17 +97,21 @@ def dependencies(model: Path, source_root: Path):
         for anim in sorted(model.parent.glob(model.stem + "*.anim")):
             if not anim.name.startswith("._"):
                 files.append(slashed(anim.relative_to(source_root)))
-        for entry in m2_textures.texture_entries(model.read_bytes()):
+        entries = m2_textures.texture_entries(model.read_bytes())
+        for entry in entries:
             if entry["type"] == 0 and entry["filename"]:
                 textures.append(slashed(entry["filename"]))
+        if entries and entries[0]["type"] == 0 and entries[0]["filename"]:
+            decides = slashed(entries[0]["filename"])
     else:  # .wmo root, with its numbered group files
         stem = model.stem
         for group in sorted(model.parent.glob(stem + "_[0-9][0-9][0-9].wmo")):
             if not group.name.startswith("._"):
                 files.append(slashed(group.relative_to(source_root)))
         textures = [slashed(name) for name in wmo_texture_names(model)]
+        decides = textures[0] if textures else None
 
-    return files, textures
+    return files, textures, decides
 
 
 def load_target_paths(target: Path):
@@ -230,16 +245,33 @@ def main() -> int:
 
     take = {}          # relative path -> source file
     dropped = []
+    refused_models = []
     for model in models:
-        files, textures = dependencies(model, source)
-        missing = [t for t in textures if not (source / t).is_file()]
-        if missing:
-            dropped.append((slashed(model.relative_to(source)), missing))
+        rel_model = slashed(model.relative_to(source))
+        # Curate's rule (1), applied before the files are ever laid down: a
+        # character model that stands in for one the base game had is the swap
+        # that breaks. One it never had is an NPC and is judged like any other.
+        if rel_model.startswith("character/") and norm(rel_model) in known:
+            refused_models.append(rel_model)
             continue
-        for rel in files + textures:
+        files, textures, decides = dependencies(model, source)
+        # A pack of changed files is not a client: most of what a model draws
+        # is already in the expansion it is going over, and only a texture that
+        # is in neither is actually missing. Checking the source alone dropped
+        # 164 of 353 creature models that would have rendered perfectly, their
+        # "missing" art being the base game's own.
+        def resolves(tex: str) -> bool:
+            return (source / tex).is_file() or norm(tex) in known
+
+        if decides and not resolves(decides) and not is_reflection(decides):
+            dropped.append((rel_model, [decides]))
+            continue
+        for rel in files + [t for t in textures if (source / t).is_file()]:
             take[rel] = source / rel
 
-    refused = [rel for rel in take if any(rel.startswith(p) for p in REFUSED_PREFIXES)]
+    refused = [rel for rel in take
+               if any(rel.startswith(p) for p in REFUSED_PREFIXES)
+               or (rel.startswith("character/") and norm(rel) in known)]
     for rel in refused:
         del take[rel]
 
@@ -249,11 +281,15 @@ def main() -> int:
     print(f"{len(models)} model(s) matched, {len(take)} file(s) to pack")
     print(f"  {len(replace)} replace an existing path, {len(add)} add a new one")
     if dropped:
-        print(f"  {len(dropped)} model(s) dropped - a texture they draw is not in the source:")
+        print(f"  {len(dropped)} model(s) dropped - the texture they are drawn with is in "
+              f"neither the pack nor the target, so they would render white:")
         for rel, missing in dropped[:5]:
             print(f"     {rel}  (missing {missing[0]})")
+    if refused_models:
+        print(f"  {len(refused_models)} character model(s) refused: they replace a model "
+              f"this expansion already has, which is the swap that breaks")
     if refused:
-        print(f"  {len(refused)} file(s) refused as character art or client furniture")
+        print(f"  {len(refused)} file(s) refused as a character replacement or client furniture")
     if args.dry_run:
         for rel in replace[:10]:
             print("   replace", rel)
@@ -290,7 +326,8 @@ def main() -> int:
         "include": fragments,
         "counts": {"models": len(models), "files": len(entries),
                    "replace": len(replace), "add": len(add),
-                   "dropped_models": len(dropped)},
+                   "dropped_models": len(dropped),
+                   "refused_character_models": len(refused_models)},
         "entries": entries,
     }, indent=1, sort_keys=True) + "\n")
 

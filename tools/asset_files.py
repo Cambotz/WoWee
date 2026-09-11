@@ -13,6 +13,21 @@ entries, which is the only reason the two are separate functions.
 import hashlib
 from pathlib import Path
 
+# Textures a model lays over itself rather than draws itself with. Missing one
+# costs an effect, not the surface. "glow" earns its place the hard way: an HD
+# character model carries deathKnightEyeGlow.blp in slot 0 - the first slot is
+# the body's on most models and an eye effect on these - so treating slot 0 as
+# decisive without this disabled both gnome female models and left a display row
+# pointing at nothing.
+REFLECTION_WORDS = ("reflect", "envmap", "fresnel", "glass", "caustic",
+                    "spec", "smooth", "orbreflect", "glow", "eyeglow")
+
+
+def is_reflection(name: str) -> bool:
+    """Whether this texture name is an overlay rather than the surface."""
+    base = name.lower().replace("/", "\\").rsplit("\\", 1)[-1]
+    return any(word in base for word in REFLECTION_WORDS)
+
 
 def sha256_of(path) -> str:
     """The file's digest, read in chunks: some of these are megabytes."""

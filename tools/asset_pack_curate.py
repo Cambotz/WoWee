@@ -48,14 +48,8 @@ import re
 import struct
 import sys
 
-# Textures a model lays over itself rather than draws itself with. Missing one
-# costs an effect, not the surface. "glow" earns its place the hard way: an HD
-# character model carries deathKnightEyeGlow.blp in slot 0 - the first slot is
-# the body's on most models and an eye effect on these - so treating slot 0 as
-# decisive without this disabled both gnome female models and left a display row
-# pointing at nothing.
-REFLECTION_WORDS = ("reflect", "envmap", "fresnel", "glass", "caustic",
-                    "spec", "smooth", "orbreflect", "glow", "eyeglow")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from asset_files import is_reflection  # noqa: E402
 
 
 def load_dbc(path):
@@ -104,11 +98,6 @@ def m2_textures(path):
             name = data[offset:offset + length].split(b"\0")[0].decode("ascii", "ignore")
         out.append((typ, name))
     return out
-
-
-def is_reflection(name):
-    base = name.lower().rsplit("\\", 1)[-1]
-    return any(word in base for word in REFLECTION_WORDS)
 
 
 def find_overlays(data_root="Data"):

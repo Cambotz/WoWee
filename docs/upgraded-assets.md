@@ -26,15 +26,23 @@ BLP, and `src/pipeline/m2_loader.cpp` reads both. This is the case that works.
 not read - it is built on StormLib and StormLib is an MPQ library. Legion's
 models are the chunked `MD21`, which nothing here parses.
 
-**Character models, from any client, cannot be swapped at all.** This is worth
+**Player character models cannot be swapped, from any client.** This is worth
 stating plainly because it is the most-asked-for case. The HD player models
 introduced in Warlords carry a different geoset set - no 1, no 701, no 1501 -
 and this client picks equipment geosets by number and composites a 512x512 body
 texture from `CharSections.dbc`. Neither survives the swap; the result is a
 naked player with segmented limbs. `tools/asset_pack_curate.py` has the
-measurements and disables such art when it finds it in a pack. So "Legion faces"
-is two separate no's: the format cannot be read, and the thing itself would not
-work if it could.
+measurements. A character model the target has *never had* is a different
+thing - the naga in a model pack are NPCs no player race wears - and is judged
+on its textures like anything else.
+
+**A conversion pack is not the same as a later client.** "WoW Legion Models for
+WotLK 3.3.5a" and packs like it ship MPQ patch archives whose models have
+already been converted: 548 of its 551 models are version 264, plain WotLK
+MD20, and they load as they are. Point the extractor at the folder holding the
+`Patch-*.MPQ` files with `--expansion wotlk` and it reads them like any other
+patch chain. The CASC and MD21 limits above are about a *raw* Legion
+installation, and they say nothing about what a converter has already done.
 
 ## Doing it
 
@@ -69,9 +77,13 @@ python3 tools/asset_pack_from_client.py \
 
 Each model is walked for what it draws - its skins, its animations, every
 texture its header names, and for a `.wmo` its group files and their texture
-list. A model whose texture is missing from the extraction is dropped rather
-than shipped, because a model with no base texture renders white rather than
-failing. Character art is refused whatever the include says.
+list. A model is dropped only when the texture it is *drawn with* - its first slot,
+and then only when that slot names its own art - is in neither the pack nor the
+target. Everything else is kept: a pack of changed files is not a client, and
+most of what its models draw is already in the expansion they are going over.
+Checking the pack alone dropped 164 of 353 creature models whose "missing" art
+was the base game's own. A reflection or a glow in that slot does not count
+either, for reasons `asset_pack_curate.py` measured the hard way.
 
 The result is a folder: `pack.json` beside a `Data/` tree. `pack.json` records
 where it came from, what it was built against, and every file with its hash and
@@ -105,6 +117,21 @@ Step 2 is the one that lets a pack add. Cataclysm's tree needs
 manifest entry to hang an override on. Without step 2 the model was reachable
 and its own texture was not, and it rendered white. `tests/test_override_add.cpp`
 pins the order.
+
+## What it looks like on a real pack
+
+A model pack of 20,014 files, built against a 3.3.5a install:
+
+| include | models | files | dropped |
+|---|---|---|---|
+| `creature/` | 353 | 3732 | 1 |
+| `world/` | 164 | 496 | 4 |
+| `character/` | 2 | 0 | 2 refused as replacements |
+
+The four dropped world models are the real thing rather than a false positive:
+`stormwindlionbanner.m2` is drawn with
+`world/expansion06/doodads/stormwind/7sw_stormwind_funerarybanner.blp`, a Legion
+texture the pack did not ship, and it would have rendered white.
 
 ## Two packs, one directory
 
