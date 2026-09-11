@@ -855,6 +855,7 @@ set(WOWEE_SOURCES
     src/pipeline/terrain_mesh.cpp
 
     # Rendering (Vulkan infrastructure)
+    src/rendering/pass_ablation.cpp
     src/rendering/vk_context.cpp
     src/rendering/vk_utils.cpp
     src/rendering/polygon_triangulate.cpp

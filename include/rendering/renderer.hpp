@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <cstdint>
@@ -11,6 +12,7 @@
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 #include <vk_mem_alloc.h>
+#include "rendering/pass_ablation.hpp"
 #include "rendering/vk_frame_data.hpp"
 #include "rendering/vk_utils.hpp"
 #include "rendering/sky_system.hpp"
@@ -444,6 +446,12 @@ private:
     VkCommandBuffer secondaryCmds_[NUM_SECONDARIES][MAX_FRAMES] = {};
 
     bool parallelRecordingEnabled_ = false;  // set true after pools/buffers created
+    // WOWEE_PASS_ABLATION: switches one world pass off at a time and reports
+    // what the frame did without it. See pass_ablation.hpp for why the GPU's
+    // own timestamps cannot answer that on this platform.
+    std::unique_ptr<PassAblation> passAblation_;
+    bool passAblationReported_ = false;
+    std::chrono::steady_clock::time_point lastFrameStart_{};
     float lastDeltaTime_ = 0.0f;           // cached for post-process pipeline
     bool createSecondaryCommandResources();
     void destroySecondaryCommandResources();

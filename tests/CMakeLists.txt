@@ -2237,6 +2237,15 @@ wowee_add_test(test_grass_cull_math
     SOURCES test_grass_cull_math.cpp
             ${CMAKE_SOURCE_DIR}/src/rendering/frustum.cpp)
 
+# ── test_pass_ablation ───────────────────────────────
+# The phase walk and the arithmetic of the ablation report. It is the only
+# instrument that can attribute a frame on a driver that resolves every
+# in-pass GPU timestamp to the same clock, so there is nothing else to check
+# its numbers against.
+wowee_add_test(test_pass_ablation
+    SOURCES test_pass_ablation.cpp
+            ${CMAKE_SOURCE_DIR}/src/rendering/pass_ablation.cpp)
+
 # ── Sanitizers, once every test target exists ────────────────
 # This must be the last thing in this file. The loop walks ALL_TEST_TARGETS,
 # which register_test_target appends to as each test is declared, so the

@@ -4660,6 +4660,31 @@ void Application::reportStageTimes() {
                 line << "    " << name << ": " << ms << "ms";
                 if (frameProfileEnabled_) LOG_WARNING(line.str()); else LOG_INFO(line.str());
             }
+            // ...and whether any of that is worth believing.
+            //
+            // A mark is a timestamp, and this driver resolves a timestamp
+            // against the render pass that contains it rather than the draw:
+            // every mark inside one pass reads the same clock, so the first
+            // mark absorbs the whole pass and the rest report a couple of
+            // microseconds. That is how a profile came to say terrain cost
+            // 14ms and that the characters, the buildings, the water and
+            // every doodad in the city came to twenty microseconds between
+            // them. Passes that read sensibly are the ones with a render pass
+            // to themselves. Rather than let the breakdown be taken at face
+            // value, count the collapsed marks and name the way round it.
+            int collapsed = 0;
+            for (const auto& [name, ms] : gpu) {
+                (void)name;
+                if (ms < 0.02) ++collapsed;
+            }
+            if (collapsed >= 2 && total > 1.0) {
+                std::ostringstream note;
+                note << "    (" << collapsed << " of those read under 20us: this driver "
+                        "resolves a timestamp to its render pass, so the first mark in a "
+                        "pass holds the whole pass and the rest are empty. Run with "
+                        "WOWEE_PASS_ABLATION=1 to attribute the scene pass.)";
+                if (frameProfileEnabled_) LOG_WARNING(note.str()); else LOG_INFO(note.str());
+            }
         }
     }
 

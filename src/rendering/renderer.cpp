@@ -687,6 +687,13 @@ bool Renderer::initialize(core::Window* win) {
     // grass into the terrain secondary and so reports the two as one number.
     // Running a frame profile both ways says how much of "terrain" is grass,
     // and whether serialising the recording moves the frame time at all.
+    if (std::getenv("WOWEE_PASS_ABLATION") != nullptr) {
+        passAblation_ = std::make_unique<PassAblation>();
+        LOG_WARNING("Pass ablation enabled - each world pass is switched off in turn "
+                    "for a few seconds; the table is reported when the run finishes. "
+                    "Stand still outdoors and do not move the camera.");
+    }
+
     static const bool forceSingleThread = std::getenv("WOWEE_SINGLE_THREAD_RECORD") != nullptr;
     if (forceSingleThread) {
         LOG_INFO("WOWEE_SINGLE_THREAD_RECORD set - inline recording, one pass per GPU mark");
@@ -1009,6 +1016,23 @@ void Renderer::beginFrame() {
     ZoneScopedN("Renderer::beginFrame");
     if (!vkCtx) return;
     if (vkCtx->isDeviceLost()) return;
+
+    // The ablation's clock. Top of one frame to the top of the next is the
+    // frame's whole wall time, which is the number a pass has to move to be
+    // worth anything - a pass that gets cheaper while the frame does not has
+    // not been paid for.
+    if (passAblation_) {
+        const auto now = std::chrono::steady_clock::now();
+        if (lastFrameStart_.time_since_epoch().count() != 0) {
+            passAblation_->frame(std::chrono::duration<double, std::milli>(
+                now - lastFrameStart_).count());
+        }
+        lastFrameStart_ = now;
+        if (!passAblation_->running() && !passAblationReported_) {
+            passAblationReported_ = true;
+            LOG_WARNING(passAblation_->report());
+        }
+    }
 
     // Apply deferred MSAA change between frames (before any rendering state is used)
     if (msaaChangePending_) {
@@ -2475,11 +2499,21 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     const glm::mat4& projection = camera ? camera->getProjectionMatrix() : glm::mat4(1.0f);
 
     // GPU crash diagnostic: skip individual renderers to isolate which one faults
-    static const bool skipWMO = (std::getenv("WOWEE_SKIP_WMO") != nullptr);
-    static const bool skipChars = (std::getenv("WOWEE_SKIP_CHARS") != nullptr);
-    static const bool skipM2 = (std::getenv("WOWEE_SKIP_M2") != nullptr);
-    static const bool skipTerrain = (std::getenv("WOWEE_SKIP_TERRAIN") != nullptr);
-    static const bool skipSky = (std::getenv("WOWEE_SKIP_SKY") != nullptr);
+    static const bool envSkipWMO = (std::getenv("WOWEE_SKIP_WMO") != nullptr);
+    static const bool envSkipChars = (std::getenv("WOWEE_SKIP_CHARS") != nullptr);
+    static const bool envSkipM2 = (std::getenv("WOWEE_SKIP_M2") != nullptr);
+    static const bool envSkipTerrain = (std::getenv("WOWEE_SKIP_TERRAIN") != nullptr);
+    static const bool envSkipSky = (std::getenv("WOWEE_SKIP_SKY") != nullptr);
+    // ...and the ablation switches the same passes off, one phase at a time.
+    const auto ablated = [&](AblationPass p) {
+        return passAblation_ && passAblation_->skip(p);
+    };
+    const bool skipWMO = envSkipWMO || ablated(AblationPass::WMO);
+    const bool skipChars = envSkipChars || ablated(AblationPass::Characters);
+    const bool skipM2 = envSkipM2 || ablated(AblationPass::M2);
+    const bool skipTerrain = envSkipTerrain || ablated(AblationPass::Terrain);
+    const bool skipSky = envSkipSky || ablated(AblationPass::Sky);
+    const bool skipGrass = ablated(AblationPass::Grass);
 
     // Get time of day for sky-related rendering
     auto* skybox = skySystem ? skySystem->getSkybox() : nullptr;
@@ -2516,19 +2550,25 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         // --- Dispatch worker threads (terrain + WMO + M2) ---
         std::future<double> terrainFuture, wmoFuture, charFuture, m2Future, postFuture;
 
-        if (terrainRenderer && camera && terrainEnabled && !skipTerrain) {
+        // Grass rides in the terrain secondary: it sits on the ground, and
+        // that buffer is executed after the sky and before WMO, which is
+        // exactly the order grass wants. Recording it there touches only the
+        // one worker's command buffer.
+        //
+        // So the buffer is recorded when EITHER wants it, not when terrain
+        // does. Hanging it off terrain alone meant that switching terrain off
+        // took grass with it - which for a crash bisect is harmless and for an
+        // ablation is the whole measurement, since the terrain phase would
+        // then be reporting what terrain and grass cost together.
+        const bool drawTerrain = terrainRenderer && camera && terrainEnabled && !skipTerrain;
+        const bool drawGrass = grassRenderer_ && !skipGrass;
+        if (drawTerrain || drawGrass) {
             terrainFuture = core::ThreadPool::frameWorkers().submit([&]() -> double {
                 auto t0 = std::chrono::steady_clock::now();
                 VkCommandBuffer cmd = beginSecondary(SEC_TERRAIN);
                 setSecondaryViewportScissor(cmd);
-                terrainRenderer->render(cmd, perFrameSet, *camera);
-                // Grass rides in the terrain secondary: it sits on the ground,
-                // and this buffer is executed after the sky and before WMO,
-                // which is exactly the order grass wants. Recording it here
-                // touches only this worker's command buffer.
-                if (grassRenderer_) {
-                    grassRenderer_->render(cmd, frameIdx, perFrameSet);
-                }
+                if (drawTerrain) terrainRenderer->render(cmd, perFrameSet, *camera);
+                if (drawGrass) grassRenderer_->render(cmd, frameIdx, perFrameSet);
                 vkEndCommandBuffer(cmd);
                 return std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - t0).count();
@@ -2689,7 +2729,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
             validLabels[numCmds] = label;
             validCmds[numCmds++] = buffer;
         };
-        if (terrainRenderer && camera && terrainEnabled && !skipTerrain)
+        if (drawTerrain || drawGrass)
             queue(secondaryCmds_[SEC_TERRAIN][frameIdx], "terrain");
         queue(secondaryCmds_[SEC_SKY][frameIdx], "sky");
         if (wmoRenderer && camera && !skipWMO)
@@ -2737,7 +2777,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
 
         // After terrain, before the world's models: grass sits on the ground and
         // is occluded by everything standing on it.
-        if (grassRenderer_ && vkCtx) {
+        if (grassRenderer_ && vkCtx && !skipGrass) {
             grassRenderer_->render(currentCmd, vkCtx->getCurrentFrame(), perFrameSet);
             if (vkCtx) vkCtx->gpuMark(currentCmd, "grass");
         }
@@ -3883,6 +3923,7 @@ void Renderer::renderShadowPass() {
     ZoneScopedN("Renderer::renderShadowPass");
     static const bool skipShadows = (std::getenv("WOWEE_SKIP_SHADOWS") != nullptr);
     if (skipShadows) return;
+    if (passAblation_ && passAblation_->skip(AblationPass::Shadows)) return;
     if (shadowDepthImage[0] == VK_NULL_HANDLE) return;
     if (currentCmd == VK_NULL_HANDLE) return;
     // Shadows off still runs the pass, and the pass still clears the map and
