@@ -1023,11 +1023,17 @@ void Renderer::beginFrame() {
     // not been paid for.
     if (passAblation_) {
         const auto now = std::chrono::steady_clock::now();
-        if (lastFrameStart_.time_since_epoch().count() != 0) {
+        // Only frames that drew the world. A frame of character select costs
+        // five milliseconds and a frame with a zone streaming into it costs a
+        // hundred and twenty, and the first run of this walked its baseline
+        // through the former and its terrain phase through the latter - it
+        // reported that terrain was worth minus 110 milliseconds.
+        if (worldDrawnLastFrame_ && lastFrameStart_.time_since_epoch().count() != 0) {
             passAblation_->frame(std::chrono::duration<double, std::milli>(
                 now - lastFrameStart_).count());
         }
         lastFrameStart_ = now;
+        worldDrawnLastFrame_ = false;
         if (!passAblation_->running() && !passAblationReported_) {
             passAblationReported_ = true;
             LOG_WARNING(passAblation_->report());
@@ -2484,6 +2490,8 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     // GPU crash diagnostic: skip ALL world rendering to isolate crash source
     static const bool skipAll = (std::getenv("WOWEE_SKIP_ALL_RENDER") != nullptr);
     if (skipAll) return;
+
+    worldDrawnLastFrame_ = true;
 
     auto renderStart = std::chrono::steady_clock::now();
     lastTerrainRenderMs = 0.0;

@@ -451,6 +451,7 @@ private:
     // own timestamps cannot answer that on this platform.
     std::unique_ptr<PassAblation> passAblation_;
     bool passAblationReported_ = false;
+    bool worldDrawnLastFrame_ = false;
     std::chrono::steady_clock::time_point lastFrameStart_{};
     float lastDeltaTime_ = 0.0f;           // cached for post-process pipeline
     bool createSecondaryCommandResources();

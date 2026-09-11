@@ -44,11 +44,23 @@ class PassAblation {
 public:
     /// `phaseMs` is how long each phase is sampled for, `warmupMs` how much of
     /// the front of it is thrown away - a phase's first frames still carry the
-    /// previous phase's resident set and its pipeline warm-up.
-    PassAblation(double phaseMs = 4000.0, double warmupMs = 750.0);
+    /// previous phase's resident set and its pipeline warm-up. `settleMs` is
+    /// the stretch before any of it starts.
+    PassAblation(double phaseMs = 4000.0, double warmupMs = 750.0,
+                 double settleMs = 10000.0);
 
     /// One frame's wall time, from the top of a frame to the top of the next.
+    /// Feed only frames that drew the world: the first run of this walked its
+    /// baseline through character select at 5ms a frame and its terrain phase
+    /// through the zone streaming in at 123ms, and reported that terrain was
+    /// worth minus 110 milliseconds.
     void frame(double frameMs);
+
+    /// Still standing at the door. The world has to be drawn, and drawn for a
+    /// while, before any of these numbers mean anything - a zone streams in
+    /// for several seconds after it is entered and every frame in that stretch
+    /// belongs to the streaming, not to whatever pass happened to be off.
+    bool settling() const { return settledMs_ < settleMs_; }
 
     /// Is this pass switched off for the phase now running?
     bool skip(AblationPass pass) const;
@@ -73,6 +85,8 @@ private:
 
     double phaseMs_;
     double warmupMs_;
+    double settleMs_;
+    double settledMs_ = 0.0;
     std::size_t phase_ = 0;
     double elapsedMs_ = 0.0;
     std::vector<Sample> samples_;

@@ -1,5 +1,6 @@
 #include "rendering/pass_ablation.hpp"
 
+#include <cmath>
 #include <iomanip>
 #include <sstream>
 
@@ -43,8 +44,11 @@ std::size_t PassAblation::phaseCount() {
     return sizeof(kOrder) / sizeof(kOrder[0]);
 }
 
-PassAblation::PassAblation(double phaseMs, double warmupMs)
-    : phaseMs_(phaseMs), warmupMs_(warmupMs), samples_(phaseCount()) {}
+PassAblation::PassAblation(double phaseMs, double warmupMs, double settleMs)
+    : phaseMs_(phaseMs),
+      warmupMs_(warmupMs),
+      settleMs_(settleMs),
+      samples_(phaseCount()) {}
 
 AblationPass PassAblation::current() const {
     return phase_ < phaseCount() ? kOrder[phase_] : AblationPass::None;
@@ -56,6 +60,10 @@ bool PassAblation::skip(AblationPass pass) const {
 
 void PassAblation::frame(double frameMs) {
     if (!running()) return;
+    if (settling()) {
+        settledMs_ += frameMs;
+        return;
+    }
     elapsedMs_ += frameMs;
     if (elapsedMs_ > warmupMs_) {
         samples_[phase_].frames += 1;
@@ -94,8 +102,23 @@ std::string PassAblation::report() const {
     }
     // The drift is the honest floor on all of it: a difference smaller than
     // the gap between the two baselines is not a measurement.
-    out << "\n    drift across the run: " << (last - first)
+    const double drift = last - first;
+    out << "\n    drift across the run: " << drift
         << "ms - anything smaller than that is noise";
+    // And when the drift swamps everything it is not a floor, it is a verdict.
+    // A run taken while walking, or while a zone streamed in, produces a table
+    // that looks like numbers and is not one, and the first run of this said
+    // terrain was worth minus 110 milliseconds. Say so here rather than leave
+    // it to be read off the last line.
+    double largest = 0.0;
+    for (std::size_t i = 1; i + 1 < phaseCount(); ++i) {
+        const double worth = baseline - mean(i);
+        if (worth > largest) largest = worth;
+    }
+    if (std::abs(drift) > largest) {
+        out << "\n    the world moved more than the passes did - stand still,"
+               " outdoors, and run it again; this table is not a measurement";
+    }
     return out.str();
 }
 

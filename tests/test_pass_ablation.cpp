@@ -32,7 +32,7 @@ void runPhase(PassAblation& ablation, double ms, double phaseMs = 100.0,
 }  // namespace
 
 TEST_CASE("a run walks every pass and ends on the baseline") {
-    PassAblation ablation(100.0, 10.0);
+    PassAblation ablation(100.0, 10.0, 0.0);
 
     REQUIRE(ablation.current() == AblationPass::None);
     REQUIRE(ablation.running());
@@ -73,7 +73,7 @@ TEST_CASE("a run walks every pass and ends on the baseline") {
 }
 
 TEST_CASE("no report until the run finishes") {
-    PassAblation ablation(100.0, 10.0);
+    PassAblation ablation(100.0, 10.0, 0.0);
     runPhase(ablation, 10.0, 100.0, 10.0);
     CHECK(ablation.report().empty());
 }
@@ -83,8 +83,8 @@ TEST_CASE("the warm-up frames are thrown away") {
     // over, the pipelines still warming - and then eighty settled ones. With
     // the warm-up set to exactly the expensive stretch, the report is the
     // settled number; without it, the ten drag the average up.
-    PassAblation warmed(800.0, 200.0);
-    PassAblation raw(1000.0, 0.0);
+    PassAblation warmed(800.0, 200.0, 0.0);
+    PassAblation raw(1000.0, 0.0, 0.0);
     for (PassAblation* a : {&warmed, &raw}) {
         for (std::size_t phase = 0; phase < PassAblation::phaseCount(); ++phase) {
             for (int i = 0; i < 10; ++i) a->frame(20.0);   // 200ms of warm-up
@@ -101,7 +101,7 @@ TEST_CASE("the warm-up frames are thrown away") {
 }
 
 TEST_CASE("a pass is worth the frame time it takes away, and drift is reported") {
-    PassAblation ablation(100.0, 0.0);
+    PassAblation ablation(100.0, 0.0, 0.0);
 
     // Baseline at 20ms, terrain phase at 8ms, everything else back at 20ms,
     // and the closing baseline at 21ms - a millisecond of drift over the run.
@@ -119,4 +119,45 @@ TEST_CASE("a pass is worth the frame time it takes away, and drift is reported")
     // the drift line is what says that number is noise.
     CHECK(report.find("-sky: 20.00ms/frame, worth 0.50ms") != std::string::npos);
     CHECK(report.find("drift across the run: 1.00ms") != std::string::npos);
+}
+
+TEST_CASE("nothing is measured until the world has settled") {
+    // Ten seconds of settling, then phases. Entering a zone costs frames of a
+    // hundred milliseconds while it streams; none of them may reach a phase.
+    PassAblation ablation(100.0, 0.0, 10000.0);
+
+    for (int i = 0; i < 99; ++i) ablation.frame(100.0);   // 9.9s of streaming
+    CHECK(ablation.settling());
+    CHECK(ablation.current() == AblationPass::None);
+    CHECK_FALSE(ablation.skip(AblationPass::Terrain));
+
+    ablation.frame(100.0);                                 // crosses 10s
+    CHECK_FALSE(ablation.settling());
+    // Still on the baseline: the settling frames were discarded, not banked.
+    CHECK(ablation.current() == AblationPass::None);
+
+    runPhase(ablation, 20.0);
+    CHECK(ablation.current() == AblationPass::Terrain);
+}
+
+TEST_CASE("a run the world moved under is called what it is") {
+    PassAblation ablation(100.0, 0.0, 0.0);
+
+    // The shape of the first real run: a cheap baseline taken before the world
+    // was up, a ruinous terrain phase taken while the zone streamed in, and a
+    // closing baseline nowhere near the opening one.
+    const double phaseMs[] = {5.0, 123.0, 21.0, 18.0, 17.0, 20.0, 20.0, 17.0, 20.0};
+    REQUIRE(sizeof(phaseMs) / sizeof(phaseMs[0]) == PassAblation::phaseCount());
+    for (double ms : phaseMs) runPhase(ablation, ms);
+
+    const std::string report = ablation.report();
+    REQUIRE_FALSE(report.empty());
+    CHECK(report.find("this table is not a measurement") != std::string::npos);
+}
+
+TEST_CASE("a steady run is not called into question") {
+    PassAblation ablation(100.0, 0.0, 0.0);
+    const double phaseMs[] = {20.0, 8.0, 20.0, 20.0, 20.0, 20.0, 20.0, 20.0, 21.0};
+    for (double ms : phaseMs) runPhase(ablation, ms);
+    CHECK(ablation.report().find("not a measurement") == std::string::npos);
 }
