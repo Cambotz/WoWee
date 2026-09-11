@@ -2985,3 +2985,79 @@ TEST_CASE("layout survives widgets created while it walks") {
     REQUIRE(parentW != nullptr);
     CHECK(parentW->children.size() == made.size() + 1);
 }
+
+// A hidden frame's descendants are not placed, and that must not be visible
+// from the outside.
+//
+// The layout pass walks every widget every frame. In a live interface 666 of
+// 28018 are visible, so 97% of that walk placed frames nobody can see, which
+// was 3.4ms of a 20ms frame. Skipping them is only safe if a hidden frame
+// still answers for itself when a script asks: resolveWidget re-derives
+// whatever the full pass did not claim, and the skip deliberately leaves
+// resolvedGen unstamped so that it will.
+TEST_CASE("a hidden subtree is not drawn and not run") {
+    WidgetTree tree;
+    const uint32_t panel = tree.create(WidgetKind::Frame, tree.uiParentId(), "Panel");
+    const uint32_t child = tree.create(WidgetKind::Frame, panel, "PanelChild");
+    const uint32_t grandchild = tree.create(WidgetKind::Frame, child, "PanelGrandchild");
+    REQUIRE(grandchild != 0);
+    tree.setAllPoints(panel, tree.uiParentId());
+    tree.setAllPoints(child, panel);
+    tree.setAllPoints(grandchild, child);
+
+    tree.layout(1280.0f, 720.0f);
+    REQUIRE(tree.get(grandchild)->visible);
+    REQUIRE(tree.get(grandchild)->visibleChain);
+
+    // Hiding the top of the chain takes everything under it with it.
+    tree.get(panel)->shown = false;
+    tree.markLayoutDirty();
+    tree.layout(1280.0f, 720.0f);
+    for (uint32_t id : {panel, child, grandchild}) {
+        CHECK_FALSE(tree.get(id)->visible);
+        CHECK_FALSE(tree.get(id)->visibleChain);
+    }
+
+    // ...and showing it again brings them all back, placed.
+    tree.get(panel)->shown = true;
+    tree.markLayoutDirty();
+    tree.layout(1280.0f, 720.0f);
+    for (uint32_t id : {panel, child, grandchild}) {
+        CHECK(tree.get(id)->visible);
+        CHECK(tree.get(id)->visibleChain);
+        CHECK(tree.get(id)->rectW > 0.0f);
+    }
+}
+
+TEST_CASE("a hidden frame still answers for its own rect") {
+    WidgetTree tree;
+    const uint32_t panel = tree.create(WidgetKind::Frame, tree.uiParentId(), "HiddenPanel");
+    const uint32_t inner = tree.create(WidgetKind::Frame, panel, "HiddenInner");
+    REQUIRE(inner != 0);
+    tree.setAllPoints(panel, tree.uiParentId());
+    // One anchor point, not setAllPoints: a frame pinned on all four corners
+    // takes its size from the anchors and setWidth would not be what is being
+    // read back.
+    Anchor a;
+    a.point = "BOTTOMLEFT";
+    a.relativeTo = panel;
+    a.relativePoint = "BOTTOMLEFT";
+    tree.addPoint(inner, a);
+    tree.setWidth(inner, 120.0f);
+    tree.setHeight(inner, 40.0f);
+    tree.layout(1280.0f, 720.0f);
+    REQUIRE(tree.get(inner)->rectW == Catch::Approx(120.0f));
+
+    // Hidden, then resized while hidden. The full pass no longer places it,
+    // so the on-demand resolve is the only thing that can answer - which is
+    // what leaving resolvedGen unstamped is for.
+    tree.get(panel)->shown = false;
+    tree.markLayoutDirty();
+    tree.layout(1280.0f, 720.0f);
+
+    tree.setWidth(inner, 200.0f);
+    tree.setHeight(inner, 60.0f);
+    tree.resolveWidget(inner);
+    CHECK(tree.get(inner)->rectW == Catch::Approx(200.0f));
+    CHECK(tree.get(inner)->rectH == Catch::Approx(60.0f));
+}

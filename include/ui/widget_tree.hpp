@@ -985,6 +985,9 @@ private:
     [[nodiscard]] uint32_t hitTestFor(float x, float y, bool forWheel) const;
     std::vector<LinkRect> linkRects_;
     void layoutWidget(uint32_t id, float screenW, float screenH);
+    /// Clear the drawing and running flags under a hidden frame without
+    /// placing any of it. See layoutWidget.
+    void markSubtreeHidden(uint32_t id);
     /// The same, without descending into the children. What a single-widget
     /// resolve needs, and the body of the recursive one.
     void layoutWidgetSelf(uint32_t id, float screenW, float screenH);
