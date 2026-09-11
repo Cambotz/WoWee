@@ -2621,11 +2621,41 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
                 auto t0 = std::chrono::steady_clock::now();
                 VkCommandBuffer cmd = beginSecondary(SEC_M2);
                 setSecondaryViewportScissor(cmd);
+                const auto tBegin = std::chrono::steady_clock::now();
                 m2Renderer->render(cmd, perFrameSet, *camera);
+                const auto tModels = std::chrono::steady_clock::now();
                 m2Renderer->renderSmokeParticles(cmd, perFrameSet);
+                const auto tSmoke = std::chrono::steady_clock::now();
                 m2Renderer->renderM2Particles(cmd, perFrameSet);
+                const auto tParts = std::chrono::steady_clock::now();
                 m2Renderer->renderM2Ribbons(cmd, perFrameSet);
+                const auto tParticles = std::chrono::steady_clock::now();
                 vkEndCommandBuffer(cmd);
+
+                // This worker is the critical path of renderWorld, and the
+                // model pass inside it accounts for barely a fifth of what it
+                // takes: the cull, the sort and the draw recording together
+                // measure half a millisecond against the three this returns.
+                // So the rest is timed too - the particles and ribbons that
+                // share the buffer, and ending the buffer itself, which on
+                // this driver is where a secondary is actually encoded.
+                static const bool prof = core::envFlagEnabled("WOWEE_FRAME_PROFILE", false);
+                if (prof) {
+                    static auto lastSaid = std::chrono::steady_clock::now();
+                    const auto tEnd = std::chrono::steady_clock::now();
+                    if (tEnd - lastSaid > std::chrono::seconds(10)) {
+                        lastSaid = tEnd;
+                        const auto ms = [](auto a, auto b) {
+                            return std::chrono::duration<double, std::milli>(b - a).count();
+                        };
+                        LOG_WARNING("  m2 worker: begin ", ms(t0, tBegin),
+                                    "ms, models ", ms(tBegin, tModels),
+                                    "ms, smoke ", ms(tModels, tSmoke),
+                                    "ms, particles ", ms(tSmoke, tParts),
+                                    "ms, ribbons ", ms(tParts, tParticles),
+                                    "ms, endCommandBuffer ", ms(tParticles, tEnd), "ms");
+                    }
+                }
                 return std::chrono::duration<double, std::milli>(
                     std::chrono::steady_clock::now() - t0).count();
             });
@@ -2725,6 +2755,32 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         // when a frame runs long instead of leaving renderWorld as one opaque number.
         const double prepTotalMs = prepWmoMs + prepM2Ms + prepCharMs;
         const double worstWorkerMs = std::max({lastTerrainRenderMs, lastWMORenderMs, lastM2RenderMs});
+
+        // The same breakdown on a timer, not only when a frame runs long.
+        //
+        // renderWorld is 3.3ms of a 15.8ms frame and the CPU and the GPU are
+        // within a millisecond of each other now, so what the main thread
+        // spends here decides the frame as much as any pass does - and the
+        // 40ms threshold below only ever speaks when something has already
+        // gone wrong. This says where the steady state goes.
+        static const bool frameProfile = core::envFlagEnabled("WOWEE_FRAME_PROFILE", false);
+        if (frameProfile) {
+            static auto lastSaid = std::chrono::steady_clock::now();
+            const auto sayNow = std::chrono::steady_clock::now();
+            if (sayNow - lastSaid > std::chrono::seconds(10)) {
+                lastSaid = sayNow;
+                LOG_WARNING("  renderWorld: prepare ", prepTotalMs,
+                            "ms (wmo ", prepWmoMs, " m2 ", prepM2Ms,
+                            " char ", prepCharMs, "), workers terrain ",
+                            lastTerrainRenderMs, " wmo ", lastWMORenderMs,
+                            " m2 ", lastM2RenderMs, " (worst ", worstWorkerMs,
+                            "), terrain chunks drawn ",
+                            terrainRenderer ? terrainRenderer->getRenderedChunkCount() : 0,
+                            " culled ",
+                            terrainRenderer ? terrainRenderer->getCulledChunkCount() : 0);
+            }
+        }
+
         if (prepTotalMs + worstWorkerMs > 40.0) {
             LOG_WARNING("SLOW renderWorld breakdown: prepare=", prepTotalMs,
                         "ms (wmo=", prepWmoMs, " m2=", prepM2Ms, " char=", prepCharMs,

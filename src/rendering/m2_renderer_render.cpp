@@ -1,5 +1,4 @@
 #include "rendering/shadow_params.hpp"
-#include "rendering/m2_draw_order.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "rendering/m2_renderer_internal.h"
 #include "rendering/m2_sway.hpp"
@@ -1009,6 +1008,15 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     const float fadeStartFraction = 0.75f;
     const glm::vec3 camPos = camera.getPosition();
 
+    // Where this pass's three milliseconds go.
+    //
+    // Recording the M2 secondary is the largest single piece of CPU work in
+    // the frame - renderWorld waits on the slowest worker and this is always
+    // it - and the stage around it cannot see whether that is the cull, the
+    // sort or the recording itself.
+    static const bool m2Profile = core::envFlagEnabled("WOWEE_FRAME_PROFILE", false);
+    const auto m2T0 = std::chrono::steady_clock::now();
+
     // Build sorted visible instance list
     sortedVisible_.clear();
     transparentVisible_.clear();
@@ -1171,13 +1179,30 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     // (depth write OFF, sorted back-to-front) so transparent geometry composites correctly
     // against all opaque geometry rather than only against what was rendered before it.
 
-    // Pass 1: group by model for minimum buffer rebinds, and draw the groups
-    // nearest first. See m2_draw_order.hpp - leaves come out of the cutout
-    // pipeline, so the shader decides coverage and the hardware cannot reject
-    // a fragment before running it. In model-id order a forest shaded every
-    // leaf of every tree behind every other tree.
-    sortModelGroupsFrontToBack(sortedVisible_);
-
+    // Pass 1: sort by modelId for minimum buffer rebinds (opaque batches)
+    //
+    // Ordering the groups front-to-back was tried, on the theory that cutout
+    // foliage cannot be rejected before it is shaded so the near trees should
+    // lay depth down first. It moved nothing: doodads measured 14.66ms against
+    // 16.55 and 13.38 either side of it, which is the middle of the spread.
+    // What it did cost was a hash map over every visible instance, two index
+    // vectors and a copy of the whole list, every frame, in the pass that
+    // turned out to be the largest single piece of CPU work in the frame.
+    const auto m2T1 = std::chrono::steady_clock::now();
+    std::sort(sortedVisible_.begin(), sortedVisible_.end(),
+              [](const VisibleEntry& a, const VisibleEntry& b) { return a.modelId < b.modelId; });
+    const auto m2T2 = std::chrono::steady_clock::now();
+    // Reported at the end of the pass; see m2Profile above.
+    struct M2Phases { double cull, sort, record; std::size_t visible, instances; };
+    const auto sayPhases = [&](const M2Phases& p) {
+        static auto lastSaid = std::chrono::steady_clock::now();
+        const auto now = std::chrono::steady_clock::now();
+        if (now - lastSaid <= std::chrono::seconds(10)) return;
+        lastSaid = now;
+        LOG_WARNING("  m2 record: cull ", p.cull, "ms, sort ", p.sort,
+                    "ms, draws ", p.record, "ms over ", p.visible,
+                    " visible of ", p.instances, " instances");
+    };
 
     uint32_t currentModelId = UINT32_MAX;
     const M2ModelGPU* currentModel = nullptr;
@@ -1993,6 +2018,18 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                  " (was ", skyDiagLastOpaque_, "/", skyDiagLastTransparent_, ")");
         skyDiagLastOpaque_ = skyDiagDrawsOpaque_;
         skyDiagLastTransparent_ = skyDiagDrawsTransparent_;
+    }
+
+    if (m2Profile) {
+        const auto m2T3 = std::chrono::steady_clock::now();
+        const auto ms = [](auto a, auto b) {
+            return std::chrono::duration<double, std::milli>(b - a).count();
+        };
+        sayPhases({.cull = ms(m2T0, m2T1),
+                   .sort = ms(m2T1, m2T2),
+                   .record = ms(m2T2, m2T3),
+                   .visible = sortedVisible_.size(),
+                   .instances = instances.size()});
     }
 }
 

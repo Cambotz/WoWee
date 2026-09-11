@@ -72,7 +72,11 @@ glm::vec3 M2Renderer::interpFBlockVec3(const pipeline::M2FBlock& fb, float lifeR
 std::vector<glm::vec3> M2Renderer::getWaterVegetationPositions(const glm::vec3& camPos, float maxDist) const {
     std::vector<glm::vec3> result;
     float maxDistSq = maxDist * maxDist;
-    for (const auto& inst : instances) {
+    // The same list, for the same reason; see renderM2Particles. A ribbon
+    // emitter is a particle emitter as far as this list is concerned.
+    for (size_t idx : particleInstanceIndices_) {
+        if (idx >= instances.size()) continue;
+        const auto& inst = instances[idx];
         if (!inst.cachedModel || !inst.cachedModel->isWaterVegetation) continue;
         glm::vec3 diff = inst.position - camPos;
         if (glm::dot(diff, diff) <= maxDistSq) {
@@ -565,7 +569,17 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
 
     size_t totalParticles = 0;
 
-    for (auto& inst : instances) {
+    // Only the instances that carry emitters, not every instance in the world.
+    //
+    // particleInstanceIndices_ is built and maintained for exactly this and
+    // the update path above already uses it; this pass walked all 66211
+    // instances instead, asking each whether its particle vector was empty.
+    // That walk was 2.0ms of a 16ms frame - two thirds of the M2 worker,
+    // which is the critical path of renderWorld. The smoke pass beside this
+    // one does the same kind of work against a flat list and costs 0.003ms.
+    for (size_t idx : particleInstanceIndices_) {
+        if (idx >= instances.size()) continue;
+        auto& inst = instances[idx];
         if (inst.particles.empty()) continue;
         if (!inst.cachedModel) continue;
         const auto& gpu = *inst.cachedModel;

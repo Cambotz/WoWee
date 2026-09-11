@@ -2246,13 +2246,6 @@ wowee_add_test(test_pass_ablation
     SOURCES test_pass_ablation.cpp
             ${CMAKE_SOURCE_DIR}/src/rendering/pass_ablation.cpp)
 
-# ── test_m2_draw_order ───────────────────────────────
-# Draw order has to keep each model's entries contiguous, for instancing, and
-# put the near groups first, for the cutout foliage that cannot be rejected
-# before it is shaded. Losing either shows up only as a frame time.
-wowee_add_test(test_m2_draw_order
-    SOURCES test_m2_draw_order.cpp)
-
 # ── Sanitizers, once every test target exists ────────────────
 # This must be the last thing in this file. The loop walks ALL_TEST_TARGETS,
 # which register_test_target appends to as each test is declared, so the
