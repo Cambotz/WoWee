@@ -974,6 +974,21 @@ target_link_libraries(test_blp_loader PRIVATE catch2_main)
 add_test(NAME blp_loader COMMAND test_blp_loader)
 register_test_target(test_blp_loader)
 
+# ── test_dds_sidecar ─────────────────────────────────────────
+# The block-compressed override the upscale pass writes. A DDS header read
+# wrongly is not an error - it is a texture at the wrong size, or a mip chain
+# that runs off the end of the file.
+add_executable(test_dds_sidecar
+    test_dds_sidecar.cpp
+    ${TEST_COMMON_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/pipeline/dds_loader.cpp
+)
+target_include_directories(test_dds_sidecar PRIVATE ${TEST_INCLUDE_DIRS})
+target_include_directories(test_dds_sidecar SYSTEM PRIVATE ${TEST_SYSTEM_INCLUDE_DIRS})
+target_link_libraries(test_dds_sidecar PRIVATE catch2_main)
+add_test(NAME dds_sidecar COMMAND test_dds_sidecar)
+register_test_target(test_dds_sidecar)
+
 # ── test_blp_alpha_scan ──────────────────────────────────────
 # M2 textures were decoded to RGBA8 so something could walk every fourth byte
 # and learn whether the texture had any transparency. The block scan that

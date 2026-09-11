@@ -228,6 +228,12 @@ private:
      * Try to load a PNG override for a BLP path.
      * Returns valid BLPImage if PNG found, invalid otherwise.
      */
+    /// Where a sidecar of this extension sits for a normalized .blp path, or
+    /// empty when there is none. Shared by the overrides below so they agree
+    /// on where to look.
+    [[nodiscard]] std::string resolveSidecarPath(const std::string& normalizedPath,
+                                                 const char* extension) const;
+    [[nodiscard]] BLPImage tryLoadDdsOverride(const std::string& normalizedPath) const;
     [[nodiscard]] BLPImage tryLoadPngOverride(const std::string& normalizedPath) const;
 
     /**

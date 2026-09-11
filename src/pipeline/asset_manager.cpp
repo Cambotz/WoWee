@@ -1,5 +1,6 @@
 #include "pipeline/asset_manager.hpp"
 #include "pipeline/base_fallback.hpp"
+#include "pipeline/dds_loader.hpp"
 #include "core/logger.hpp"
 #include "core/memory_monitor.hpp"
 #include "core/profiler.hpp"
@@ -277,6 +278,13 @@ BLPImage AssetManager::loadTexture(const std::string& path, bool keepCompressed)
     LOG_DEBUG("Loading texture: ", normalizedPath);
 
     // Check for PNG override
+    // Block-compressed override first, then the RGBA8 one. Both are read in
+    // preference to the .blp beside them.
+    BLPImage ddsImage = tryLoadDdsOverride(normalizedPath);
+    if (ddsImage.isValid()) {
+        return ddsImage;
+    }
+
     BLPImage pngImage = tryLoadPngOverride(normalizedPath);
     if (pngImage.isValid()) {
         return pngImage;
@@ -324,34 +332,64 @@ BLPImage AssetManager::loadTexture(const std::string& path, bool keepCompressed)
     return image;
 }
 
-BLPImage AssetManager::tryLoadPngOverride(const std::string& normalizedPath) const {
-    if (normalizedPath.size() < 4) return BLPImage();
+std::string AssetManager::resolveSidecarPath(const std::string& normalizedPath,
+                                             const char* extension) const {
+    if (normalizedPath.size() < 4) return {};
+    if (normalizedPath.substr(normalizedPath.size() - 4) != ".blp") return {};
 
-    std::string ext = normalizedPath.substr(normalizedPath.size() - 4);
-    if (ext != ".blp") return BLPImage();
-
-    // Try the standard sidecar path first: extracted .blp's directory + .png.
+    // The standard sidecar path first: the extracted .blp's directory, same
+    // basename, the sidecar's extension.
     std::string fsPath = resolveFile(normalizedPath);
-    std::string pngPath;
     if (!fsPath.empty() && fsPath.size() >= 4) {
-        pngPath = fsPath.substr(0, fsPath.size() - 4) + ".png";
-        if (!LooseFileReader::fileExists(pngPath)) pngPath.clear();
+        std::string candidate = fsPath.substr(0, fsPath.size() - 4) + extension;
+        if (LooseFileReader::fileExists(candidate)) return candidate;
     }
 
-    // Fallback: probe well-known custom-zone texture roots so that PNG-only
+    // Fallback: probe well-known custom-zone texture roots so that sidecar-only
     // assets ship without needing a phantom BLP manifest entry. Path is
-    // forward-slash + lowercase to match the editor's PNG export convention.
-    if (pngPath.empty()) {
-        std::string norm = normalizedPath;
-        std::replace(norm.begin(), norm.end(), '\\', '/');
-        std::transform(norm.begin(), norm.end(), norm.begin(),
-                       [](unsigned char c) { return std::tolower(c); });
-        std::string candidate = norm.substr(0, norm.size() - 4) + ".png";
-        for (const char* root : {"custom_zones/textures/", "output/textures/"}) {
-            std::string p = std::string(root) + candidate;
-            if (LooseFileReader::fileExists(p)) { pngPath = p; break; }
-        }
+    // forward-slash + lowercase to match the editor's export convention.
+    std::string norm = normalizedPath;
+    std::replace(norm.begin(), norm.end(), '\\', '/');
+    std::transform(norm.begin(), norm.end(), norm.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    const std::string tail = norm.substr(0, norm.size() - 4) + extension;
+    for (const char* root : {"custom_zones/textures/", "output/textures/"}) {
+        std::string p = std::string(root) + tail;
+        if (LooseFileReader::fileExists(p)) return p;
     }
+    return {};
+}
+
+/// A block-compressed override, preferred to the PNG one.
+///
+/// A PNG arrives as RGBA8 and the renderer generates its mips on upload, which
+/// costs four times the memory of the blocks it replaced and loses the one
+/// thing worth writing a mip chain by hand for: a cutout's coverage. A .dds
+/// sidecar hands over the blocks and the chain as they were made. On a device
+/// that cannot sample BC at all - Mali and Adreno carry ASTC and ETC2 instead -
+/// this declines, and the PNG or the original BLP answers instead.
+BLPImage AssetManager::tryLoadDdsOverride(const std::string& normalizedPath) const {
+    if (!blockCompressionSupported()) return BLPImage();
+    const std::string ddsPath = resolveSidecarPath(normalizedPath, ".dds");
+    if (ddsPath.empty()) return BLPImage();
+
+    std::vector<uint8_t> ddsData = LooseFileReader::readFile(ddsPath);
+    if (ddsData.empty()) {
+        LOG_WARNING("DDS override exists but could not be read: ", ddsPath);
+        return BLPImage();
+    }
+    BLPImage image = DdsLoader::load(ddsData);
+    if (!image.isValid()) {
+        LOG_WARNING("DDS override rejected, falling back: ", ddsPath);
+        return BLPImage();
+    }
+    LOG_INFO("DDS override loaded: ", ddsPath, " (", image.width, "x", image.height,
+             ", ", image.mipLevels, " mips)");
+    return image;
+}
+
+BLPImage AssetManager::tryLoadPngOverride(const std::string& normalizedPath) const {
+    const std::string pngPath = resolveSidecarPath(normalizedPath, ".png");
     if (pngPath.empty()) return BLPImage();
 
     int w, h, channels;

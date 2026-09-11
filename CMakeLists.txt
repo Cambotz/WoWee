@@ -689,6 +689,7 @@ set(WOWEE_SOURCES
 
     # Pipeline (asset loaders)
     src/pipeline/blp_loader.cpp
+    src/pipeline/dds_loader.cpp
     src/pipeline/dbc_loader.cpp
     src/pipeline/asset_manager.cpp
     src/pipeline/asset_manifest.cpp
@@ -1657,6 +1658,7 @@ if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR)
         tools/asset_extract/open_format_emitter.cpp
         src/pipeline/dbc_loader.cpp
         src/pipeline/blp_loader.cpp
+    src/pipeline/dds_loader.cpp
         src/pipeline/m2_loader.cpp
         src/pipeline/wmo_loader.cpp
         src/pipeline/adt_loader.cpp
@@ -1781,6 +1783,7 @@ install(TARGETS auth_login_probe RUNTIME DESTINATION bin)
 add_executable(blp_convert
     tools/blp_convert/main.cpp
     src/pipeline/blp_loader.cpp
+    src/pipeline/dds_loader.cpp
     src/core/logger.cpp
 )
 target_include_directories(blp_convert PRIVATE
@@ -2059,6 +2062,7 @@ add_executable(wowee_editor
 
     # Pipeline (asset loading)
     src/pipeline/blp_loader.cpp
+    src/pipeline/dds_loader.cpp
     src/pipeline/dbc_loader.cpp
     src/pipeline/char_sections.cpp
     src/ui/settings_schema.cpp
