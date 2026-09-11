@@ -3806,6 +3806,7 @@ void Application::render() {
             // widget by name each frame. Told every frame rather than once,
             // because the render target is rebuilt when the window resizes and
             // a handle kept across that would be stale.
+            runRenderStage("addonWidgets/models", [&] {
             if (gameHandler && assetManager) {
                 auto& widgets = engine->widgets();
                 ui::Widget* portrait = portraitWidgetId_
@@ -4386,7 +4387,10 @@ void Application::render() {
             // thing added is the thing on top. Drawing here put the panels
             // down first, so every player's name and health bar in the world
             // showed through the bags and the auction house.
+            });
+            runRenderStage("addonWidgets/layout", [&] {
             widgetRenderer_.layout(engine->widgets(), io.DisplaySize.x, io.DisplaySize.y);
+            });
 
             // The client's own interface has first claim, but only over the
             // point the cursor is actually on.
@@ -4418,6 +4422,7 @@ void Application::render() {
             // sees the key - handing one over made it unopenable. The key has
             // to reach the replacement instead, which is FrameXML's own toggle
             // for that panel.
+            runRenderStage("addonWidgets/keys", [&] {
             {
                 using ui::UiElement;
                 using K = ui::KeybindingManager;
@@ -4483,6 +4488,8 @@ void Application::render() {
             // announced. Visibility first, because a panel's OnShow is what
             // fills it in and the size of what it filled is what the range is
             // then measured from.
+            });
+            runRenderStage("addonWidgets/engine", [&] {
             engine->reportEventListenersOnce();
             // Keep this after the widget render, which is where suppressed
             // windows are forced hidden. A suppressed frame that some handler
@@ -4497,6 +4504,7 @@ void Application::render() {
             // this frame and its size is new rather than changed.
             engine->updateSizeChanges();
             engine->updateScrollRanges();
+            });
 
             // A click that never reaches the interface and a click whose
             // handler does nothing look the same from the chair. Said once a
