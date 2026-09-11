@@ -882,6 +882,11 @@ void InventoryHandler::registerOpcodes(DispatchTable& table) {
         const uint8_t tabId = packet.readUInt8();
         std::string text = packet.readString();
         if (tabId < guildBankTabText_.size()) guildBankTabText_[tabId] = std::move(text);
+        // The panel asked for this text and was never told it arrived, so the
+        // info box kept whatever it was drawn with. Its handler reads the tab
+        // back with GetGuildBankText, counting tabs from one.
+        if (owner_.addonEventCallbackRef())
+            owner_.addonEventCallbackRef()("GUILDBANK_UPDATE_TEXT", {std::to_string(tabId + 1)});
     };
 
     // ---- Auction House ----
@@ -3555,6 +3560,13 @@ void InventoryHandler::guildBankDepositFromInventory(uint8_t srcBag, uint8_t src
         return;
     }
     guildBankDepositItem(guildBankActiveTab_, static_cast<uint8_t>(freeSlot), srcBag, srcSlot);
+}
+
+void InventoryHandler::setGuildBankMoney(uint64_t money) {
+    if (guildBankData_.money == money) return;
+    guildBankData_.money = money;
+    if (owner_.addonEventCallbackRef())
+        owner_.addonEventCallbackRef()("GUILDBANK_UPDATE_MONEY", {});
 }
 
 void InventoryHandler::handleGuildBankList(network::Packet& packet) {

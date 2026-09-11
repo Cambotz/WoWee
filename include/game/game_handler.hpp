@@ -3195,6 +3195,9 @@ public:
     void guildBankDepositFromInventory(uint8_t srcBag, uint8_t srcSlot);
     bool isGuildBankOpen() const;
     const GuildBankData& getGuildBankData() const;
+    /// The bank's balance as SMSG_GUILD_EVENT reports it, for guild members
+    /// who are not the one standing at the banker.
+    void setGuildBankMoney(uint64_t money);
     uint8_t getGuildBankActiveTab() const;
     void setGuildBankActiveTab(uint8_t tab);
 

@@ -459,6 +459,11 @@ public:
     void guildBankDepositFromInventory(uint8_t srcBag, uint8_t srcSlot);
     bool isGuildBankOpen() const { return guildBankOpen_; }
     const GuildBankData& getGuildBankData() const { return guildBankData_; }
+    /// The guild bank's balance as SMSG_GUILD_EVENT reports it. The bank list
+    /// is only sent to whoever is standing at the banker; everyone else learns
+    /// the new total from the event, and GetGuildBankMoney has to answer with
+    /// it or the panel shows the figure it opened with.
+    void setGuildBankMoney(uint64_t money);
     uint8_t getGuildBankActiveTab() const { return guildBankActiveTab_; }
     void setGuildBankActiveTab(uint8_t tab) { guildBankActiveTab_ = tab; }
 

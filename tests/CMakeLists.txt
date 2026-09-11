@@ -847,6 +847,11 @@ wowee_add_packet_test(test_item_query_layout)
 # every field after them read a block early, and the vault drew empty.
 wowee_add_packet_test(test_guild_bank_list)
 
+# ── test_guild_event_money ─────────────────────────────────────────────
+# SMSG_GUILD_EVENT past type 13: the guild bank's events, and the balance they
+# carry as sixteen hex digits. They used to reach guild chat verbatim.
+wowee_add_packet_test(test_guild_event_money)
+
 # ── test_gameobject_query_layout ───────────────────────────────────────
 # SMSG_GAMEOBJECT_QUERY_RESPONSE, parsed three times, differing only in how
 # many strings sit before the twenty-four data fields.

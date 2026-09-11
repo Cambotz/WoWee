@@ -11,6 +11,7 @@
 #include <array>
 #include <vector>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <map>
 #include <unordered_map>
@@ -1308,8 +1309,36 @@ namespace GuildEvent {
     constexpr uint8_t LEADER_IS      = 6;
     constexpr uint8_t LEADER_CHANGED = 7;
     constexpr uint8_t DISBANDED      = 8;
+    constexpr uint8_t TABARD_CHANGED = 9;
+    constexpr uint8_t RANK_UPDATED   = 10;
+    constexpr uint8_t RANK_DELETED   = 11;
     constexpr uint8_t SIGNED_ON      = 12;
     constexpr uint8_t SIGNED_OFF     = 13;
+    // The bank half of the event list. These are broadcast to the whole guild
+    // every time anyone touches the bank, so they are frequent and none of
+    // them is a chat line - they carry the numbers the bank panel reads.
+    constexpr uint8_t BANK_BAG_SLOTS_CHANGED = 14;
+    constexpr uint8_t BANK_TAB_PURCHASED     = 15;
+    constexpr uint8_t BANK_TAB_UPDATED       = 16;
+    constexpr uint8_t BANK_MONEY_SET         = 17;
+    constexpr uint8_t BANK_TAB_AND_MONEY     = 18;
+    constexpr uint8_t BANK_TEXT_CHANGED      = 19;
+}
+
+/// The bank balance out of a BANK_MONEY_SET event, which carries it as text.
+///
+/// A 3.3.5 server writes it as sixteen zero-padded hex digits, so
+/// "000000000051451B" is 532g 61s 7c. Read as hex when the string says hex -
+/// its length, or a digit above nine - and as decimal otherwise, so a server
+/// that sends the plain number is not multiplied by sixteen.
+inline uint64_t guildEventMoney(const std::string& text) {
+    if (text.empty()) return 0;
+    const bool hex = text.size() == 16 ||
+                     text.find_first_of("abcdefABCDEFxX") != std::string::npos;
+    char* end = nullptr;
+    const unsigned long long value = std::strtoull(text.c_str(), &end, hex ? 16 : 10);
+    if (end == text.c_str()) return 0;
+    return static_cast<uint64_t>(value);
 }
 
 /** SMSG_GUILD_QUERY_RESPONSE data */

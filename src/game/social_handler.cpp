@@ -2627,11 +2627,39 @@ void SocialHandler::handleGuildEvent(network::Packet& packet) {
                 addons::storedCVarValue("guildMemberNotify", "1") != "0")
                 msg = "[Guild] " + data.strings[0] + " has gone offline.";
             break;
-        default:
-            msg = "Guild event " + std::to_string(data.eventType);
-            // Was `!numStrings && numStrings >= 1` - always false (0 can't be ≥1).
-            if (data.numStrings >= 1) msg += ": " + data.strings[0];
+        // The bank's half of the event list. The server broadcasts these to
+        // every member whenever anyone touches the bank, so they are frequent,
+        // and not one of them is a chat line - they carry the figures the bank
+        // panel reads back through its own API. Unhandled, a guild with an
+        // active bank filled guild chat with "Guild event 17: 000000000051451B".
+        case GuildEvent::BANK_MONEY_SET:
+        case GuildEvent::BANK_TAB_AND_MONEY:
+            if (data.numStrings >= 1)
+                owner_.setGuildBankMoney(guildEventMoney(data.strings[0]));
             break;
+        case GuildEvent::BANK_BAG_SLOTS_CHANGED:
+        case GuildEvent::BANK_TAB_PURCHASED:
+        case GuildEvent::BANK_TAB_UPDATED:
+        case GuildEvent::BANK_TEXT_CHANGED:
+        case GuildEvent::TABARD_CHANGED:
+        case GuildEvent::RANK_UPDATED:
+        case GuildEvent::RANK_DELETED:
+            // Silent here; the interface events they mean are fired below.
+            break;
+        default: {
+            // Not a chat line either: an event this client does not know is a
+            // gap in this switch, and guild chat is not where that belongs.
+            // Once per type - these arrive as often as the bank ones do, and a
+            // log that repeats itself answers nothing a single line does not.
+            static bool warned[256] = {};
+            if (!warned[data.eventType]) {
+                warned[data.eventType] = true;
+                LOG_WARNING("SMSG_GUILD_EVENT: unhandled type ", static_cast<int>(data.eventType),
+                            " strings=", static_cast<int>(data.numStrings),
+                            data.numStrings >= 1 ? (" first=" + data.strings[0]) : std::string());
+            }
+            break;
+        }
     }
 
     if (!msg.empty()) {
@@ -2655,7 +2683,12 @@ void SocialHandler::handleGuildEvent(network::Packet& packet) {
         data.eventType == GuildEvent::JOINED ||
         data.eventType == GuildEvent::LEFT ||
         data.eventType == GuildEvent::REMOVED ||
-        data.eventType == GuildEvent::LEADER_CHANGED);
+        data.eventType == GuildEvent::LEADER_CHANGED ||
+        // A rank added, renamed or deleted only reaches the client in the
+        // roster: SMSG_GUILD_ROSTER is what carries the rank list, and every
+        // panel that names a rank reads it from there.
+        data.eventType == GuildEvent::RANK_UPDATED ||
+        data.eventType == GuildEvent::RANK_DELETED);
 
     if (owner_.addonEventCallbackRef()) {
         switch (data.eventType) {
@@ -2667,6 +2700,7 @@ void SocialHandler::handleGuildEvent(network::Packet& packet) {
             case GuildEvent::JOINED: case GuildEvent::LEFT:
             case GuildEvent::REMOVED: case GuildEvent::LEADER_CHANGED:
             case GuildEvent::DISBANDED:
+            case GuildEvent::RANK_UPDATED: case GuildEvent::RANK_DELETED:
                 // Somebody joined, left, was promoted or signed on, and the
                 // roster this client holds no longer says so. The server sends
                 // the event and not a new roster, so the request has to come
@@ -2677,8 +2711,38 @@ void SocialHandler::handleGuildEvent(network::Packet& packet) {
                 owner_.addonEventCallbackRef()("GUILD_ROSTER_UPDATE",
                                                {eventBool(!clientWillRequest)});
                 break;
+            // The bank panel's own events, which are what these types mean.
+            // GuildBankFrame_OnEvent returns early unless the frame is
+            // visible, so firing them while it is shut costs nothing.
+            case GuildEvent::TABARD_CHANGED:
+                owner_.addonEventCallbackRef()("GUILDTABARD_UPDATE", {});
+                break;
+            case GuildEvent::BANK_BAG_SLOTS_CHANGED:
+                owner_.addonEventCallbackRef()("GUILDBANKBAGSLOTS_CHANGED", {});
+                break;
+            case GuildEvent::BANK_TAB_PURCHASED:
+            case GuildEvent::BANK_TAB_UPDATED:
+            case GuildEvent::BANK_TAB_AND_MONEY:
+                // The money half of 18 went through setGuildBankMoney above,
+                // which fires GUILDBANK_UPDATE_MONEY when the figure moved.
+                owner_.addonEventCallbackRef()("GUILDBANK_UPDATE_TABS", {});
+                break;
+            case GuildEvent::BANK_TEXT_CHANGED:
+                // The tab, as the server counts them from zero and the panel
+                // counts them from one. It answers by querying the new text.
+                if (data.numStrings >= 1)
+                    owner_.addonEventCallbackRef()(
+                        "GUILDBANK_TEXT_CHANGED",
+                        {std::to_string(std::strtol(data.strings[0].c_str(), nullptr, 10) + 1)});
+                break;
             default: break;
         }
+    }
+
+    // A new tabard is in the guild query, not the roster, so it is the query
+    // that has to be asked again for the emblem to change.
+    if (data.eventType == GuildEvent::TABARD_CHANGED) {
+        if (const uint32_t id = ownGuildId()) queryGuildInfo(id);
     }
 
     if (clientWillRequest) requestGuildRoster();

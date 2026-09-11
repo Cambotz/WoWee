@@ -1354,6 +1354,10 @@ const GuildBankData& GameHandler::getGuildBankData() const {
     if (inventoryHandler_) return inventoryHandler_->getGuildBankData();
     return guildBankData_;
 }
+void GameHandler::setGuildBankMoney(uint64_t money) {
+    if (inventoryHandler_) inventoryHandler_->setGuildBankMoney(money);
+    else guildBankData_.money = money;
+}
 uint8_t GameHandler::getGuildBankActiveTab() const {
     return inventoryHandler_ ? inventoryHandler_->getGuildBankActiveTab() : guildBankActiveTab_;
 }
