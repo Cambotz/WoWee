@@ -9,6 +9,12 @@ set -euo pipefail
 #   $1  Path to WoW's Data directory (containing .MPQ files)
 #   $2  Expansion hint: classic, turtle, tbc, wotlk (optional, auto-detected if omitted)
 #
+# Options:
+#   --upscale[=N]  After extracting, run tools/upscale_textures.py over the
+#                  tree: every texture of every foliage model, upscaled N times
+#                  (default 4) into DXT5 .dds sidecars beside the BLPs. Revert
+#                  with `python3 tools/upscale_textures.py --clean`.
+#
 # Examples:
 #   ./extract_assets.sh /mnt/games/WoW-3.3.5a/Data
 #   ./extract_assets.sh /mnt/games/WoW-1.12/Data classic
@@ -27,13 +33,25 @@ else
 fi
 
 # --- Validate arguments ---
-if [ $# -lt 1 ]; then
-    echo "Usage: $0 /path/to/WoW/Data [classic|turtle|tbc|wotlk]"
+if [ ${#POSITIONAL[@]} -lt 1 ]; then
+    echo "Usage: $0 /path/to/WoW/Data [classic|turtle|tbc|wotlk] [--upscale[=N]]"
     echo ""
     echo "Point this at your WoW client's Data directory."
     echo "The expansion is auto-detected if not specified."
     exit 1
 fi
+
+# --- Options, in any position; what is left is positional ---
+UPSCALE_SCALE=""
+POSITIONAL=()
+for arg in "$@"; do
+    case "$arg" in
+        --upscale)    UPSCALE_SCALE=4 ;;
+        --upscale=*)  UPSCALE_SCALE="${arg#*=}" ;;
+        *)            POSITIONAL+=("$arg") ;;
+    esac
+done
+set -- "${POSITIONAL[@]}"
 
 MPQ_DIR="$1"
 EXPANSION="${2:-auto}"
@@ -132,4 +150,46 @@ if [ "$EXPANSION" = "auto" ]; then
 else
     echo "Done! Assets extracted to $OUTPUT_DIR/expansions/$EXPANSION"
 fi
+
+# --- Optional upscale pass ---
+#
+# Last, and over the finished tree: the pass reads each model's texture list to
+# decide what belongs together, so it needs the models and the textures already
+# on disk. It never fails the extraction - the assets are extracted either way,
+# and the sidecars it writes can be regenerated or deleted at any time.
+if [ -n "$UPSCALE_SCALE" ]; then
+    echo ""
+    UPSCALE_OK=true
+    if ! command -v python3 >/dev/null 2>&1; then
+        echo "Skipping upscale: python3 not found."
+        UPSCALE_OK=false
+    elif ! python3 -c "import numpy, PIL" >/dev/null 2>&1; then
+        echo "Skipping upscale: the pass needs Pillow and NumPy."
+        echo "  python3 -m pip install --user pillow numpy"
+        UPSCALE_OK=false
+    fi
+    if [ "$UPSCALE_OK" = true ] && [ ! -x "${BUILD_DIR}/bin/blp_convert" ]; then
+        if [ -d "$BUILD_DIR" ]; then
+            echo "Building blp_convert (the upscale pass decodes BLPs with it)..."
+            cmake --build "$BUILD_DIR" --target blp_convert || true
+        fi
+        if [ ! -x "${BUILD_DIR}/bin/blp_convert" ]; then
+            echo "Skipping upscale: blp_convert is not built."
+            echo "  cmake -S \"$SCRIPT_DIR\" -B \"$BUILD_DIR\" && cmake --build \"$BUILD_DIR\" --target blp_convert"
+            UPSCALE_OK=false
+        fi
+    fi
+    if [ "$UPSCALE_OK" = true ]; then
+        # Never fatal: the assets are extracted either way, and every sidecar
+        # the pass writes can be regenerated or deleted afterwards.
+        python3 "${SCRIPT_DIR}/tools/upscale_textures.py" \
+            --data-dir "$OUTPUT_DIR" --scale "$UPSCALE_SCALE" || true
+    fi
+else
+    echo ""
+    echo "Textures are as they shipped. To upscale the foliage (optional, reversible):"
+    echo "  $0 \"$MPQ_DIR\" ${EXPANSION} --upscale"
+    echo "  python3 tools/upscale_textures.py --data-dir \"$OUTPUT_DIR\" --clean   # to undo"
+fi
+
 echo "You can now run wowee."

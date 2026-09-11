@@ -22,6 +22,9 @@ from typing import Any
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import m2_textures  # noqa: E402  - the shared M2 header/texture reader
+
 # ---------------------------------------------------------------------------
 # Matrix math utilities (pure NumPy, no external 3D lib needed)
 # ---------------------------------------------------------------------------
@@ -181,26 +184,7 @@ class M2Parser:
 
     def _hdr(self, field_name: str) -> int:
         """Return header offset for a given field, version-gated."""
-        offsets_wotlk = {
-            "nGlobalSeq": 20, "ofsGlobalSeq": 24,
-            "nAnims": 28, "ofsAnims": 32,
-            "nBones": 44, "ofsBones": 48,
-            "nVerts": 60, "ofsVerts": 64,
-            "nTextures": 80, "ofsTextures": 84,
-            "nTextureLookup": 128, "ofsTextureLookup": 132,
-            "nBoneLookup": 120, "ofsBoneLookup": 124,
-        }
-        offsets_vanilla = {
-            "nGlobalSeq": 20, "ofsGlobalSeq": 24,
-            "nAnims": 28, "ofsAnims": 32,
-            "nBones": 52, "ofsBones": 56,
-            "nVerts": 68, "ofsVerts": 72,
-            "nTextures": 92, "ofsTextures": 96,
-            "nTextureLookup": 148, "ofsTextureLookup": 152,
-            "nBoneLookup": 140, "ofsBoneLookup": 144,
-        }
-        table = offsets_vanilla if self.is_vanilla else offsets_wotlk
-        return table[field_name]
+        return m2_textures.header_offset(self.version, field_name)
 
     def _read_u32(self, offset: int) -> int:
         return struct.unpack_from("<I", self.data, offset)[0]
@@ -256,18 +240,7 @@ class M2Parser:
         self.bone_indices = bone_indices
 
     def _parse_textures(self):
-        n, ofs = self._read_m2array("Textures")
-        if n == 0 or n > 1000 or ofs + n * 16 > len(self.data):
-            return
-        for i in range(n):
-            base = ofs + i * 16
-            tex_type, tex_flags = struct.unpack_from("<II", self.data, base)
-            name_len, name_ofs = struct.unpack_from("<II", self.data, base + 8)
-            filename = ""
-            if tex_type == 0 and name_len > 1 and name_ofs + name_len <= len(self.data):
-                raw = self.data[name_ofs:name_ofs + name_len]
-                filename = raw.split(b"\x00", 1)[0].decode("ascii", errors="replace")
-            self.textures.append({"type": tex_type, "flags": tex_flags, "filename": filename})
+        self.textures = m2_textures.texture_entries(self.data)
 
     def _parse_texture_lookup(self):
         n, ofs = self._read_m2array("TextureLookup")
