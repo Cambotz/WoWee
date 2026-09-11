@@ -679,8 +679,18 @@ bool Renderer::initialize(core::Window* win) {
     // Audio is now owned by AudioCoordinator (created by Application).
     // Renderer receives AudioCoordinator* via setAudioCoordinator().
 
-    // Create secondary command buffer resources for multithreaded rendering
-    if (!createSecondaryCommandResources()) {
+    // Create secondary command buffer resources for multithreaded rendering.
+    //
+    // WOWEE_SINGLE_THREAD_RECORD takes the fallback path instead. That path
+    // records the world inline on one thread, which costs CPU time but marks
+    // every pass separately - grass included, where the parallel path records
+    // grass into the terrain secondary and so reports the two as one number.
+    // Running a frame profile both ways says how much of "terrain" is grass,
+    // and whether serialising the recording moves the frame time at all.
+    static const bool forceSingleThread = std::getenv("WOWEE_SINGLE_THREAD_RECORD") != nullptr;
+    if (forceSingleThread) {
+        LOG_INFO("WOWEE_SINGLE_THREAD_RECORD set - inline recording, one pass per GPU mark");
+    } else if (!createSecondaryCommandResources()) {
         LOG_WARNING("Failed to create secondary command buffers - falling back to single-threaded rendering");
     }
 
@@ -2745,8 +2755,8 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
                 skyboxModelRenderer_->prepareRender(frameIdx, *camera);
                 skyboxModelRenderer_->render(currentCmd, perFrameSet, *camera);
             }
+            if (vkCtx) vkCtx->gpuMark(currentCmd, "sky");
         }
-
 
         if (wmoRenderer && camera && !skipWMO) {
             wmoRenderer->prepareRender();
@@ -2800,6 +2810,9 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
         if (chargeEffect && camera) chargeEffect->render(currentCmd, perFrameSet);
         if (footprintRenderer && camera) footprintRenderer->render(currentCmd, perFrameSet, *camera);
         if (questMarkerRenderer && camera) questMarkerRenderer->render(currentCmd, perFrameSet, *camera);
+        // The same one-line total the parallel path reports, so a profile taken
+        // either way can be compared against the other.
+        if (vkCtx) vkCtx->gpuMark(currentCmd, "world total");
     }
 
     // Underwater overlay and minimap - in the fallback path these run inline;

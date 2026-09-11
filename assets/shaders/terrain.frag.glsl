@@ -81,6 +81,10 @@ vec3 localLightContribution(vec3 pos, vec3 normal, vec3 albedo) {
     return sum;
 }
 
+/// How much of the seam blur below is worth paying for at this distance.
+/// Set once in main() from the fragment's distance; see sampleAlpha.
+float gBlurDistFade = 1.0;
+
 float sampleAlpha(sampler2D tex, vec2 uv) {
     // Smooth 9-tap box near chunk edges to hide alpha-map seams;
     // blends gradually to avoid a visible ring at the transition.
@@ -90,6 +94,12 @@ float sampleAlpha(sampler2D tex, vec2 uv) {
     vec2 edge = min(uv, 1.0 - uv);
     float border = min(edge.x, edge.y);
     float blurWeight = 1.0 - smoothstep(1.0 / 64.0, 8.0 / 64.0, border);
+    // The seam this hides is a chunk edge seen close up. Far enough away a
+    // whole chunk is a few pixels across and the blur is hiding something
+    // nobody can see - while still costing four taps per layer, on the band
+    // that is 44% of every chunk, on the pass that covers the screen. At a
+    // 2400-yard view distance that is most of the terrain drawn.
+    blurWeight *= gBlurDistFade;
     float center = texture(tex, uv).r;
     if (blurWeight < 0.001) return center;
     // Four taps at half-texel offsets, not nine at whole ones. The sampler
@@ -107,6 +117,9 @@ float sampleAlpha(sampler2D tex, vec2 uv) {
 }
 
 void main() {
+    float fragDist = length(viewPos.xyz - FragPos);
+    gBlurDistFade = 1.0 - smoothstep(140.0, 260.0, fragDist);
+
     vec4 baseColor = texture(uBaseTexture, TexCoord);
 
     // WoW terrain: layers are blended sequentially, each on top of the previous result.
@@ -114,15 +127,24 @@ void main() {
     vec4 finalColor = baseColor;
     if (hasLayer1 != 0) {
         float a1 = sampleAlpha(uLayer1Alpha, LayerUV);
-        finalColor = mix(finalColor, texture(uLayer1Texture, TexCoord), a1);
+        // Where the layer is not painted, mix() returns what it was given and
+        // the fetch that fed it was work for nothing. A layer covers part of a
+        // chunk, so whole regions of the screen take this branch together.
+        if (a1 > 0.002) finalColor = mix(finalColor, texture(uLayer1Texture, TexCoord), a1);
     }
     if (hasLayer2 != 0) {
         float a2 = sampleAlpha(uLayer2Alpha, LayerUV);
-        finalColor = mix(finalColor, texture(uLayer2Texture, TexCoord), a2);
+        // Where the layer is not painted, mix() returns what it was given and
+        // the fetch that fed it was work for nothing. A layer covers part of a
+        // chunk, so whole regions of the screen take this branch together.
+        if (a2 > 0.002) finalColor = mix(finalColor, texture(uLayer2Texture, TexCoord), a2);
     }
     if (hasLayer3 != 0) {
         float a3 = sampleAlpha(uLayer3Alpha, LayerUV);
-        finalColor = mix(finalColor, texture(uLayer3Texture, TexCoord), a3);
+        // Where the layer is not painted, mix() returns what it was given and
+        // the fetch that fed it was work for nothing. A layer covers part of a
+        // chunk, so whole regions of the screen take this branch together.
+        if (a3 > 0.002) finalColor = mix(finalColor, texture(uLayer3Texture, TexCoord), a3);
     }
 
     vec3 norm = normalize(Normal);
@@ -130,7 +152,6 @@ void main() {
     // Derivative-based normal mapping: perturb vertex normal using texture detail.
     // Fade out with distance and near chunk edges (dFdx/dFdy are invalid across
     // chunk draw-call boundaries, producing visible seams if not faded).
-    float fragDist = length(viewPos.xyz - FragPos);
     float bumpFade = 1.0 - smoothstep(50.0, 125.0, fragDist);
     float edgeDist = min(min(LayerUV.x, 1.0 - LayerUV.x), min(LayerUV.y, 1.0 - LayerUV.y));
     bumpFade *= smoothstep(0.0, 0.06, edgeDist);
