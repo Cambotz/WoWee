@@ -295,3 +295,41 @@ TEST_CASE("hanging cloth is picked out by name", "[m2][classifier][cloth]") {
         }
     }
 }
+
+// A stump is a tree by name and timber by nature.
+//
+// shadowWindFoliage is what bends a model in the wind, and it was set for
+// anything foliage-like - which a name carrying "tree" always is. So the cut
+// stumps and fallen logs scattered through Elwynn and Duskwood swayed like
+// saplings, trunk and all, with no canopy to justify it.
+//
+// The classifier already separates the wooden parts of a tree from the leafy
+// ones: hardTreePart is trunk, stump and log, and it is what the collision
+// rules use to decide that these are things you step over rather than walk
+// around. The same set is what must not bend.
+TEST_CASE("the wooden parts of a tree do not sway", "[m2][classifier][foliage]") {
+    SECTION("stumps, logs and bare trunks") {
+        for (const char* n : {"ElwynnTreeStump01", "elwynntreestump02",
+                              "DuskwoodTreeStump01", "TreeStumpSmall",
+                              "ElwynnLog01", "FallenTreeLog02",
+                              "ElwynnTreeTrunk01", "TeldrassilTreeTrunk03",
+                              "WORLD\\AZEROTH\\ELWYNN\\PASSIVEDOODADS\\TREES\\ELWYNNTREESTUMP01.M2"}) {
+            INFO(n);
+            CHECK_FALSE(classify(n, 2.0f, 1.5f).shadowWindFoliage);
+        }
+    }
+
+    SECTION("but a whole tree still does") {
+        for (const char* n : {"ElwynnTree01", "DuskwoodTree03", "TeldrassilTree02"}) {
+            INFO(n);
+            CHECK(classify(n, 8.0f, 14.0f).shadowWindFoliage);
+        }
+    }
+
+    SECTION("and so does the undergrowth around them") {
+        for (const char* n : {"ElwynnBush01", "ElwynnFern02"}) {
+            INFO(n);
+            CHECK(classify(n, 1.5f, 1.2f).shadowWindFoliage);
+        }
+    }
+}

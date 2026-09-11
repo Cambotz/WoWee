@@ -476,7 +476,12 @@ M2ClassificationResult classifyM2Model(
     // doodads the ground-effect scatterer places are grass, weeds and flowers,
     // and most of them are named for their tileset rather than for a plant
     // (ElwGra01, 8DE_Detail02). Wind and the player's passage apply to them.
-    r.shadowWindFoliage = r.isFoliageLike || r.isGroundDetail;
+    //
+    // Except the wooden parts of a tree, which are not foliage however much
+    // the name says "tree": a stump, a fallen log and a bare trunk are solid
+    // timber, and hardTreePart is already exactly that set. They matched
+    // treeLike on the name and bent in the wind like a sapling.
+    r.shadowWindFoliage = (r.isFoliageLike || r.isGroundDetail) && !hardTreePart;
     // Cloth hung from a bar: banners, flags, tapestries, pennants. Not the
     // pole or the stand they hang from, which are named for the whole thing -
     // the sway is applied per vertex from the top down, so a rigid pole in the
