@@ -1648,6 +1648,22 @@ if(WOWEE_BUILD_FRAMEXML_RUN)
     endif()
 endif()
 
+# ---- Tool: mpq_build (loose files → MPQ) ----
+# The reverse of asset_extract, and not for WoWee, which reads loose files: for
+# handing an override directory to a client that only reads archives, and for
+# keeping one as a single file with its paths intact. See docs/upgraded-assets.md.
+if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR)
+    add_executable(mpq_build tools/mpq_build/main.cpp)
+    target_include_directories(mpq_build PRIVATE ${STORMLIB_INCLUDE_DIR})
+    target_link_libraries(mpq_build PRIVATE ${STORMLIB_LIBRARY} ZLIB::ZLIB Threads::Threads)
+    if(NOT WIN32)
+        find_library(BZ2_LIB NAMES bz2 bzip2)
+        if(BZ2_LIB)
+            target_link_libraries(mpq_build PRIVATE ${BZ2_LIB})
+        endif()
+    endif()
+endif()
+
 # ---- Tool: asset_extract (MPQ → loose files) ----
 if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR)
     add_executable(asset_extract

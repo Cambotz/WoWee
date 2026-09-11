@@ -139,6 +139,25 @@ Packs are laid down file by file rather than owning `override/`, so several can
 live there. Where two carry the same path the later install wins, and the
 installer says so. Removing one leaves the other intact.
 
+## Handing it to something that is not WoWee
+
+WoWee reads loose files and never opens a patch archive, so the override
+directory is all it needs. `mpq_build` packs that directory into one:
+
+```sh
+./build/bin/mpq_build --input <expansion>/override --output Patch-W.MPQ
+```
+
+Names inside the archive are the paths relative to the input directory,
+backslashed and lowercased, with a `(listfile)` written so the contents can be
+found by something other than guesswork. MPQ v1 by default, which is what a
+3.3.5a client reads.
+
+That is for the cases a directory cannot serve: giving the same art to a client
+that only reads archives, standing beside the `Patch-*.MPQ` files a server's
+players already install, or keeping a whole overlay as one file with its paths
+intact. `asset_extract` reads back what it writes, which is how to check one.
+
 ## What to expect
 
 Placements are still your client's. A Cataclysm tree stands where the 3.3.5 ADT
