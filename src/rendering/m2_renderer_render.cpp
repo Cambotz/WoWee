@@ -2016,7 +2016,8 @@ bool M2Renderer::initializeShadow(VkRenderPass shadowRenderPass) {
 
     // Create shadow pipeline layout: set 1 = shadowParams_.layout, push constants = 128 bytes
     VkPushConstantRange pc{};
-    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    // The fragment stage reads the alpha-test flags out of the same block.
+    pc.stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
     pc.offset = 0;
     pc.size = sizeof(ShadowPush);  // one combined matrix, plus the sway slot
     shadowPipelineLayout_ = createPipelineLayout(device, {shadowParams_.layout}, {pc});
@@ -2131,19 +2132,17 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
 
     // Helper lambda to draw instances with a given foliageSway setting
     auto drawPass = [&](bool foliagePass) {
-        ShadowParamsUBO params{};
-        params.foliageSway = foliagePass ? 1 : 0;
-        params.windTime = globalTime;
-        params.foliageMotionDamp = 1.0f;
-        // For foliage pass: enable texture+alphaTest in UBO (per-batch textures bound below)
-        if (foliagePass) {
-            params.useTexture = 1;
-            params.alphaTest = 1;
-        }
-
-        VmaAllocationInfo allocInfo{};
-        vmaGetAllocationInfo(vkCtx_->getAllocator(), shadowParams_.alloc, &allocInfo);
-        std::memcpy(allocInfo.pMappedData, &params, sizeof(params));
+        // What this pass is, carried with each draw rather than written into a
+        // buffer both passes share. The uniform buffer this used to be is read
+        // when a draw executes, not when it is recorded, so writing it again
+        // for the foliage pass decided what the solid pass's draws saw as
+        // well - and one mapped copy across frames in flight let a CPU write
+        // land inside the previous frame's reads. A foliage batch that lost
+        // its alpha test that way casts the whole leaf quad, which is the
+        // canopy's outline in solid black instead of its cutout.
+        const glm::ivec4 passFlags{foliagePass ? 1 : 0, foliagePass ? 1 : 0,
+                                   foliagePass ? 1 : 0, 0};
+        const glm::vec4 wind{globalTime, 0.0f, 0.0f, 0.0f};
 
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipeline_);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipelineLayout_,
@@ -2196,7 +2195,9 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
             const glm::vec3 origin = glm::vec3(instance.modelMatrix[3]);
             ShadowPush push{
                 .lightSpaceModel = lightSpaceMatrix * instance.modelMatrix,
-                .sway = glm::vec4(origin.x, origin.y, sway.refHeight, sway.amp)};
+                .sway = glm::vec4(origin.x, origin.y, sway.refHeight, sway.amp),
+                .flags = passFlags,
+                .wind = wind};
             vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
                                0, sizeof(ShadowPush), &push);
 

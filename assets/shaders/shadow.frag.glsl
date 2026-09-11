@@ -2,20 +2,18 @@
 
 layout(set = 0, binding = 0) uniform sampler2D uTexture;
 
-layout(set = 0, binding = 1) uniform ShadowParams {
-    int useBones;
-    int useTexture;
-    int alphaTest;
-    int foliageSway;
-    float windTime;
-    float foliageMotionDamp;
-};
+layout(push_constant) uniform Push {
+    mat4 lightSpaceModel;
+    vec4 sway;
+    ivec4 flags;            // x useTexture, y alphaTest, z foliageSway
+    vec4 wind;
+} push;
 
 layout(location = 0) in vec2 TexCoord;
 
 void main() {
-    if (useTexture != 0) {
+    if (push.flags.x != 0) {
         vec4 texColor = textureLod(uTexture, TexCoord, 0.0);
-        if (alphaTest != 0 && texColor.a < 0.5) discard;
+        if (push.flags.y != 0 && texColor.a < 0.5) discard;
     }
 }

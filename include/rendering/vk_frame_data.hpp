@@ -58,6 +58,20 @@ struct ShadowPush {
     /// phase. z: the height the bend is normalised against. w: its amplitude.
     /// All zero for anything that does not sway.
     glm::vec4 sway{0.0f};
+    /// x: sample the texture. y: alpha-test it. z: bend in the wind.
+    ///
+    /// These were in the uniform buffer, and the M2 pass writes that buffer
+    /// twice a frame - once for its solid casters, once for its foliage. A
+    /// uniform buffer is read when the draw executes rather than when it is
+    /// recorded, so the second write decided what the first pass's draws saw,
+    /// and one persistently-mapped copy shared between frames in flight let a
+    /// CPU write land in the middle of the previous frame's reads. Losing the
+    /// alpha test that way turns a leaf cutout into the solid outline of the
+    /// canopy. Push constants are recorded into the command buffer with the
+    /// draw, so there is nothing left to race.
+    glm::ivec4 flags{0};
+    /// x: the wind clock the sway is sampled at.
+    glm::vec4 wind{0.0f};
 };
 
 // Uniform buffer for shadow rendering parameters (matches shader std140 layout)
