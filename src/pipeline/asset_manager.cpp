@@ -172,6 +172,18 @@ std::string AssetManager::resolveFile(const std::string& normalizedPath) const {
                 return overrideFsPath;
             }
         }
+        // A pack is allowed to add as well as replace, and an addition has no
+        // manifest entry to be resolved against: a later client's leaf atlas
+        // arrives under a name this expansion has never had. So the path is
+        // taken as the path. Without this, a model dropped in as an override
+        // rendered white, because its own new textures were unreachable while
+        // it was not.
+        std::string overrideByPath = normalizedPath;
+        std::replace(overrideByPath.begin(), overrideByPath.end(), '\\', '/');
+        overrideByPath = overridePath_ + "/" + overrideByPath;
+        if (LooseFileReader::fileExists(overrideByPath)) {
+            return overrideByPath;
+        }
     }
     // Primary manifest
     std::string primaryPath = manifest_.resolveFilesystemPath(normalizedPath);

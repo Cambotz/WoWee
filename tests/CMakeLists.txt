@@ -758,6 +758,20 @@ target_link_libraries(test_base_fallback PRIVATE catch2_main)
 add_test(NAME base_fallback COMMAND test_base_fallback)
 register_test_target(test_base_fallback)
 
+# ── test_override_add ──────────────────────────────────────────────────
+# A pack may add files, not only replace them. An addition has no manifest
+# entry to resolve against, and resolution used to stop there.
+add_executable(test_override_add
+    test_override_add.cpp
+    ${TEST_COMMON_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/pipeline/asset_manifest.cpp)
+target_include_directories(test_override_add PRIVATE ${TEST_INCLUDE_DIRS})
+target_include_directories(test_override_add SYSTEM PRIVATE ${TEST_SYSTEM_INCLUDE_DIRS})
+target_link_libraries(test_override_add PRIVATE catch2_main)
+wowee_test_link_glm(test_override_add)
+add_test(NAME override_add COMMAND test_override_add)
+register_test_target(test_override_add)
+
 # ── test_asset_manifest_load ───────────────────────────────────────────
 # The 32 MB asset manifest, pinned so a change to how it is read cannot change
 # what it read. Skips when Data/manifest.json is not in the checkout.

@@ -87,6 +87,7 @@ except ImportError as exc:  # pragma: no cover - the message is the point
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import m2_textures  # noqa: E402
+from asset_files import sha256_of, wmo_texture_names  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 WMO_GROUP_RE = re.compile(r"_\d{3}\.wmo$")
@@ -353,34 +354,6 @@ def index_root(root: Path):
     return index
 
 
-def wmo_texture_names(path: Path):
-    """The texture names in a WMO root's MOTX chunk.
-
-    A building shares sheets with the doodads around it, and a sheet upscaled
-    for one and not the other is the seam this tool exists to avoid. Group
-    files (foo_000.wmo) carry no MOTX; only the root is read.
-    """
-    names = []
-    try:
-        data = path.read_bytes()
-    except OSError:
-        return names
-    off = 0
-    while off + 8 <= len(data):
-        magic = data[off:off + 4][::-1]
-        size = int.from_bytes(data[off + 4:off + 8], "little")
-        body = off + 8
-        if body + size > len(data):
-            break
-        if magic == b"MOTX":
-            for raw in data[body:body + size].split(b"\x00"):
-                if raw:
-                    names.append(raw.decode("ascii", errors="replace"))
-            break
-        off = body + size
-    return names
-
-
 def texture_users(root: Path):
     """(texture key → the models that use it, texture key → wrap flags).
 
@@ -458,14 +431,6 @@ def collect(data_dir: Path, tokens, take_all: bool, texture_includes,
 # ---------------------------------------------------------------------------
 # Manifest
 # ---------------------------------------------------------------------------
-
-def sha256_of(path: Path) -> str:
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
 
 def load_manifest(data_dir: Path) -> dict:
     path = data_dir / MANIFEST_NAME
