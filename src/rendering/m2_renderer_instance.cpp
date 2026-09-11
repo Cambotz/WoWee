@@ -627,6 +627,16 @@ void M2Renderer::unloadModel(uint32_t modelId) {
 size_t M2Renderer::evictUnreferencedTextures(size_t bytesNeeded) {
     if (textureCache.empty() || bytesNeeded == 0) return 0;
 
+    // Free a slab rather than exactly what was asked for.
+    //
+    // Working out what is evictable means walking every loaded model, because
+    // the in-use set is what those models point at. Doing that per texture is
+    // a walk per load for as long as the cache sits at its ceiling - which is
+    // exactly when textures are streaming in fastest. One sweep that frees a
+    // slab serves the next few hundred loads instead.
+    constexpr size_t kEvictionSlab = 64ull * 1024 * 1024;
+    bytesNeeded = std::max(bytesNeeded, kEvictionSlab);
+
     // What a loaded model still points at. A batch, a particle emitter and a
     // ribbon each keep a raw pointer into this cache, and the per-frame
     // particle and ribbon groups are rebuilt from those - so anything a model

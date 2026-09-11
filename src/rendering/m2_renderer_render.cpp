@@ -2150,6 +2150,7 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
 
         uint32_t currentModelId = UINT32_MAX;
         const M2ModelGPU* currentModel = nullptr;
+        glm::vec2 modelSwayZW(20.0f, 1.0f);   // refreshed when the model changes
 
         for (const auto& instance : instances) {
             // Use cached flags to skip early without hash lookup
@@ -2177,25 +2178,30 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
             // Filter: only draw foliage models in foliage pass, non-foliage in non-foliage pass
             if (model.shadowWindFoliage != foliagePass) continue;
 
-            // Bind vertex/index buffers when model changes
+            // Bind vertex/index buffers when model changes, and work out the
+            // bend once here: it comes from the model's own bounds and its
+            // kind, so it is the same for every instance of it. Computing it
+            // per instance cost a call and a clamp for every caster in the
+            // world, twice a frame - both passes walk the whole list.
             if (instance.modelId != currentModelId) {
                 currentModelId = instance.modelId;
                 currentModel = &model;
+                const M2Sway sway = m2SwayFor(false, model.isHangingCloth,
+                                              model.shadowWindFoliage, model.isGroundDetail,
+                                              model.boundMin.z, model.boundMax.z);
+                modelSwayZW = glm::vec2(sway.refHeight, sway.amp);
                 VkDeviceSize offset = 0;
                 vkCmdBindVertexBuffers(cmd, 0, 1, &currentModel->vertexBuffer, &offset);
                 vkCmdBindIndexBuffer(cmd, currentModel->indexBuffer, 0, VK_INDEX_TYPE_UINT16);
             }
 
             ++castersDrawn[foliagePass ? 1 : 0];
-            // The same bend the main pass gives this model, from the same
-            // rule. A shadow that sways differently from its tree is a
-            // dappled pattern drifting against the canopy above it.
-            const M2Sway sway = m2SwayFor(false, model.isHangingCloth, model.shadowWindFoliage,
-                                          model.isGroundDetail, model.boundMin.z, model.boundMax.z);
+            // The instance's own origin is what gives the wind its per-tree
+            // phase; the height and amplitude beside it are the model's.
             const glm::vec3 origin = glm::vec3(instance.modelMatrix[3]);
             ShadowPush push{
                 .lightSpaceModel = lightSpaceMatrix * instance.modelMatrix,
-                .sway = glm::vec4(origin.x, origin.y, sway.refHeight, sway.amp),
+                .sway = glm::vec4(origin.x, origin.y, modelSwayZW.x, modelSwayZW.y),
                 .flags = passFlags,
                 .wind = wind};
             vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
