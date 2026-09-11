@@ -104,15 +104,35 @@ struct LightParamsProfile {
     uint32_t lightSkyboxId = 0;
 
     // 18 color channels (IntBand)
+    //
+    // Read off the file rather than from the order they are usually listed in.
+    // The sky gradient anchors the rest: for Stormwind at noon, channels 2 to 5
+    // are (0,31,73), (58,162,207), (153,220,245), (175,218,224) - a deep blue
+    // overhead paling to the horizon, which can only be the sky and fixes every
+    // index around it.
+    //
+    // Channel 0 is not the ambient. Across zones it is the warm, bright one -
+    // (199,168,134) over Dun Morogh's snow, (255,224,169) in Teldrassil,
+    // (255,136,0) in Stormwind - while channel 1 is the dark cool one that
+    // carries the zone's cast: (31,82,125) in Dun Morogh, violet (125,72,130)
+    // in Teldrassil and Winterspring. A scene ambient multiplies every surface,
+    // so reading channel 0 into it put Stormwind's orange over the whole city
+    // and left it looking like Durotar, whose channel 0 is (255,204,148).
+    //
+    // Channel 7 is the fog. Channel 6 is the sky's smog layer and is a neutral
+    // grey - (180,180,180) at Stormwind noon - which is the pale grey the fog
+    // blend further down was written to work around.
     enum ColorChannel {
-        AMBIENT_COLOR = 0,
-        DIFFUSE_COLOR = 1,
+        DIFFUSE_COLOR = 0,
+        AMBIENT_COLOR = 1,
         SKY_TOP_COLOR = 2,
         SKY_MIDDLE_COLOR = 3,
         SKY_BAND1_COLOR = 4,
         SKY_BAND2_COLOR = 5,
-        FOG_COLOR = 6,
-        // ... more channels exist (ocean, river, shadow, etc.)
+        SKY_SMOG_COLOR = 6,
+        FOG_COLOR = 7,
+        SUN_COLOR = 9,
+        // ... more channels exist (clouds, ocean, river)
         COLOR_CHANNEL_COUNT = 18
     };
 

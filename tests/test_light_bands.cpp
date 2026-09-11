@@ -183,12 +183,94 @@ TEST_CASE("a band colour has red in the high byte", "[light]") {
     // like.
     //
     // These are real values from LightParams 208, which lights Teldrassil.
-    const uint32_t noonAmbient = 0xFFE0A9;   // channel 0 at 1440
-    CHECK(((noonAmbient >> 16) & 0xFF) == 0xFF);  // red, and it is the largest
-    CHECK(((noonAmbient >> 8) & 0xFF) == 0xE0);
-    CHECK((noonAmbient & 0xFF) == 0xA9);          // blue, the smallest
+    // Channel 0 is the warm one - see the channel test below for why that is
+    // the sunlight rather than the ambient.
+    const uint32_t noonDiffuse = 0xFFE0A9;   // channel 0 at 1440
+    CHECK(((noonDiffuse >> 16) & 0xFF) == 0xFF);  // red, and it is the largest
+    CHECK(((noonDiffuse >> 8) & 0xFF) == 0xE0);
+    CHECK((noonDiffuse & 0xFF) == 0xA9);          // blue, the smallest
 
     // Warm at noon means red >= blue once decoded that way, and the reverse
     // reading would have claimed the opposite.
-    CHECK(((noonAmbient >> 16) & 0xFF) > (noonAmbient & 0xFF));
+    CHECK(((noonDiffuse >> 16) & 0xFF) > (noonDiffuse & 0xFF));
+}
+
+TEST_CASE("the sky gradient says where the channels are", "[light]") {
+    // Channels 2 to 5 for LightParams 79, which lights Stormwind, sampled at
+    // noon: a deep blue overhead paling toward the horizon. Nothing else in
+    // the row looks like that, so it fixes the index of every channel around
+    // it - which is how the two below were found to be in the wrong places.
+    using Profile = wowee::rendering::LightParamsProfile;
+    const int skyTop[3]    = {  0,  31,  73};
+    const int skyMiddle[3] = { 58, 162, 207};
+    const int skyBand1[3]  = {153, 220, 245};
+    const int skyBand2[3]  = {175, 218, 224};
+
+    CHECK(Profile::SKY_TOP_COLOR == 2);
+    CHECK(Profile::SKY_MIDDLE_COLOR == 3);
+    CHECK(Profile::SKY_BAND1_COLOR == 4);
+    CHECK(Profile::SKY_BAND2_COLOR == 5);
+
+    // Each step toward the horizon is lighter than the last.
+    const auto luma = [](const int c[3]) { return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]; };
+    CHECK(luma(skyTop) < luma(skyMiddle));
+    CHECK(luma(skyMiddle) < luma(skyBand1));
+    CHECK(luma(skyBand1) < luma(skyBand2));
+    // And blue leads red in all of it, which a sky does and sunlight does not.
+    for (const int* band : {skyTop, skyMiddle, skyBand1, skyBand2}) CHECK(band[2] > band[0]);
+}
+
+TEST_CASE("channel 0 is the sunlight and channel 1 is the ambient", "[light]") {
+    // Reading channel 0 into the scene ambient is what made Stormwind red.
+    // An ambient multiplies every surface, and channel 0 in Stormwind at noon
+    // is (255,136,0) - so the whole city took an orange cast and came out
+    // looking like Durotar, whose channel 0 is (255,204,148).
+    //
+    // The two are told apart by what they do across zones, at noon:
+    //
+    //   zone          channel 0          channel 1
+    //   Stormwind     (255,136,  0)      (104,130,154)
+    //   Dun Morogh    (199,168,134)      ( 31, 82,125)
+    //   Teldrassil    (255,224,169)      (125, 72,130)
+    //   Winterspring  (175,162,206)      (125, 72,130)
+    //
+    // Channel 0 is bright and warm wherever the sun is warm and cold where it
+    // is cold. Channel 1 is dark, cool, and carries the zone's own cast -
+    // violet under Teldrassil's canopy and in Winterspring, blue over Dun
+    // Morogh's snow. That is an ambient.
+    using Profile = wowee::rendering::LightParamsProfile;
+    CHECK(Profile::DIFFUSE_COLOR == 0);
+    CHECK(Profile::AMBIENT_COLOR == 1);
+
+    struct Zone { const char* name; int channel0[3]; int channel1[3]; };
+    const Zone zones[] = {
+        {"Stormwind",    {255, 136,   0}, {104, 130, 154}},
+        {"Dun Morogh",   {199, 168, 134}, { 31,  82, 125}},
+        {"Teldrassil",   {255, 224, 169}, {125,  72, 130}},
+        {"Winterspring", {175, 162, 206}, {125,  72, 130}},
+    };
+    const auto luma = [](const int c[3]) { return 0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]; };
+    for (const Zone& zone : zones) {
+        INFO(zone.name);
+        // The ambient is always the darker of the two.
+        CHECK(luma(zone.channel1) < luma(zone.channel0));
+    }
+}
+
+TEST_CASE("channel 7 is the fog and channel 6 is the smog above it", "[light]") {
+    // Stormwind at noon: channel 6 is (180,180,180), a flat neutral grey, and
+    // channel 7 is (77,120,143), the blue-grey haze the city's distance
+    // actually has. Reading 6 as the fog is where "terrain faded to a pale
+    // grey the sky never reaches" came from, and the blend toward the sky
+    // colour in LightingManager::update was written to cover it.
+    using Profile = wowee::rendering::LightParamsProfile;
+    CHECK(Profile::SKY_SMOG_COLOR == 6);
+    CHECK(Profile::FOG_COLOR == 7);
+
+    const int smog[3] = {180, 180, 180};
+    const int fog[3]  = { 77, 120, 143};
+    // The smog channel is grey - all three within a point of each other.
+    CHECK(std::abs(smog[0] - smog[2]) <= 1);
+    // The fog is not: it leans blue, like the sky it is seen against.
+    CHECK(fog[2] > fog[0] + 40);
 }
