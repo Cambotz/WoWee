@@ -943,6 +943,17 @@ private:
 
     // Shadow-pass texture descriptor cache (reused each frame, cleared via pool reset)
     std::unordered_map<VkImageView, VkDescriptorSet> shadowTexSetCache_;
+    /// The casters this frame, grouped by model: [0] solid, [1] foliage.
+    ///
+    /// The shadow pass used to walk every instance in the world twice - once
+    /// per pass - and draw them in whatever order they happened to sit in,
+    /// rebinding the vertex and index buffers whenever consecutive instances
+    /// came from different models, and rebinding a batch's texture once per
+    /// instance rather than once per batch. Culling once into these and
+    /// sorting them by model turns both into once per model.
+    ///
+    /// Kept as members so a frame's worth of casters costs no allocation.
+    std::vector<std::pair<uint32_t, uint32_t>> shadowCasters_[2];
 
     // Ribbon draw-call list (reused each frame)
     struct RibbonDrawCall {

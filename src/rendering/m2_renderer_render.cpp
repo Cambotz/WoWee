@@ -2143,6 +2143,44 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
     // whether its caster was culled or its texture was missing.
     uint32_t castersDrawn[2] = {0, 0};
 
+    // Cull once, into the two passes, grouped by model.
+    //
+    // This walked every instance in the world twice - once per pass - doing a
+    // light-space transform for each, then drew them in whatever order they
+    // sat in: the vertex and index buffers were rebound whenever consecutive
+    // instances came from different models, which unsorted is most of them,
+    // and a batch's texture was bound once per instance rather than once per
+    // batch. With tens of thousands of instances resident that is the cost of
+    // this pass, and none of it is drawing.
+    shadowCasters_[0].clear();
+    shadowCasters_[1].clear();
+    for (uint32_t i = 0; i < instances.size(); ++i) {
+        const auto& instance = instances[i];
+        if (!instance.cachedIsValid || instance.cachedIsSmoke ||
+            instance.cachedIsInvisibleTrap) continue;
+        if (!instance.cachedModel) continue;
+        const M2ModelGPU& model = *instance.cachedModel;
+
+        // Cull casters against the light-space ortho footprint, not a
+        // world-space sphere around the player. The shadow frustum extends
+        // ~2000 units toward the sun, so a distant tree can legitimately
+        // cast across the whole view while sitting far outside any player
+        // sphere - sphere culling made such shadows pop on/off at the cull
+        // boundary as the player moved (large-area flicker at low sun).
+        const glm::vec4 clip = lightSpaceMatrix * glm::vec4(instance.position, 1.0f);
+        // Orthographic projection: w == 1, NDC directly comparable.
+        // Inflate by the model's bounding sphere converted to NDC
+        // (shadowRadius ≈ frustum half-extent; overshoot is harmless).
+        const float margin = (model.boundRadius * instance.scale) / shadowRadius * 1.5f;
+        if (std::abs(clip.x) > 1.0f + margin || std::abs(clip.y) > 1.0f + margin) continue;
+        if (clip.z < -margin || clip.z > 1.0f + margin) continue;
+
+        shadowCasters_[model.shadowWindFoliage ? 1 : 0].emplace_back(instance.modelId, i);
+    }
+    for (auto& bucket : shadowCasters_) {
+        std::sort(bucket.begin(), bucket.end());
+    }
+
     // Helper lambda to draw instances with a given foliageSway setting
     auto drawPass = [&](bool foliagePass) {
         // What this pass is, carried with each draw rather than written into a
@@ -2161,64 +2199,25 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipelineLayout_,
             0, 1, &shadowParams_.set, 0, nullptr);
 
-        uint32_t currentModelId = UINT32_MAX;
-        const M2ModelGPU* currentModel = nullptr;
-        glm::vec2 modelSwayZW(20.0f, 1.0f);   // refreshed when the model changes
+        const auto& casters = shadowCasters_[foliagePass ? 1 : 0];
+        for (std::size_t g = 0; g < casters.size();) {
+            const uint32_t modelId = casters[g].first;
+            std::size_t groupEnd = g;
+            while (groupEnd < casters.size() && casters[groupEnd].first == modelId) ++groupEnd;
 
-        for (const auto& instance : instances) {
-            // Use cached flags to skip early without hash lookup
-            if (!instance.cachedIsValid || instance.cachedIsSmoke || instance.cachedIsInvisibleTrap) continue;
+            const auto& firstInstance = instances[casters[g].second];
+            if (!firstInstance.cachedModel) { g = groupEnd; continue; }
+            const M2ModelGPU& model = *firstInstance.cachedModel;
 
-            if (!instance.cachedModel) continue;
-            const M2ModelGPU& model = *instance.cachedModel;
-
-            // Cull casters against the light-space ortho footprint, not a
-            // world-space sphere around the player. The shadow frustum extends
-            // ~2000 units toward the sun, so a distant tree can legitimately
-            // cast across the whole view while sitting far outside any player
-            // sphere - sphere culling made such shadows pop on/off at the cull
-            // boundary as the player moved (large-area flicker at low sun).
-            {
-                const glm::vec4 clip = lightSpaceMatrix * glm::vec4(instance.position, 1.0f);
-                // Orthographic projection: w == 1, NDC directly comparable.
-                // Inflate by the model's bounding sphere converted to NDC
-                // (shadowRadius ≈ frustum half-extent; overshoot is harmless).
-                const float margin = (model.boundRadius * instance.scale) / shadowRadius * 1.5f;
-                if (std::abs(clip.x) > 1.0f + margin || std::abs(clip.y) > 1.0f + margin) continue;
-                if (clip.z < -margin || clip.z > 1.0f + margin) continue;
-            }
-
-            // Filter: only draw foliage models in foliage pass, non-foliage in non-foliage pass
-            if (model.shadowWindFoliage != foliagePass) continue;
-
-            // Bind vertex/index buffers when model changes, and work out the
-            // bend once here: it comes from the model's own bounds and its
-            // kind, so it is the same for every instance of it. Computing it
-            // per instance cost a call and a clamp for every caster in the
-            // world, twice a frame - both passes walk the whole list.
-            if (instance.modelId != currentModelId) {
-                currentModelId = instance.modelId;
-                currentModel = &model;
-                const M2Sway sway = m2SwayFor(false, model.isHangingCloth,
-                                              model.shadowWindFoliage, model.isGroundDetail,
-                                              model.boundMin.z, model.boundMax.z);
-                modelSwayZW = glm::vec2(sway.refHeight, sway.amp);
-                VkDeviceSize offset = 0;
-                vkCmdBindVertexBuffers(cmd, 0, 1, &currentModel->vertexBuffer, &offset);
-                vkCmdBindIndexBuffer(cmd, currentModel->indexBuffer, 0, VK_INDEX_TYPE_UINT16);
-            }
-
-            ++castersDrawn[foliagePass ? 1 : 0];
-            // The instance's own origin is what gives the wind its per-tree
-            // phase; the height and amplitude beside it are the model's.
-            const glm::vec3 origin = glm::vec3(instance.modelMatrix[3]);
-            ShadowPush push{
-                .lightSpaceModel = lightSpaceMatrix * instance.modelMatrix,
-                .sway = glm::vec4(origin.x, origin.y, modelSwayZW.x, modelSwayZW.y),
-                .flags = passFlags,
-                .wind = wind};
-            vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
-                               0, sizeof(ShadowPush), &push);
+            // Once per model, not once per instance: the bend comes from the
+            // model's own bounds and its kind, and so do the buffers.
+            const M2Sway sway = m2SwayFor(false, model.isHangingCloth,
+                                          model.shadowWindFoliage, model.isGroundDetail,
+                                          model.boundMin.z, model.boundMax.z);
+            const glm::vec2 modelSwayZW(sway.refHeight, sway.amp);
+            VkDeviceSize offset = 0;
+            vkCmdBindVertexBuffers(cmd, 0, 1, &model.vertexBuffer, &offset);
+            vkCmdBindIndexBuffer(cmd, model.indexBuffer, 0, VK_INDEX_TYPE_UINT16);
 
             for (const auto& batch : model.batches) {
                 if (batch.submeshLevel > 0) continue;
@@ -2230,10 +2229,6 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
                 // same batch for want of a material set. The result is a black
                 // rectangle on the ground under a tree that looks fine, coming
                 // and going as the texture cache lets the sheet back in.
-                //
-                // Only on the foliage pass, and only when there is no texture
-                // at all: an opaque batch legitimately casts its whole shape,
-                // which is what the white set is there for.
                 if (foliagePass && !batch.texture) {
                     if (!warnedShadowNoTexture_) {
                         warnedShadowNoTexture_ = true;
@@ -2243,18 +2238,36 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
                     }
                     continue;
                 }
-                // For foliage: bind per-batch texture for alpha-tested shadows
+                // Once per batch, where it used to be once per batch per
+                // instance: the texture is the batch's, and every instance of
+                // this model shares it.
                 if (foliagePass && batch.hasAlpha && batch.texture) {
                     VkDescriptorSet texSet = getTexDescSet(batch.texture);
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipelineLayout_,
-                        0, 1, &texSet, 0, nullptr);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        shadowPipelineLayout_, 0, 1, &texSet, 0, nullptr);
                 } else if (foliagePass) {
-                    // Non-alpha batch: rebind default set (white texture, alpha test passes)
-                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, shadowPipelineLayout_,
-                        0, 1, &shadowParams_.set, 0, nullptr);
+                    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                        shadowPipelineLayout_, 0, 1, &shadowParams_.set, 0, nullptr);
                 }
-                vkCmdDrawIndexed(cmd, batch.indexCount, 1, batch.indexStart, 0, 0);
+
+                for (std::size_t k = g; k < groupEnd; ++k) {
+                    const auto& instance = instances[casters[k].second];
+                    // The instance's own origin is what gives the wind its
+                    // per-tree phase; the height and amplitude beside it are
+                    // the model's.
+                    const glm::vec3 origin = glm::vec3(instance.modelMatrix[3]);
+                    ShadowPush push{
+                        .lightSpaceModel = lightSpaceMatrix * instance.modelMatrix,
+                        .sway = glm::vec4(origin.x, origin.y, modelSwayZW.x, modelSwayZW.y),
+                        .flags = passFlags,
+                        .wind = wind};
+                    vkCmdPushConstants(cmd, shadowPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
+                                       0, sizeof(ShadowPush), &push);
+                    vkCmdDrawIndexed(cmd, batch.indexCount, 1, batch.indexStart, 0, 0);
+                }
             }
+            castersDrawn[foliagePass ? 1 : 0] += static_cast<uint32_t>(groupEnd - g);
+            g = groupEnd;
         }
     };
 
