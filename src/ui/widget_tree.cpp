@@ -780,11 +780,24 @@ void WidgetTree::layout(float pixelW, float pixelH) {
 
 void WidgetTree::layoutWidget(uint32_t id, float screenW, float screenH) {
     layoutWidgetSelf(id, screenW, screenH);
-    if (const Widget* w = get(id)) {
-        // Copied, because resolving a child can create widgets and reallocate
-        // the container this vector lives in.
-        const std::vector<uint32_t> kids = w->children;
-        for (uint32_t child : kids) layoutWidget(child, screenW, screenH);
+
+    // Resolving a child can create widgets, which reallocates widgets_ and
+    // invalidates both `w` and the vector it points at. This copied the
+    // children out to survive that - one heap allocation per widget per
+    // frame, and the tree here holds 28018 widgets, so better than a million
+    // allocations a second to walk a list that almost never changes.
+    //
+    // Re-fetching the parent by id each step is the same protection for
+    // nothing: get() is a bounds check and an index. The count is taken once
+    // so a child created during the walk is laid out on the next frame rather
+    // than this one, which is what copying the vector did.
+    const Widget* w = get(id);
+    if (!w) return;
+    const std::size_t count = w->children.size();
+    for (std::size_t i = 0; i < count; ++i) {
+        w = get(id);
+        if (!w || i >= w->children.size()) return;
+        layoutWidget(w->children[i], screenW, screenH);
     }
 }
 

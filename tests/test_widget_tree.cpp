@@ -2939,3 +2939,49 @@ TEST_CASE("A rect resolves before the first layout once the screen is known",
     CHECK(w->left == Catch::Approx(35.0f));
     CHECK(w->bottom == Catch::Approx(115.0f));
 }
+
+// Laying out a tree whose widgets appear while it is being walked.
+//
+// layoutWidget used to copy each widget's children out before recursing,
+// because resolving a child can create widgets and reallocate the container
+// the vector lives in. That was one heap allocation per widget per frame, and
+// the interface here holds 28018 of them. It re-fetches the parent by id now,
+// which is the same protection for the price of a bounds check - but only if
+// it really does survive the reallocation, and only if it still defers a child
+// created mid-walk to the next frame the way the copy did.
+TEST_CASE("layout survives widgets created while it walks") {
+    WidgetTree tree;
+    const uint32_t parent = tree.create(WidgetKind::Frame, tree.uiParentId(), "Parent");
+    REQUIRE(parent != 0);
+
+    // Enough children that the container reallocates while they are visited.
+    std::vector<uint32_t> made;
+    for (int i = 0; i < 64; ++i) {
+        const uint32_t child = tree.create(WidgetKind::Frame, parent,
+                                           "Child" + std::to_string(i));
+        REQUIRE(child != 0);
+        made.push_back(child);
+    }
+
+    tree.layout(1280.0f, 720.0f);
+
+    // Every child that existed at the start was laid out, and the tree is
+    // still walkable afterwards.
+    for (uint32_t id : made) {
+        const Widget* w = tree.get(id);
+        REQUIRE(w != nullptr);
+        CHECK(w->parent == parent);
+    }
+
+    // Growing the tree between layouts is picked up on the next pass.
+    const uint32_t late = tree.create(WidgetKind::Frame, parent, "Late");
+    REQUIRE(late != 0);
+    tree.layout(1280.0f, 720.0f);
+    const Widget* lateW = tree.get(late);
+    REQUIRE(lateW != nullptr);
+    CHECK(lateW->parent == parent);
+
+    const Widget* parentW = tree.get(parent);
+    REQUIRE(parentW != nullptr);
+    CHECK(parentW->children.size() == made.size() + 1);
+}
