@@ -214,292 +214,318 @@ bool WidgetRenderer::textureSize(const std::string& path, float& w, float& h) {
 /// Only the axis that has nothing. A texture given a width by two anchors and
 /// left open vertically keeps the width and takes only the height, which is how
 /// a stretched border piece is meant to work.
-void WidgetRenderer::sizeTextures(WidgetTree& tree) {
+/// One texture, sized from its own image. See sizeArtAndText.
+void WidgetRenderer::sizeTextureWidget(Widget* w) {
     if (!assets_) return;
-    for (size_t id = 1; id < tree.size(); ++id) {
-        Widget* w = tree.get(static_cast<uint32_t>(id));
-        if (!w || w->kind != WidgetKind::Texture) continue;
-        if (w->texturePath.empty()) continue;
-        // A texture with no anchors at all fills its parent, and that rule is
-        // older and stronger than this one. Sizing it from its image instead
-        // takes every portrait ring, action button icon and bag slot off the
-        // frame it is meant to cover and leaves it at whatever the artist
-        // happened to save the file at, centred - which warps the entire
-        // interface. Reported from a screenshot within minutes of this pass
-        // existing.
-        //
-        // SetAllPoints needs no such guard: it lays down two opposing corners,
-        // so the span test below already sees a size and stands aside.
-        if (w->anchors.empty()) continue;
-        // Button art has its own rule and it is the stronger one: it fills the
-        // button on any axis its anchors leave open. Sizing it from its image
-        // instead made InterfaceOptionsFrameTab's highlight 32 tall on a 24
-        // tall tab, overhanging it by eight. The two rules answer the same
-        // question, so only one of them may run.
-        if (w->buttonArt != ButtonArt::None) continue;
-        // Anything it already knows about itself wins. Two opposing anchors
-        // are a statement about size just as much as <Size> is, so a piece
-        // stretched between two others must not be pulled back to its file's
-        // dimensions - that is exactly the scroll bar middle, which would stop
-        // stretching and become 31 by 256.
-        const bool spanX = anchorsSpanAxis(w->anchors, true);
-        const bool spanY = anchorsSpanAxis(w->anchors, false);
-        const bool needsW = w->width <= 0.0f && !spanX;
-        const bool needsH = w->height <= 0.0f && !spanY;
-        if (!needsW && !needsH) continue;
-        float iw = 0.0f, ih = 0.0f;
-        if (!textureSize(w->texturePath, iw, ih)) continue;
-        if (needsW) w->width = iw;
-        if (needsH) w->height = ih;
-    }
+    if (w->texturePath.empty()) return;
+    // A texture with no anchors at all fills its parent, and that rule is
+    // older and stronger than this one. Sizing it from its image instead
+    // takes every portrait ring, action button icon and bag slot off the
+    // frame it is meant to cover and leaves it at whatever the artist
+    // happened to save the file at, centred - which warps the entire
+    // interface. Reported from a screenshot within minutes of this pass
+    // existing.
+    //
+    // SetAllPoints needs no such guard: it lays down two opposing corners,
+    // so the span test below already sees a size and stands aside.
+    if (w->anchors.empty()) return;
+    // Button art has its own rule and it is the stronger one: it fills the
+    // button on any axis its anchors leave open. Sizing it from its image
+    // instead made InterfaceOptionsFrameTab's highlight 32 tall on a 24
+    // tall tab, overhanging it by eight. The two rules answer the same
+    // question, so only one of them may run.
+    if (w->buttonArt != ButtonArt::None) return;
+    // Anything it already knows about itself wins. Two opposing anchors
+    // are a statement about size just as much as <Size> is, so a piece
+    // stretched between two others must not be pulled back to its file's
+    // dimensions - that is exactly the scroll bar middle, which would stop
+    // stretching and become 31 by 256.
+    const bool spanX = anchorsSpanAxis(w->anchors, true);
+    const bool spanY = anchorsSpanAxis(w->anchors, false);
+    const bool needsW = w->width <= 0.0f && !spanX;
+    const bool needsH = w->height <= 0.0f && !spanY;
+    if (!needsW && !needsH) return;
+    float iw = 0.0f, ih = 0.0f;
+    if (!textureSize(w->texturePath, iw, ih)) return;
+    if (needsW) w->width = iw;
+    if (needsH) w->height = ih;
 }
 
-void WidgetRenderer::sizeFontStrings(WidgetTree& tree) {
-    ImFont* font = interfaceFace("frizqt__");
-    if (!font) font = ImGui::GetFont();
-    if (!font) return;
+/// One label, sized from its own text. See sizeArtAndText.
+void WidgetRenderer::sizeFontStringWidget(Widget* w, ImFont* font) {
+    if (w->text.empty()) return;
+    // Anchors that span an axis give the size on that axis, and the string
+    // does not get a say about it. Asked per axis, the way the texture
+    // sizing above asks it - anchorsSpanAxis exists for exactly this and
+    // this loop was counting instead.
+    //
+    // Counting is wrong whenever two anchors pin the same axis, or pin one
+    // axis twice and the other not at all. Every options category button
+    // is that: OptionsList_DisplayButton does
+    // `button.text:SetPoint("LEFT", 8, 2)` on a ButtonText that already
+    // carries one, so the label had two anchors, neither of which says how
+    // tall it is - and the measure that would have said was skipped. The
+    // label kept height 0 and drew nothing.
+    //
+    // That emptied the category list of every options frame at once:
+    // Video, Interface and Audio all list their categories with this
+    // button. The entries were there and the buttons were there; the names
+    // were invisible, so nothing could be read or clicked, and no setting
+    // added to the schema could be reached however correctly it registered.
+    const bool spansX = anchorsSpanAxis(w->anchors, true);
+    const bool spansY = anchorsSpanAxis(w->anchors, false);
+    if (spansX && spansY) return;
 
-    for (size_t id = 1; id < tree.size(); ++id) {
-        Widget* w = tree.get(static_cast<uint32_t>(id));
-        if (!w || w->kind != WidgetKind::FontString) continue;
-        if (w->text.empty()) continue;
-        // Anchors that span an axis give the size on that axis, and the string
-        // does not get a say about it. Asked per axis, the way the texture
-        // sizing above asks it - anchorsSpanAxis exists for exactly this and
-        // this loop was counting instead.
-        //
-        // Counting is wrong whenever two anchors pin the same axis, or pin one
-        // axis twice and the other not at all. Every options category button
-        // is that: OptionsList_DisplayButton does
-        // `button.text:SetPoint("LEFT", 8, 2)` on a ButtonText that already
-        // carries one, so the label had two anchors, neither of which says how
-        // tall it is - and the measure that would have said was skipped. The
-        // label kept height 0 and drew nothing.
-        //
-        // That emptied the category list of every options frame at once:
-        // Video, Interface and Audio all list their categories with this
-        // button. The entries were there and the buttons were there; the names
-        // were invisible, so nothing could be read or clicked, and no setting
-        // added to the schema could be reached however correctly it registered.
-        const bool spansX = anchorsSpanAxis(w->anchors, true);
-        const bool spansY = anchorsSpanAxis(w->anchors, false);
-        if (spansX && spansY) continue;
+    // A width with no height is a paragraph, not a request to be measured.
+    //
+    // `<AbsDimension x="285" y="0"/>` is WoW's way of saying "wrap inside
+    // 285 and be as tall as that takes", and it is what every block of
+    // prose in the interface declares. Reading the zero height as "size
+    // yourself" and measuring the text on one unbounded line replaced the
+    // 285 with however wide the sentence happened to be - 424 for a short
+    // quest description, far more for a real one - and marked the string
+    // auto-sized, which is also what tells the draw below not to wrap it.
+    // So it drew one line out through the side of the scroll frame that
+    // clips it, and everything anchored beneath it sat on top of the lines
+    // that should have pushed it down.
+    const bool paragraph =
+        w->wrapsToWidth ||
+        (!w->autoSized && w->width > 0.0f && w->height <= 0.0f);
 
-        // A width with no height is a paragraph, not a request to be measured.
-        //
-        // `<AbsDimension x="285" y="0"/>` is WoW's way of saying "wrap inside
-        // 285 and be as tall as that takes", and it is what every block of
-        // prose in the interface declares. Reading the zero height as "size
-        // yourself" and measuring the text on one unbounded line replaced the
-        // 285 with however wide the sentence happened to be - 424 for a short
-        // quest description, far more for a real one - and marked the string
-        // auto-sized, which is also what tells the draw below not to wrap it.
-        // So it drew one line out through the side of the scroll frame that
-        // clips it, and everything anchored beneath it sat on top of the lines
-        // that should have pushed it down.
-        const bool paragraph =
-            w->wrapsToWidth ||
-            (!w->autoSized && w->width > 0.0f && w->height <= 0.0f);
+    // The size the draw will use, not a flat twelve.
+    //
+    // A label with no fontHeight of its own is drawn at the current font
+    // size and was measured at twelve, so wherever those differ the rect
+    // came out narrower than the glyphs that go in it and the text ran out
+    // of its right edge. The money frame is where it shows: the number is
+    // anchored to end exactly where the coin icon begins, so the overspill
+    // lands on top of the coin.
+    //
+    // Same face too - the widget's own, then the interface default -
+    // rather than whichever face this measure happened to be handed.
+    ImFont* runFont = interfaceFaceOrDefault(w->fontFace);
+    if (!runFont) runFont = font;
+    const float size = interfaceFontSize(w->fontHeight);
+    const auto measureRun = [&](const std::string& piece) {
+        return runFont->CalcTextSizeA(size, FLT_MAX, 0.0f, piece.c_str()).x;
+    };
 
-        // The size the draw will use, not a flat twelve.
-        //
-        // A label with no fontHeight of its own is drawn at the current font
-        // size and was measured at twelve, so wherever those differ the rect
-        // came out narrower than the glyphs that go in it and the text ran out
-        // of its right edge. The money frame is where it shows: the number is
-        // anchored to end exactly where the coin icon begins, so the overspill
-        // lands on top of the coin.
-        //
-        // Same face too - the widget's own, then the interface default -
-        // rather than whichever face this measure happened to be handed.
-        ImFont* runFont = interfaceFaceOrDefault(w->fontFace);
-        if (!runFont) runFont = font;
-        const float size = interfaceFontSize(w->fontHeight);
-        const auto measureRun = [&](const std::string& piece) {
-            return runFont->CalcTextSizeA(size, FLT_MAX, 0.0f, piece.c_str()).x;
-        };
+    // Already the right size for this text, measured the way it would be
+    // measured now. A label that has changed what it says is measured
+    // again; one sized by its XML is left alone.
+    //
+    // The size and the face are part of that question. The interface's own
+    // typeface is registered after the first frames have been laid out, and
+    // a label measured before that kept a rect built from the fallback font
+    // for the rest of the session - its text had not changed, so nothing
+    // ever looked again. Every one of them then drew glyphs wider than the
+    // box it was given, the backpack's coin amounts among them: that rect
+    // is anchored to end exactly where the coin picture begins, so the
+    // overspill lands on the coin.
+    const bool sameMeasurement = w->measuredText == w->text &&
+                                 w->measuredSize == size &&
+                                 w->measuredFace == w->fontFace;
+    if (paragraph) {
+        if (sameMeasurement) return;
+    } else {
+        if (w->autoSized && sameMeasurement) return;
+        if (!w->autoSized && w->width > 0.0f && w->height > 0.0f) return;
+    }
 
-        // Already the right size for this text, measured the way it would be
-        // measured now. A label that has changed what it says is measured
-        // again; one sized by its XML is left alone.
-        //
-        // The size and the face are part of that question. The interface's own
-        // typeface is registered after the first frames have been laid out, and
-        // a label measured before that kept a rect built from the fallback font
-        // for the rest of the session - its text had not changed, so nothing
-        // ever looked again. Every one of them then drew glyphs wider than the
-        // box it was given, the backpack's coin amounts among them: that rect
-        // is anchored to end exactly where the coin picture begins, so the
-        // overspill lands on the coin.
-        const bool sameMeasurement = w->measuredText == w->text &&
-                                     w->measuredSize == size &&
-                                     w->measuredFace == w->fontFace;
-        if (paragraph) {
-            if (sameMeasurement) continue;
-        } else {
-            if (w->autoSized && sameMeasurement) continue;
-            if (!w->autoSized && w->width > 0.0f && w->height > 0.0f) continue;
-        }
-
-        if (paragraph) {
-            // The width stays as declared and the height follows the wrap.
-            // autoSized stays false on purpose: it is what the draw reads to
-            // decide whether there is a box to wrap inside, and this string is
-            // exactly the kind that has one.
-            w->wrapsToWidth = true;
-            const int rows = static_cast<int>(
-                wrapText(parseMarkup(w->text), w->width, w->nonSpaceWrap,
-                         measureRun).size());
-            w->wrappedLines = rows > 0 ? rows : 1;
-            w->height = size * 1.2f * static_cast<float>(w->wrappedLines);
-            w->measuredText = w->text;
-            w->measuredSize = size;
-            w->measuredFace = w->fontFace;
-            continue;
-        }
-
-        const ImVec2 measured =
-            runFont->CalcTextSizeA(size, FLT_MAX, 0.0f, strippedText(w->text).c_str());
-        w->width = measured.x;
-        // As tall as the lines it holds. A label sized by its own text can
-        // still be several lines: |n breaks one at any width, and giving it a
-        // single line's height put whatever anchors below it over the top of
-        // the rest.
+    if (paragraph) {
+        // The width stays as declared and the height follows the wrap.
+        // autoSized stays false on purpose: it is what the draw reads to
+        // decide whether there is a box to wrap inside, and this string is
+        // exactly the kind that has one.
+        w->wrapsToWidth = true;
         const int rows = static_cast<int>(
-            wrapText(parseMarkup(w->text), 0.0f, false, measureRun).size());
+            wrapText(parseMarkup(w->text), w->width, w->nonSpaceWrap,
+                     measureRun).size());
         w->wrappedLines = rows > 0 ? rows : 1;
-        if (w->height <= 0.0f || w->autoSized) {
-            w->height = size * 1.2f * static_cast<float>(w->wrappedLines);
-        }
-        w->autoSized = true;
+        w->height = size * 1.2f * static_cast<float>(w->wrappedLines);
         w->measuredText = w->text;
         w->measuredSize = size;
         w->measuredFace = w->fontFace;
+        return;
+    }
+
+    const ImVec2 measured =
+        runFont->CalcTextSizeA(size, FLT_MAX, 0.0f, strippedText(w->text).c_str());
+    w->width = measured.x;
+    // As tall as the lines it holds. A label sized by its own text can
+    // still be several lines: |n breaks one at any width, and giving it a
+    // single line's height put whatever anchors below it over the top of
+    // the rest.
+    const int rows = static_cast<int>(
+        wrapText(parseMarkup(w->text), 0.0f, false, measureRun).size());
+    w->wrappedLines = rows > 0 ? rows : 1;
+    if (w->height <= 0.0f || w->autoSized) {
+        w->height = size * 1.2f * static_cast<float>(w->wrappedLines);
+    }
+    w->autoSized = true;
+    w->measuredText = w->text;
+    w->measuredSize = size;
+    w->measuredFace = w->fontFace;
+}
+
+/// One tooltip, sized from its own lines - and the lines placed with it.
+///
+/// This one writes to widgets other than its own: it anchors and sizes
+/// each TextLeft font string the tooltip owns. That is why tooltips are
+/// still a pass of their own rather than folded into sizeArtAndText -
+/// every tooltip has to have placed its lines before any font string is
+/// measured, or a line whose id fell below its tooltip's would be
+/// measured against the size it had last frame.
+void WidgetRenderer::sizeTooltipWidget(Widget* w, ImFont* font, WidgetTree& tree) {
+    if (w->tooltipLines.empty()) return;
+    // Only something that really is a tooltip. The flag is set by whichever
+    // widget a tooltip setter was called on, and a stray call sets it on a
+    // frame that is not one - which then gets resized to fit lines it never
+    // meant to show. The character sheet's model frame was 85x34 for that
+    // reason: one line of text plus a tooltip's padding, in place of the
+    // 233x215 its XML asks for.
+    if (w->objectType != "GameTooltip") return;
+
+    const float size = interfaceFontSize(w->fontHeight);
+    const float lineH = size * 1.2f;
+    // Ten units of padding a side, which is what the tooltip backdrop's
+    // own insets come to.
+    constexpr float kPad = 10.0f;
+    // A wrapped line breaks to fit rather than setting the width, so the
+    // width comes from the lines that cannot break. Bounded either way: a
+    // tooltip of one long sentence used to stretch across the screen, and
+    // one of nothing but short lines should not force prose into a column.
+    constexpr float kMinWrap = 180.0f, kMaxWrap = 320.0f;
+    float widest = 0.0f;
+    // A picture counts toward the width, as it does when the line is
+    // drawn. Measured from the stripped text alone, a sell price came out
+    // as wide as its digits and the coins hung off the end.
+    const auto measure = [&](const std::string& text) {
+        float total = 0.0f;
+        for (const auto& run : parseMarkup(text)) {
+            if (!run.texture.empty()) {
+                total += run.texWidth > 0.0f    ? run.texWidth
+                       : run.texHeight > 0.0f   ? run.texHeight
+                                                : size;
+            } else {
+                total += font->CalcTextSizeA(size, FLT_MAX, 0.0f,
+                                             run.text.c_str()).x;
+            }
+        }
+        return total;
+    };
+    for (const auto& line : w->tooltipLines) {
+        if (line.wrap) return;
+        float wide = measure(line.left);
+        if (!line.right.empty()) {
+            // Left and right text share a line with a gap between them.
+            wide += 20.0f + measure(line.right);
+        }
+        if (wide > widest) widest = wide;
+    }
+    const float wrapW = std::clamp(widest > 0.0f ? widest : kMinWrap,
+                                   kMinWrap, kMaxWrap);
+
+    int rows = 0;
+    for (const auto& line : w->tooltipLines) {
+        // Every line, wrapping or not: one carrying |n is two rows tall
+        // whether or not it is also being broken to fit.
+        line.lines = static_cast<int>(
+            wrapText(parseMarkup(line.left), line.wrap ? wrapW : 0.0f, false,
+                     [&](const std::string& piece) {
+                         return font->CalcTextSizeA(size, FLT_MAX, 0.0f,
+                                                    piece.c_str()).x;
+                     }).size());
+        rows += line.lines;
+    }
+
+    // The floor SetMinimumWidth asked for, applied to the finished width
+    // rather than to the text box, because that is what FrameXML measures
+    // against: it compares the money frame's width to GetMinimumWidth and
+    // widens the tooltip to hold it.
+    w->width  = std::max(std::max(widest, wrapW) + kPad * 2.0f,
+                         w->tooltipMinWidth);
+    w->height = lineH * static_cast<float>(rows) + kPad * 2.0f;
+
+    // Put the per-line regions over the lines they stand for.
+    //
+    // GameTooltipTextLeft<n> is a real FontString - the template declares
+    // the first two and anything past that is made on demand - and
+    // FrameXML anchors to them by name: SetTooltipMoney hangs the coin
+    // frame off TextLeft<NumLines()>. The text of a line lives in
+    // tooltipLines here and is drawn from there, so those FontStrings hold
+    // nothing, size to nothing, and the template's own chain chases that:
+    // TextLeft2 sits at TextLeft1's BOTTOMLEFT less two units, and with
+    // every height zero the whole column collapses into the top of the
+    // tooltip two units apart. The flight cost was drawn across the
+    // destination's name for exactly that reason.
+    //
+    // Their own anchors are replaced rather than their heights corrected,
+    // so the boxes agree with the rows actually drawn instead of
+    // accumulating the template's inter-line offset a second time.
+    if (!w->name.empty()) {
+        if (w->tooltipLineAnchors.size() < w->tooltipLines.size())
+            w->tooltipLineAnchors.resize(w->tooltipLines.size(), 0);
+        float top = kPad;
+        for (size_t i = 0; i < w->tooltipLines.size(); ++i) {
+            const float rowH = lineH * static_cast<float>(w->tooltipLines[i].lines);
+            uint32_t& rid = w->tooltipLineAnchors[i];
+            if (rid == 0) {
+                const std::string ln = w->name + "TextLeft" + std::to_string(i + 1);
+                if (const Widget* found = tree.findByName(ln)) rid = found->id;
+            }
+            if (rid != 0) {
+                Anchor a;
+                a.point = "TOPLEFT";
+                a.relativeTo = w->id;
+                a.relativePoint = "TOPLEFT";
+                a.x = kPad;
+                a.y = -top;
+                tree.clearPoints(rid);
+                tree.addPoint(rid, a);
+                tree.setWidth(rid, std::max(w->width - kPad * 2.0f, 1.0f));
+                tree.setHeight(rid, rowH);
+            }
+            top += rowH;
+        }
     }
 }
 
+/// Tooltips, in a pass of their own. See sizeTooltipWidget for why.
 void WidgetRenderer::sizeTooltips(WidgetTree& tree) {
     ImFont* font = interfaceFace("frizqt__");
     if (!font) font = ImGui::GetFont();
     if (!font) return;
-
     for (size_t id = 1; id < tree.size(); ++id) {
         Widget* w = tree.get(static_cast<uint32_t>(id));
         if (!w || !w->isTooltip) continue;
-        if (w->tooltipLines.empty()) continue;
-        // Only something that really is a tooltip. The flag is set by whichever
-        // widget a tooltip setter was called on, and a stray call sets it on a
-        // frame that is not one - which then gets resized to fit lines it never
-        // meant to show. The character sheet's model frame was 85x34 for that
-        // reason: one line of text plus a tooltip's padding, in place of the
-        // 233x215 its XML asks for.
-        if (w->objectType != "GameTooltip") continue;
-
-        const float size = interfaceFontSize(w->fontHeight);
-        const float lineH = size * 1.2f;
-        // Ten units of padding a side, which is what the tooltip backdrop's
-        // own insets come to.
-        constexpr float kPad = 10.0f;
-        // A wrapped line breaks to fit rather than setting the width, so the
-        // width comes from the lines that cannot break. Bounded either way: a
-        // tooltip of one long sentence used to stretch across the screen, and
-        // one of nothing but short lines should not force prose into a column.
-        constexpr float kMinWrap = 180.0f, kMaxWrap = 320.0f;
-        float widest = 0.0f;
-        // A picture counts toward the width, as it does when the line is
-        // drawn. Measured from the stripped text alone, a sell price came out
-        // as wide as its digits and the coins hung off the end.
-        const auto measure = [&](const std::string& text) {
-            float total = 0.0f;
-            for (const auto& run : parseMarkup(text)) {
-                if (!run.texture.empty()) {
-                    total += run.texWidth > 0.0f    ? run.texWidth
-                           : run.texHeight > 0.0f   ? run.texHeight
-                                                    : size;
-                } else {
-                    total += font->CalcTextSizeA(size, FLT_MAX, 0.0f,
-                                                 run.text.c_str()).x;
-                }
-            }
-            return total;
-        };
-        for (const auto& line : w->tooltipLines) {
-            if (line.wrap) continue;
-            float wide = measure(line.left);
-            if (!line.right.empty()) {
-                // Left and right text share a line with a gap between them.
-                wide += 20.0f + measure(line.right);
-            }
-            if (wide > widest) widest = wide;
-        }
-        const float wrapW = std::clamp(widest > 0.0f ? widest : kMinWrap,
-                                       kMinWrap, kMaxWrap);
-
-        int rows = 0;
-        for (const auto& line : w->tooltipLines) {
-            // Every line, wrapping or not: one carrying |n is two rows tall
-            // whether or not it is also being broken to fit.
-            line.lines = static_cast<int>(
-                wrapText(parseMarkup(line.left), line.wrap ? wrapW : 0.0f, false,
-                         [&](const std::string& piece) {
-                             return font->CalcTextSizeA(size, FLT_MAX, 0.0f,
-                                                        piece.c_str()).x;
-                         }).size());
-            rows += line.lines;
-        }
-
-        // The floor SetMinimumWidth asked for, applied to the finished width
-        // rather than to the text box, because that is what FrameXML measures
-        // against: it compares the money frame's width to GetMinimumWidth and
-        // widens the tooltip to hold it.
-        w->width  = std::max(std::max(widest, wrapW) + kPad * 2.0f,
-                             w->tooltipMinWidth);
-        w->height = lineH * static_cast<float>(rows) + kPad * 2.0f;
-
-        // Put the per-line regions over the lines they stand for.
-        //
-        // GameTooltipTextLeft<n> is a real FontString - the template declares
-        // the first two and anything past that is made on demand - and
-        // FrameXML anchors to them by name: SetTooltipMoney hangs the coin
-        // frame off TextLeft<NumLines()>. The text of a line lives in
-        // tooltipLines here and is drawn from there, so those FontStrings hold
-        // nothing, size to nothing, and the template's own chain chases that:
-        // TextLeft2 sits at TextLeft1's BOTTOMLEFT less two units, and with
-        // every height zero the whole column collapses into the top of the
-        // tooltip two units apart. The flight cost was drawn across the
-        // destination's name for exactly that reason.
-        //
-        // Their own anchors are replaced rather than their heights corrected,
-        // so the boxes agree with the rows actually drawn instead of
-        // accumulating the template's inter-line offset a second time.
-        if (!w->name.empty()) {
-            if (w->tooltipLineAnchors.size() < w->tooltipLines.size())
-                w->tooltipLineAnchors.resize(w->tooltipLines.size(), 0);
-            float top = kPad;
-            for (size_t i = 0; i < w->tooltipLines.size(); ++i) {
-                const float rowH = lineH * static_cast<float>(w->tooltipLines[i].lines);
-                uint32_t& rid = w->tooltipLineAnchors[i];
-                if (rid == 0) {
-                    const std::string ln = w->name + "TextLeft" + std::to_string(i + 1);
-                    if (const Widget* found = tree.findByName(ln)) rid = found->id;
-                }
-                if (rid != 0) {
-                    Anchor a;
-                    a.point = "TOPLEFT";
-                    a.relativeTo = w->id;
-                    a.relativePoint = "TOPLEFT";
-                    a.x = kPad;
-                    a.y = -top;
-                    tree.clearPoints(rid);
-                    tree.addPoint(rid, a);
-                    tree.setWidth(rid, std::max(w->width - kPad * 2.0f, 1.0f));
-                    tree.setHeight(rid, rowH);
-                }
-                top += rowH;
-            }
-        }
+        sizeTooltipWidget(w, font, tree);
     }
 }
+
+/// Every label and every texture that decides its own size, in one pass.
+///
+/// These were two passes, each walking all 28018 widgets to act on the few
+/// thousand of its own kind. The work per widget is small and the walk is
+/// not: a Widget is a large struct, so two scans of the array is twice the
+/// memory traffic for the same answers. The two are independent - a label is
+/// measured from its own text and a texture from its own image, the kinds are
+/// disjoint, and neither writes to any widget but its own - so one scan
+/// dispatching on kind gives the same result.
+///
+/// Tooltips are deliberately not in here; see sizeTooltipWidget.
+void WidgetRenderer::sizeArtAndText(WidgetTree& tree) {
+    ImFont* font = interfaceFace("frizqt__");
+    if (!font) font = ImGui::GetFont();
+
+    for (size_t id = 1; id < tree.size(); ++id) {
+        Widget* w = tree.get(static_cast<uint32_t>(id));
+        if (!w) continue;
+        if (font && w->kind == WidgetKind::FontString) sizeFontStringWidget(w, font);
+        else if (w->kind == WidgetKind::Texture) sizeTextureWidget(w);
+    }
+}
+
 
 
 void WidgetRenderer::drawMarkupText(ImDrawList* dl, ImFont* font, float size,
@@ -1083,7 +1109,7 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
     // all. So it is measured rather than reasoned about.
     static const bool profile = core::envFlagEnabled("WOWEE_FRAME_PROFILE", false);
     struct PassTimes {
-        double tooltips = 0.0, fontStrings = 0.0, textures = 0.0, solve = 0.0;
+        double sizing = 0.0, solve = 0.0;
         int frames = 0;
         double reportedAt = 0.0;
     };
@@ -1096,13 +1122,13 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
             std::chrono::steady_clock::now() - t0).count();
     };
 
-    mark(times.tooltips, [&] { sizeTooltips(tree); });
-    // Same reason, for every label that never stated a size: it takes the size
-    // of its own text, and anything anchored to it is placed from that.
-    mark(times.fontStrings, [&] { sizeFontStrings(tree); });
-    // Before the solve, like the two above: this decides a size the solve
-    // then places.
-    mark(times.textures, [&] { sizeTextures(tree); });
+    // Tooltips first - they place the font strings they own, and those have
+    // to be placed before anything measures one. Then labels and textures
+    // together, in a single scan; see sizeArtAndText.
+    mark(times.sizing, [&] {
+        sizeTooltips(tree);
+        sizeArtAndText(tree);
+    });
 
     mark(times.solve, [&] { tree.layout(screenW, screenH); });
 
@@ -1112,9 +1138,7 @@ void WidgetRenderer::layout(WidgetTree& tree, float screenW, float screenH) {
         if (now - times.reportedAt > 10.0 && times.frames > 0) {
             const double n = times.frames;
             LOG_WARNING("  WidgetRenderer::layout over ", times.frames,
-                        " frames: tooltips ", times.tooltips / n,
-                        "ms, fontStrings ", times.fontStrings / n,
-                        "ms, textures ", times.textures / n,
+                        " frames: sizing ", times.sizing / n,
                         "ms, anchor solve ", times.solve / n,
                         "ms/frame, over ", tree.size(), " widgets");
             LOG_WARNING("    of that solve: anchor walk ", tree.lastWalkMs(),
@@ -2557,7 +2581,7 @@ void WidgetRenderer::draw(WidgetTree& tree, float screenW, float screenH) {
             } clipPop{.dl = dl, .on = clipToBox};
             // Measured stripped, which is how the sizing pass measured it.
             //
-            // sizeFontStrings measures strippedText, and that measurement is
+            // sizeFontStringWidget measures strippedText, and that measurement is
             // what this label's rect came from. Measuring the raw string here
             // counts the markup as glyphs, so the extent came back wider than
             // the box by however long the escapes were - and the justify below

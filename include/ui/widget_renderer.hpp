@@ -92,11 +92,14 @@ private:
     /// WoW. Leaving it at zero lays it out to nothing and draws nothing, so the
     /// text is set, correct, and invisible - the player frame's level number
     /// read text="14" in a rect of 0x0.
-    void sizeFontStrings(WidgetTree& tree);
     /// Gives a texture the dimensions of its own image on any axis nothing else
     /// decides. WoW's rule, and FrameXML depends on it - the friends list's
     /// status icon declares one anchor and no size whatsoever.
-    void sizeTextures(WidgetTree& tree);
+    /// Labels and textures, in one pass. See sizeArtAndText.
+    void sizeArtAndText(WidgetTree& tree);
+    void sizeTextureWidget(Widget* w);
+    void sizeFontStringWidget(Widget* w, ImFont* font);
+    void sizeTooltipWidget(Widget* w, ImFont* font, WidgetTree& tree);
     /// How big the picture is, without uploading it. No Vulkan context needed:
     /// asking a file its dimensions does not require a GPU, and requiring one
     /// would put this beyond the reach of the headless harness.
