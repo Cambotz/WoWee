@@ -573,6 +573,12 @@ public:
 
     void setSuppressBakedStars(bool suppress) { suppressBakedStars_ = suppress; }
     void setInsideInterior(bool inside) { insideInterior = inside; }
+
+    /// Drop the ground clutter from this pass, for the ablation's clutter
+    /// phase. Clutter is drawn by the thousand and shares this renderer with
+    /// the world's doodads, so switching the whole pass off says what the two
+    /// cost together and nothing about which of them it was.
+    void setSkipGroundDetail(bool skip) { skipGroundDetail_ = skip; }
     void setViewDistance(float distance) {
         viewDistanceRaw_ = std::clamp(distance, 400.0f, 2400.0f);
         // And the distance itself, as a ceiling. The scale multiplies a
@@ -628,6 +634,8 @@ private:
     /// Blend disabled with alpha-to-coverage on, which is what turns the
     /// shader's sharpened alpha into per-sample coverage.
     VkPipeline cutoutPipeline_ = VK_NULL_HANDLE;
+    /// The ablation's clutter phase; see setSkipGroundDetail.
+    bool skipGroundDetail_ = false;
     /// Said once: a foliage batch reached the shadow pass with no texture.
     bool warnedShadowNoTexture_ = false;
     /// Foliage casters drawn into the shadow map last frame, for spotting a

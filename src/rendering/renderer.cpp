@@ -2522,6 +2522,7 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     const bool skipTerrain = envSkipTerrain || ablated(AblationPass::Terrain);
     const bool skipSky = envSkipSky || ablated(AblationPass::Sky);
     const bool skipGrass = ablated(AblationPass::Grass);
+    if (m2Renderer) m2Renderer->setSkipGroundDetail(ablated(AblationPass::Clutter));
 
     // Get time of day for sky-related rendering
     auto* skybox = skySystem ? skySystem->getSkybox() : nullptr;

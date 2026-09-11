@@ -13,6 +13,7 @@ enum class AblationPass {
     Grass,
     WMO,
     M2,
+    Clutter,
     Characters,
     Sky,
     Shadows,

@@ -1300,6 +1300,10 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 continue;
             }
             const M2ModelGPU& model = *instances[firstEntry.index].cachedModel;
+            if (skipGroundDetail_ && model.isGroundDetail) {
+                visStart = groupEnd;
+                continue;
+            }
             if (model.isInstancePortal) {
                 for (size_t vi = visStart; vi < groupEnd; vi++) {
                     const auto& entry = sortedVisible_[vi];
@@ -1351,8 +1355,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 if (entry.distSq > 150.0f * 150.0f) desiredLOD = 3;
                 else if (entry.distSq > 80.0f * 80.0f) desiredLOD = 2;
                 else if (entry.distSq > 40.0f * 40.0f) desiredLOD = 1;
+                // Down to the nearest level the model actually has, not all
+                // the way back to full detail. A model carrying 0 and 1 and
+                // asked for 3 was drawn at 0 - the most expensive level there
+                // is - at the distance where it mattered least.
                 uint16_t targetLOD = desiredLOD;
-                if (desiredLOD > 0 && !(model.availableLODs & (1u << desiredLOD))) targetLOD = 0;
+                while (targetLOD > 0 && !(model.availableLODs & (1u << targetLOD))) --targetLOD;
 
                 pending.push_back({.instanceIdx = entry.index, .fadeAlpha = instanceFadeAlpha, .useBones = needsBones, .targetLOD = targetLOD});
             }
@@ -1762,8 +1770,9 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
         if (entry.distSq > 150.0f * 150.0f) desiredLOD = 3;
         else if (entry.distSq > 80.0f * 80.0f) desiredLOD = 2;
         else if (entry.distSq > 40.0f * 40.0f) desiredLOD = 1;
+        // The nearest level the model has; see the note in the batched path.
         uint16_t targetLOD = desiredLOD;
-        if (desiredLOD > 0 && !(model.availableLODs & (1u << desiredLOD))) targetLOD = 0;
+        while (targetLOD > 0 && !(model.availableLODs & (1u << targetLOD))) --targetLOD;
 
         const bool particleDominantEffect = model.isSpellEffect &&
             !model.particleEmitters.empty() && model.batches.size() <= 2;
