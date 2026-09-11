@@ -991,9 +991,29 @@ private:
         uint16_t tilesX;
         uint16_t tilesY;
         VkDescriptorSet preAllocSet = VK_NULL_HANDLE;
-        std::vector<float> vertexData;
     };
     std::unordered_map<ParticleGroupKey, ParticleGroup, ParticleGroupKeyHash> particleGroups_;
+
+    /// One run of particles written to the vertex buffer that share a group.
+    ///
+    /// The vertices used to be accumulated into a std::vector<float> per
+    /// group - nine push_backs a particle - and then memcpy'd into the mapped
+    /// buffer. They are written straight into it now, in the order they are
+    /// walked, and a run is closed whenever the group changes. Particles from
+    /// one emitter cluster together, so a run is roughly an emitter.
+    ///
+    /// That also fixes the upload: every group used to memcpy to offset zero
+    /// and draw from vertex zero, so with more than one group on screen they
+    /// all drew whichever group was copied last.
+    struct ParticleRun {
+        ParticleGroup* group = nullptr;
+        uint32_t first = 0;
+        uint32_t count = 0;
+    };
+    std::vector<ParticleRun> particleRuns_;
+    /// Vertices the particle buffer holds. Not MAX_M2_PARTICLES, which is the
+    /// cap on one instance's particles: this has to hold a whole frame's.
+    static constexpr size_t MAX_M2_PARTICLE_VERTS = 32768;
 
     // Animation update buffers (avoid per-frame allocation)
     std::vector<size_t> boneWorkIndices_;        // Reused each frame

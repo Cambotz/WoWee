@@ -982,7 +982,7 @@ bool M2Renderer::initialize(VkContext* ctx, VkDescriptorSetLayout perFrameLayout
         smokeVBMapped_ = allocInfo.pMappedData;
 
         // M2 particle buffer
-        bci.size = MAX_M2_PARTICLES * 9 * sizeof(float);
+        bci.size = MAX_M2_PARTICLE_VERTS * 9 * sizeof(float);
         vmaCreateBuffer(vkCtx_->getAllocator(), &bci, &aci, &m2ParticleVB_, &m2ParticleVBAlloc_, &allocInfo);
         m2ParticleVBMapped_ = allocInfo.pMappedData;
 

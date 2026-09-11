@@ -559,13 +559,20 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
     static const bool kNoParticles = envFlagEnabled("WOWEE_M2_NO_PARTICLES");
     if (kNoParticles) return;
 
-    // Collect all particles from all instances, grouped by texture+blend
-    // Reuse persistent map - clear each group's vertex data but keep bucket structure.
+    // Collect all particles from all instances, grouped by texture+blend.
+    // Reuse persistent map - keep the bucket structure, drop last frame's set.
     for (auto& [k, g] : particleGroups_) {
-        g.vertexData.clear();
         g.preAllocSet = VK_NULL_HANDLE;
     }
     auto& groups = particleGroups_;
+
+    // Written straight into the mapped buffer rather than accumulated into a
+    // vector per group and copied in afterwards; see ParticleRun.
+    if (!m2ParticleVBMapped_) return;
+    float* const vbBase = static_cast<float*>(m2ParticleVBMapped_);
+    uint32_t vbWritten = 0;
+    particleRuns_.clear();
+    ParticleGroup* runGroup = nullptr;
 
     size_t totalParticles = 0;
 
@@ -685,15 +692,23 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 }
             }
 
-            auto& vd = cachedGroup->vertexData;
-            vd.push_back(p.position.x);
-            vd.push_back(p.position.y);
-            vd.push_back(p.position.z);
-            vd.push_back(color.r);
-            vd.push_back(color.g);
-            vd.push_back(color.b);
-            vd.push_back(alpha);
-            vd.push_back(scale);
+            if (vbWritten >= MAX_M2_PARTICLE_VERTS) break;
+            // A run per stretch of particles sharing a group. The group only
+            // changes when the emitter does, and particles from one emitter
+            // are adjacent, so this closes a run about once per emitter.
+            if (cachedGroup != runGroup) {
+                runGroup = cachedGroup;
+                particleRuns_.push_back({.group = cachedGroup, .first = vbWritten, .count = 0});
+            }
+            float* vd = vbBase + static_cast<size_t>(vbWritten) * 9;
+            vd[0] = p.position.x;
+            vd[1] = p.position.y;
+            vd[2] = p.position.z;
+            vd[3] = color.r;
+            vd[4] = color.g;
+            vd[5] = color.b;
+            vd[6] = alpha;
+            vd[7] = scale;
             float tileIndex = p.tileIndex;
             if (cachedIsTiled) {
                 tileIndex = p.tileIndex + static_cast<float>(cachedAnimFrame);
@@ -701,7 +716,9 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                     tileIndex -= cachedTilesFloat;
                 }
             }
-            vd.push_back(tileIndex);
+            vd[8] = tileIndex;
+            ++vbWritten;
+            ++particleRuns_.back().count;
             totalParticles++;
         }
     }
@@ -733,8 +750,9 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
 
     VkPipeline currentPipeline = VK_NULL_HANDLE;
 
-    for (auto& [key, group] : groups) {
-        if (group.vertexData.empty()) continue;
+    for (auto& run : particleRuns_) {
+        if (run.count == 0 || !run.group) continue;
+        ParticleGroup& group = *run.group;
 
         uint8_t blendType = group.blendType;
         VkPipeline desiredPipeline = (blendType == 3 || blendType == 4)
@@ -779,15 +797,11 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         vkCmdPushConstants(cmd, particlePipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT, 0,
                            sizeof(pc), &pc);
 
-        // Upload and draw in chunks
-        size_t count = group.vertexData.size() / 9;
-        size_t offset = 0;
-        while (offset < count) {
-            size_t batch = std::min(count - offset, MAX_M2_PARTICLES);
-            memcpy(m2ParticleVBMapped_, &group.vertexData[offset * 9], batch * 9 * sizeof(float));
-            vkCmdDraw(cmd, static_cast<uint32_t>(batch), 1, 0, 0);
-            offset += batch;
-        }
+        // The vertices are already in the buffer, at this run's own offset.
+        // Both used to be wrong: every group copied to offset zero and drew
+        // from vertex zero, so with more than one group up they all drew
+        // whatever had been copied last.
+        vkCmdDraw(cmd, run.count, 1, run.first, 0);
     }
 }
 
