@@ -28,6 +28,10 @@ public:
         std::string dbcCsvOutputDir; // When set, write CSVs into this directory instead of outputDir/expansions/<exp>/db
         std::string referenceManifest; // If set, only extract files NOT in this manifest (delta extraction)
         std::string listFile;         // External listfile for MPQ enumeration (resolves unnamed hash entries)
+        // Extract only files whose path contains one of these, lowercased with
+        // backslashes. Empty means everything. For borrowing one zone's art out
+        // of a client rather than unpacking the whole of it.
+        std::vector<std::string> includeSubstrings;
         // Open-format emission: post-extract pass that writes wowee
         // open-format side-files (e.g. foo.blp → foo.png) without
         // touching the original. Lets wowee's runtime/editor consume

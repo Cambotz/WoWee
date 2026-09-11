@@ -16,6 +16,7 @@
 #include <mutex>
 #include <set>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -384,6 +385,16 @@ static bool hasFileCaseInsensitive(const fs::path& directory,
 }
 
 std::string Extractor::detectExpansion(const std::string& mpqDir) {
+    // 4.x first, because it shares none of the markers below: the
+    // common/expansion/lichking chain is gone, replaced by a base split into
+    // art, world and world2 with expansion1 through 3 over it. expansion4 is
+    // Mists, which is a different client and not something this extracts.
+    if (!hasFileCaseInsensitive(mpqDir, "expansion4.mpq") &&
+        (hasFileCaseInsensitive(mpqDir, "expansion3.mpq") ||
+         (hasFileCaseInsensitive(mpqDir, "art.mpq") &&
+          hasFileCaseInsensitive(mpqDir, "world.mpq")))) {
+        return "cata";
+    }
     if (hasFileCaseInsensitive(mpqDir, "lichking.mpq"))
         return "wotlk";
     if (hasFileCaseInsensitive(mpqDir, "expansion.mpq"))
@@ -490,6 +501,30 @@ static std::vector<std::string> discoverArchives(const std::string& mpqDir,
             "interface.mpq", "misc.mpq", "model.mpq", "sound.mpq",
             "speech.mpq", "terrain.mpq", "texture.mpq", "wmo.mpq"
         };
+    } else if (expansion == "cata") {
+        // 4.3.4's set, in load order: the base split, the three expansions
+        // over it, then sound and the alternate-art archive. The updates are
+        // added below - they are not a patch-N chain.
+        // base-Win and base-OSX are the same archive for two platforms - a real
+        // install has one of them, and taking whichever is present means a Mac
+        // client extracts as well as a Windows one.
+        baseSequence = {
+            "base-win.mpq", "base-osx.mpq", "art.mpq", "world.mpq", "world2.mpq",
+            "expansion1.mpq", "expansion2.mpq", "expansion3.mpq",
+            "sound.mpq", "alternate.mpq"
+        };
+        if (!locale.empty()) {
+            localeSequence = {
+                lowerLocale + "/locale-" + lowerLocale + ".mpq",
+                lowerLocale + "/speech-" + lowerLocale + ".mpq",
+                lowerLocale + "/expansion1-locale-" + lowerLocale + ".mpq",
+                lowerLocale + "/expansion1-speech-" + lowerLocale + ".mpq",
+                lowerLocale + "/expansion2-locale-" + lowerLocale + ".mpq",
+                lowerLocale + "/expansion2-speech-" + lowerLocale + ".mpq",
+                lowerLocale + "/expansion3-locale-" + lowerLocale + ".mpq",
+                lowerLocale + "/expansion3-speech-" + lowerLocale + ".mpq",
+            };
+        }
     } else if (expansion == "tbc") {
         baseSequence = { "common.mpq", "expansion.mpq" };
         if (!locale.empty()) {
@@ -526,19 +561,52 @@ static std::vector<std::string> discoverArchives(const std::string& mpqDir,
         sequence.push_back(name);
     }
 
-    // Interleave patches: base patch then locale patch for each tier
-    std::vector<std::string> patchSuffixes = {""};
-    for (int i = 2; i <= 9; ++i) {
-        patchSuffixes.push_back(std::string("-") + std::to_string(i));
-    }
-    for (char c = 'a'; c <= 'z'; ++c) {
-        patchSuffixes.push_back(std::string("-") + c);
-    }
+    if (expansion == "cata") {
+        // 4.x patches by build, not by tier: wow-update-base-15211, -15354,
+        // -15595, each a full archive of everything changed at that build, and
+        // the last one to carry a file is the one that wins. So they go on in
+        // build order rather than in the order the directory happened to list
+        // them, and the builds are read off the names rather than written down
+        // here - a client patched to a different build has different ones.
+        std::vector<std::tuple<long long, int, std::string>> updates;
+        const std::string basePrefix = "wow-update-base-";
+        const std::string localePrefix =
+            lowerLocale.empty() ? std::string() : lowerLocale + "/wow-update-" + lowerLocale + "-";
+        for (const auto& [lowerName, realName] : caseMap) {
+            for (int isLocale = 0; isLocale < 2; ++isLocale) {
+                const std::string& prefix = isLocale ? localePrefix : basePrefix;
+                if (prefix.empty() || lowerName.rfind(prefix, 0) != 0) continue;
+                const std::string digits =
+                    lowerName.substr(prefix.size(),
+                                     lowerName.size() - prefix.size() - 4);  // less ".mpq"
+                if (digits.empty() ||
+                    digits.find_first_not_of("0123456789") != std::string::npos) {
+                    continue;
+                }
+                updates.emplace_back(std::stoll(digits), isLocale, lowerName);
+            }
+        }
+        std::sort(updates.begin(), updates.end());
+        for (const auto& [build, isLocale, name] : updates) {
+            (void)build;
+            (void)isLocale;
+            sequence.push_back(name);
+        }
+    } else {
+        // Interleave patches: base patch then locale patch for each tier
+        std::vector<std::string> patchSuffixes = {""};
+        for (int i = 2; i <= 9; ++i) {
+            patchSuffixes.push_back(std::string("-") + std::to_string(i));
+        }
+        for (char c = 'a'; c <= 'z'; ++c) {
+            patchSuffixes.push_back(std::string("-") + c);
+        }
 
-    for (const auto& suffix : patchSuffixes) {
-        sequence.push_back("patch" + suffix + ".mpq");
-        if (!locale.empty()) {
-            sequence.push_back(lowerLocale + "/patch-" + lowerLocale + suffix + ".mpq");
+        for (const auto& suffix : patchSuffixes) {
+            sequence.push_back("patch" + suffix + ".mpq");
+            if (!locale.empty()) {
+                sequence.push_back(lowerLocale + "/patch-" + lowerLocale + suffix + ".mpq");
+            }
         }
     }
 
@@ -645,6 +713,16 @@ bool Extractor::enumerateFiles(const Options& opts,
                 std::string norm = normalizeWowPath(fileName);
                 if (opts.onlyUsedDbcs && !wantedDbcs.empty() && !wantedDbcs.contains(norm)) {
                     continue;
+                }
+                if (!opts.includeSubstrings.empty()) {
+                    bool wanted = false;
+                    for (const auto& fragment : opts.includeSubstrings) {
+                        if (norm.find(fragment) != std::string::npos) {
+                            wanted = true;
+                            break;
+                        }
+                    }
+                    if (!wanted) continue;
                 }
                 if (seenNormalized.insert(norm).second) {
                     outFiles.push_back(fileName);

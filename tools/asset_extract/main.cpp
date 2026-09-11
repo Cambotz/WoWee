@@ -17,7 +17,7 @@ static void printUsage(const char* prog) {
               << "  --output <path>     Output directory for extracted assets\n"
               << "\n"
               << "Options:\n"
-              << "  --expansion <id>    Expansion: classic, turtle, tbc, wotlk (default: auto-detect)\n"
+              << "  --expansion <id>    Expansion: classic, turtle, tbc, wotlk, cata (default: auto-detect)\n"
               << "  --expansion-subdir Write into <output>/expansions/<id> so multiple clients\n"
               << "                      cannot overwrite one another\n"
               << "  --locale <id>       Locale: enUS, deDE, frFR, etc. (default: auto-detect)\n"
@@ -26,6 +26,8 @@ static void printUsage(const char* prog) {
               << "  --dbc-csv           Convert selected DBFilesClient/*.dbc to CSV under\n"
               << "                      <output>/expansions/<expansion>/db/*.csv (for committing)\n"
               << "  --listfile <path>   External listfile for MPQ file enumeration (auto-detected)\n"
+              << "  --include <text>    Extract only paths containing this (repeatable); for\n"
+              << "                      borrowing one zone's art instead of a whole client\n"
               << "  --reference-manifest <path>\n"
               << "                      Only extract files NOT in this manifest (delta extraction)\n"
               << "  --dbc-csv-out <dir> Write CSV DBCs into <dir> (overrides default output path)\n"
@@ -109,6 +111,14 @@ int main(int argc, char** argv) {
             opts.dbcCsvOutputDir = argv[++i];
         } else if (std::strcmp(argv[i], "--listfile") == 0 && i + 1 < argc) {
             opts.listFile = argv[++i];
+        } else if (std::strcmp(argv[i], "--include") == 0 && i + 1 < argc) {
+            // Matched against the normalized path: lowercase, backslashes. Take
+            // it however it was typed.
+            std::string fragment = argv[++i];
+            for (char& c : fragment) {
+                c = (c == '/') ? '\\' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            }
+            opts.includeSubstrings.push_back(fragment);
         } else if (std::strcmp(argv[i], "--reference-manifest") == 0 && i + 1 < argc) {
             opts.referenceManifest = argv[++i];
         } else if (std::strcmp(argv[i], "--verify") == 0) {
@@ -307,11 +317,20 @@ int main(int argc, char** argv) {
     }
     opts.expansion = expansion;
 
+    // cata extracts, and only extracts. Its archives are still MPQ and its
+    // models are still MD20, so the art is readable; the wire is not, and
+    // docs/plan-cataclysm.md is the measure of what that would take. Extract a
+    // 4.3.4 client to borrow its art - as an override over another expansion's
+    // tree - rather than to play it.
     if (expansion != "classic" && expansion != "turtle" &&
-        expansion != "tbc" && expansion != "wotlk") {
+        expansion != "tbc" && expansion != "wotlk" && expansion != "cata") {
         std::cerr << "Error: Unsupported expansion '" << expansion
-                  << "'. Expected classic, turtle, tbc, or wotlk.\n";
+                  << "'. Expected classic, turtle, tbc, wotlk, or cata.\n";
         return 1;
+    }
+    if (expansion == "cata") {
+        std::cout << "Note: 4.3.4 is extracted for its art. WoWee cannot talk to a "
+                     "Cataclysm server;\n      see docs/plan-cataclysm.md.\n";
     }
 
     // Auto-detect locale if not specified
