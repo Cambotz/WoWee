@@ -1648,6 +1648,40 @@ if(WOWEE_BUILD_FRAMEXML_RUN)
     endif()
 endif()
 
+# Everything a StormLib consumer has to link besides StormLib itself.
+#
+# A static libstorm leaves its own dependencies to whoever links it: bzip2
+# everywhere, and on Windows LibTomCrypt, LibTomMath and wininet as well. This
+# was written out once per tool, so mpq_build linked what asset_extract needed
+# minus the Windows half and failed to link there with fifteen undefined
+# symbols - md5_init, ltc_mp, InternetOpenA - none of which name StormLib.
+function(wowee_link_stormlib target)
+    target_link_libraries(${target} PRIVATE ${STORMLIB_LIBRARY} ZLIB::ZLIB Threads::Threads)
+    if(NOT WIN32)
+        find_library(BZ2_LIB NAMES bz2 bzip2)
+        if(BZ2_LIB)
+            target_link_libraries(${target} PRIVATE ${BZ2_LIB})
+        endif()
+    else()
+        find_library(WININET_LIB wininet)
+        find_library(BZ2_LIB bz2)
+        find_library(TOMCRYPT_LIB NAMES tomcrypt libtomcrypt)
+        find_library(TOMMATH_LIB NAMES tommath libtommath)
+        if(WININET_LIB)
+            target_link_libraries(${target} PRIVATE ${WININET_LIB})
+        endif()
+        if(BZ2_LIB)
+            target_link_libraries(${target} PRIVATE ${BZ2_LIB})
+        endif()
+        if(TOMCRYPT_LIB AND TOMMATH_LIB)
+            target_link_libraries(${target} PRIVATE ${TOMCRYPT_LIB} ${TOMMATH_LIB})
+        else()
+            message(FATAL_ERROR
+                "Static StormLib on Windows requires LibTomCrypt and LibTomMath")
+        endif()
+    endif()
+endfunction()
+
 # ---- Tool: mpq_build (loose files → MPQ) ----
 # The reverse of asset_extract, and not for WoWee, which reads loose files: for
 # handing an override directory to a client that only reads archives, and for
@@ -1655,6 +1689,7 @@ endif()
 if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR)
     add_executable(mpq_build tools/mpq_build/main.cpp)
     target_include_directories(mpq_build PRIVATE ${STORMLIB_INCLUDE_DIR})
+    wowee_link_stormlib(mpq_build)
     # Which spelling of "last error" this StormLib has - see the note beside
     # lastStormError(). Asked of the header rather than of the platform: the
     # two Linux packages do not agree with each other either.
@@ -1669,13 +1704,6 @@ if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR)
     unset(CMAKE_REQUIRED_LIBRARIES)
     if(WOWEE_STORMLIB_SERR)
         target_compile_definitions(mpq_build PRIVATE WOWEE_STORMLIB_SERR=1)
-    endif()
-    target_link_libraries(mpq_build PRIVATE ${STORMLIB_LIBRARY} ZLIB::ZLIB Threads::Threads)
-    if(NOT WIN32)
-        find_library(BZ2_LIB NAMES bz2 bzip2)
-        if(BZ2_LIB)
-            target_link_libraries(mpq_build PRIVATE ${BZ2_LIB})
-        endif()
     endif()
 endif()
 
@@ -1706,40 +1734,7 @@ if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR)
     target_include_directories(asset_extract SYSTEM PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/extern
     )
-    target_link_libraries(asset_extract PRIVATE
-        ${STORMLIB_LIBRARY}
-        ZLIB::ZLIB
-        Threads::Threads
-    )
-    # StormLib compresses with bzip2 as well as zlib, and a static libstorm
-    # leaves both to whoever links it. Only Windows was given bz2, so a static
-    # StormLib on Linux failed to link and the answer looked like a missing
-    # LDFLAGS on the cmake line. Reported against Arch in issue #118.
-    if(NOT WIN32)
-        find_library(BZ2_LIB NAMES bz2 bzip2)
-        if(BZ2_LIB)
-            target_link_libraries(asset_extract PRIVATE ${BZ2_LIB})
-        endif()
-    endif()
-    if(WIN32)
-        find_library(WININET_LIB wininet)
-        find_library(BZ2_LIB bz2)
-        find_library(TOMCRYPT_LIB NAMES tomcrypt libtomcrypt)
-        find_library(TOMMATH_LIB NAMES tommath libtommath)
-        if(WININET_LIB)
-            target_link_libraries(asset_extract PRIVATE ${WININET_LIB})
-        endif()
-        if(BZ2_LIB)
-            target_link_libraries(asset_extract PRIVATE ${BZ2_LIB})
-        endif()
-        if(TOMCRYPT_LIB AND TOMMATH_LIB)
-            # Static StormLib exposes its LibTomCrypt/LibTomMath dependencies.
-            target_link_libraries(asset_extract PRIVATE ${TOMCRYPT_LIB} ${TOMMATH_LIB})
-        else()
-            message(FATAL_ERROR
-                "Static StormLib on Windows requires LibTomCrypt and LibTomMath")
-        endif()
-    endif()
+    wowee_link_stormlib(asset_extract)
     set_target_properties(asset_extract PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
     )
