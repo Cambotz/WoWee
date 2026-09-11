@@ -1,4 +1,5 @@
 #include "rendering/shadow_params.hpp"
+#include "rendering/m2_draw_order.hpp"
 #include "rendering/m2_renderer.hpp"
 #include "rendering/m2_renderer_internal.h"
 #include "rendering/m2_sway.hpp"
@@ -1170,9 +1171,12 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     // (depth write OFF, sorted back-to-front) so transparent geometry composites correctly
     // against all opaque geometry rather than only against what was rendered before it.
 
-    // Pass 1: sort by modelId for minimum buffer rebinds (opaque batches)
-    std::sort(sortedVisible_.begin(), sortedVisible_.end(),
-              [](const VisibleEntry& a, const VisibleEntry& b) { return a.modelId < b.modelId; });
+    // Pass 1: group by model for minimum buffer rebinds, and draw the groups
+    // nearest first. See m2_draw_order.hpp - leaves come out of the cutout
+    // pipeline, so the shader decides coverage and the hardware cannot reject
+    // a fragment before running it. In model-id order a forest shaded every
+    // leaf of every tree behind every other tree.
+    sortModelGroupsFrontToBack(sortedVisible_);
 
 
     uint32_t currentModelId = UINT32_MAX;
