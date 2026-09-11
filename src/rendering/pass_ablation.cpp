@@ -19,6 +19,7 @@ constexpr AblationPass kOrder[] = {
     AblationPass::WMO,
     AblationPass::M2,
     AblationPass::Clutter,
+    AblationPass::FarDoodads,
     AblationPass::Characters,
     AblationPass::Sky,
     AblationPass::Shadows,
@@ -35,6 +36,7 @@ const char* ablationPassName(AblationPass pass) {
         case AblationPass::WMO:        return "wmo";
         case AblationPass::M2:         return "doodads (clutter included)";
         case AblationPass::Clutter:    return "ground clutter alone";
+        case AblationPass::FarDoodads: return "doodads past 250 yards";
         case AblationPass::Characters: return "characters";
         case AblationPass::Sky:        return "sky";
         case AblationPass::Shadows:    return "shadows";

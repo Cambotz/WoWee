@@ -14,6 +14,7 @@ enum class AblationPass {
     WMO,
     M2,
     Clutter,
+    FarDoodads,
     Characters,
     Sky,
     Shadows,

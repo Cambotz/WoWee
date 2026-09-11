@@ -321,7 +321,7 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
     // terrain and the WMOs stop at the view distance itself, so a doodad
     // beyond it is a tree standing on nothing.
     const float maxRenderDistance = std::min(
-        viewDistanceAbsolute_,
+        cappedViewDistance(),
         viewDistanceScale_ *
             ((instances.size() > rendering::M2_HIGH_DENSITY_INSTANCE_THRESHOLD)
                  ? rendering::M2_MAX_RENDER_DISTANCE_HIGH_DENSITY
@@ -542,7 +542,7 @@ void M2Renderer::update(float deltaTime, const glm::vec3& cameraPos, const glm::
         float distSq = glm::dot(toCam, toCam);
         float effectiveMaxDistSq = rendering::m2InstanceMaxDistSq(
             cachedMaxRenderDistSq_, instance.cachedEffectiveMaxDistSqFactor,
-            false, 0.0f, viewDistanceAbsolute_,
+            false, 0.0f, cappedViewDistance(),
             instance.cachedIsGroundDetail, groundDetailMaxDistance_);
         if (instance.cachedIsSkyBird) {
             constexpr float kBirdMaxDistSq =
@@ -824,7 +824,7 @@ void M2Renderer::dispatchCullCompute(VkCommandBuffer cmd, uint32_t frameIndex, c
             float effectiveMaxDistSq = rendering::m2InstanceMaxDistSq(
                 maxRenderDistanceSq, inst.cachedEffectiveMaxDistSqFactor,
                 inst.isGameObject, rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE,
-                viewDistanceAbsolute_,
+                cappedViewDistance(),
                 inst.cachedIsGroundDetail, groundDetailMaxDistance_);
             if (inst.cachedIsSkyBird && inst.cachedHasAnimation && !inst.cachedDisableAnimation) {
                 constexpr float kBirdMaxDistSq =
@@ -1063,7 +1063,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
             const float instanceMaxDistSq = rendering::m2InstanceMaxDistSq(
                 maxRenderDistanceSq, instance.cachedEffectiveMaxDistSqFactor,
                 instance.isGameObject, rendering::M2_GAME_OBJECT_MIN_RENDER_DISTANCE,
-                viewDistanceAbsolute_,
+                cappedViewDistance(),
                 instance.cachedIsGroundDetail, groundDetailMaxDistance_);
 
             if (forceNoCull_) {

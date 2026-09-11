@@ -579,6 +579,22 @@ public:
     /// the world's doodads, so switching the whole pass off says what the two
     /// cost together and nothing about which of them it was.
     void setSkipGroundDetail(bool skip) { skipGroundDetail_ = skip; }
+
+    /// Hold the doodads to this many yards, on top of whatever the density
+    /// rule and the instance's own size allow. Zero lifts it.
+    ///
+    /// The ablation's far-doodad phase: these models have no LOD skins, so a
+    /// tree a thousand yards off is drawn with every triangle it has to cover
+    /// a few pixels. Whether that is where the time goes is a question about
+    /// distance alone, and switching the whole pass off cannot answer it.
+    void setDoodadDistanceCap(float yards) { doodadDistanceCapYards_ = yards; }
+
+    /// The doodad view distance with that cap applied.
+    float cappedViewDistance() const {
+        return doodadDistanceCapYards_ > 0.0f
+                   ? std::min(viewDistanceAbsolute_, doodadDistanceCapYards_)
+                   : viewDistanceAbsolute_;
+    }
     void setViewDistance(float distance) {
         viewDistanceRaw_ = std::clamp(distance, 400.0f, 2400.0f);
         // And the distance itself, as a ceiling. The scale multiplies a
@@ -636,6 +652,8 @@ private:
     VkPipeline cutoutPipeline_ = VK_NULL_HANDLE;
     /// The ablation's clutter phase; see setSkipGroundDetail.
     bool skipGroundDetail_ = false;
+    /// The ablation's far-doodad phase; see setDoodadDistanceCap.
+    float doodadDistanceCapYards_ = 0.0f;
     /// Said once: a foliage batch reached the shadow pass with no texture.
     bool warnedShadowNoTexture_ = false;
     /// Foliage casters drawn into the shadow map last frame, for spotting a

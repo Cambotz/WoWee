@@ -2537,7 +2537,12 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
     const bool skipTerrain = envSkipTerrain || ablated(AblationPass::Terrain);
     const bool skipSky = envSkipSky || ablated(AblationPass::Sky);
     const bool skipGrass = ablated(AblationPass::Grass);
-    if (m2Renderer) m2Renderer->setSkipGroundDetail(ablated(AblationPass::Clutter));
+    if (m2Renderer) {
+        m2Renderer->setSkipGroundDetail(ablated(AblationPass::Clutter));
+        // 250 yards: past the shadow distance and well past where a tree with
+        // no LOD is still worth every triangle it has.
+        m2Renderer->setDoodadDistanceCap(ablated(AblationPass::FarDoodads) ? 250.0f : 0.0f);
+    }
 
     // Get time of day for sky-related rendering
     auto* skybox = skySystem ? skySystem->getSkybox() : nullptr;
