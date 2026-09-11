@@ -1801,6 +1801,11 @@ wowee_add_test(test_light_coords
     SOURCES test_light_coords.cpp
             ${TEST_COMMON_SOURCES})
 
+# ── test_swim_wall ─────────────────────────────────────────────────────
+# The shoreline rule a swimmer meets. Header-only, so it links nothing: a
+# heightmap is a lambda here.
+wowee_add_test(test_swim_wall SOURCES test_swim_wall.cpp)
+
 # ── test_light_bands ─────────────────────────────────────────
 # Which LightParams row and channel a light band belongs to, and where its
 # fields are. The block mapping was off by one in both terms and the field

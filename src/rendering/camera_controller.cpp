@@ -1,4 +1,5 @@
 #include "rendering/camera_controller.hpp"
+#include "rendering/swim_wall.hpp"
 #include "core/click_drag.hpp"
 #include "core/coordinates.hpp"
 #include "ui/keybinding_manager.hpp"
@@ -600,7 +601,31 @@ glm::vec3 CameraController::moveFollowedCharacter(float /*deltaTime*/, FrameInpu
         // Enforce collision while swimming too (horizontal only), skip when stationary.
         {
             // Horizontal only: the swim clamp owns the vertical.
-            const glm::vec3 stepPos = sweepAgainstWalls(*followTarget, targetPos, true);
+            glm::vec3 stepPos = sweepAgainstWalls(*followTarget, targetPos, true);
+
+            // Terrain is a wall to a swimmer, not only a floor.
+            //
+            // sweepAgainstWalls knows WMO walls and doodad collision, and a
+            // shoreline is neither: it is the heightmap, which the swim path
+            // only ever consulted downward, for something to float above. So
+            // nothing stopped a swimmer crossing into a hillside - and the
+            // floor probe above will not push them out of it either, because
+            // it takes a floor only at or just above the feet and a cliff face
+            // ahead is far above them. Leaving the water inside the hill then
+            // drops them through the world.
+            //
+            // Only a rise the swimmer could not float over counts. The clamp
+            // holds them half a yard above the floor, so a beach shelving up
+            // under them stays passable and they swim ashore as before.
+            constexpr float SWIM_TERRAIN_WALL_CLEARANCE = 0.9f;
+            if (terrainManager) {
+                const SwimStep allowed = swimStepAgainstTerrain(
+                    {followTarget->x, followTarget->y}, {stepPos.x, stepPos.y},
+                    targetPos.z + SWIM_TERRAIN_WALL_CLEARANCE,
+                    [&](float x, float y) { return terrainManager->getHeightAt(x, y); });
+                stepPos.x = allowed.x;
+                stepPos.y = allowed.y;
+            }
 
             targetPos.x = stepPos.x;
             targetPos.y = stepPos.y;
