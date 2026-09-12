@@ -720,6 +720,28 @@ TEST_CASE("A borrowed route still carries riders", "[transport][borrowed_path]")
     CHECK(t.carriesRiders());
 }
 
+TEST_CASE("a transport on the other map carries nobody", "[transport][taxi]") {
+    // Half a cross-continent route's cycle is spent on the other map. The hull
+    // is held still and hidden here through that stretch, so a deck query
+    // would answer from a position it left - and a player would be standing on
+    // a zeppelin that is over Howling Fjord.
+    ActiveTransport t = makeTransport();
+    t.isM2 = true;
+    REQUIRE(t.carriesRiders());
+
+    t.onThisMap = false;
+    CHECK_FALSE(t.carriesRiders());
+
+    t.isM2 = false;
+    t.useClientAnimation = true;
+    CHECK_FALSE(t.carriesRiders());
+    t.borrowedPath = true;
+    CHECK_FALSE(t.carriesRiders());
+
+    t.onThisMap = true;
+    CHECK(t.carriesRiders());
+}
+
 TEST_CASE("A borrowed route seeds no phase on the path it borrowed",
           "[transport_clock_sync][borrowed_path]") {
     // TransportManager hands ClockSync a null path for a borrowed-route

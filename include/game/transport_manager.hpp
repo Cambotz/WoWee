@@ -86,6 +86,14 @@ struct ActiveTransport {
     /// instead of being animated locally.
     bool borrowedPath = false;
 
+    /// Whether the hull is on the player's map right now.
+    ///
+    /// A cross-continent route is one journey over two maps, and for part of
+    /// its cycle the hull is on the other one. It is not drawn then, nothing
+    /// can stand on it, and nobody can board it - the server will not have it
+    /// here either.
+    bool onThisMap = true;
+
     /// Whether a player standing on this is carried by it.
     ///
     /// The client decides boarding for itself - the server never says "you
@@ -106,7 +114,10 @@ struct ActiveTransport {
         // A borrowed-path transport no longer animates locally, but it still
         // has a deck and still knows where it is - it is moved by server
         // updates rather than by a spline. Riders belong on it either way.
-        return isM2 || useClientAnimation || borrowedPath;
+        //
+        // Not while it is on another map: its hull is held still and hidden
+        // there, so a deck query would answer from a position it left.
+        return onThisMap && (isM2 || useClientAnimation || borrowedPath);
     }
 
     // Whether the hull is currently holding at an authored dock stop, and what
@@ -329,6 +340,8 @@ private:
     void updateTransportMovement(ActiveTransport& transport, float deltaTime);
     void updateTransformMatrices(ActiveTransport& transport);
     void pushTransform(ActiveTransport& transport);
+    /// Take the hull out of the world, or put it back. See ActiveTransport::onThisMap.
+    void setInstanceHidden(const ActiveTransport& transport, bool hidden);
 
     TransportPathRepository pathRepo_;
     TransportClockSync clockSync_;

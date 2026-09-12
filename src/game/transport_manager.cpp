@@ -585,6 +585,23 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
         return;
     }
 
+    // A cross-continent route spends part of its cycle on the other map. The
+    // slice holds the hull still there rather than sweeping it across, and
+    // there is nothing here to draw, stand on, or board until it returns.
+    const bool presentNow = pathEntry->presentAt(pathTimeMs);
+    if (presentNow != transport.onThisMap) {
+        transport.onThisMap = presentNow;
+        LOG_INFO("Transport 0x", std::hex, transport.guid, std::dec,
+                 " entry=", transport.entry,
+                 (presentNow ? " arrived on this map" : " left for the other map"),
+                 " at route time ", pathTimeMs, "ms");
+    }
+    if (!presentNow) {
+        setInstanceHidden(transport, true);
+        applyDoodadMotionState(transport, /*moving=*/false);
+        return;
+    }
+
     // Evaluate position + rotation via Animator
     animator_.evaluateAndApply(transport, *pathEntry, pathTimeMs);
 
@@ -605,7 +622,17 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
 }
 
 // Push transform to the appropriate renderer (WMO or M2).
+void TransportManager::setInstanceHidden(const ActiveTransport& transport, bool hidden) {
+    // Only WMO hulls. An M2 transport is a tram car or a lift, which never
+    // leaves its map, so onThisMap is always true for one and this is never
+    // asked to hide it.
+    if (!transport.isM2 && wmoRenderer_) {
+        wmoRenderer_->setInstanceHidden(transport.wmoInstanceId, hidden);
+    }
+}
+
 void TransportManager::pushTransform(ActiveTransport& transport) {
+    setInstanceHidden(transport, !transport.onThisMap);
     if (transport.isM2) {
         if (m2Renderer_) m2Renderer_->setInstanceTransform(transport.wmoInstanceId, transport.transform);
     } else {
@@ -784,9 +811,35 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
         // made its visual arrival unrelated to the server's map-transfer time.
         const glm::vec3 serverSpawnPosition = transport.position;
 
-        // Copy the taxi path into the main paths (indexed by GO entry for this transport)
+        // Copy the taxi path into the main paths (indexed by GO entry for this
+        // transport), rebuilt at this hull's own speed when the server has
+        // published a period to solve it from.
+        //
+        // The shared slice is timed at a nominal speed, and the authored dock
+        // dwells do not scale with it. So a wrong speed does not merely make
+        // the cycle the wrong length - the dwell lands in the wrong part of it,
+        // and a phase the server publishes maps onto the wrong stretch of
+        // route. Solved, the two timelines are proportional and the phase means
+        // the same thing on both ends.
+        const TaxiRoute* route = pathRepo_.findTaxiRoute(taxiPathId);
         PathEntry copied(taxiEntry->spline, entry, taxiEntry->zOnly,
                          /*dbc=*/false, taxiEntry->worldCoords);
+        copied.presentMs = taxiEntry->presentMs;
+        if (route && transport.hasServerRouteClock) {
+            const float speed =
+                TransportPathRepository::taxiRouteSpeedFor(*route, transport.routePeriodMs);
+            if (speed > 0.0f) {
+                PathEntry retimed =
+                    TransportPathRepository::buildTaxiRouteSlice(*route, mapId, speed);
+                if (retimed.spline.keyCount() >= 2) {
+                    retimed.pathId = entry;
+                    LOG_INFO("Transport entry=", entry, " route ", taxiPathId,
+                             " retimed to the server's ", transport.routePeriodMs,
+                             "ms period at ", speed, " yd/s");
+                    copied = std::move(retimed);
+                }
+            }
+        }
         pathRepo_.storePath(entry, std::move(copied));
 
         auto* storedEntry = pathRepo_.findPath(entry);
@@ -803,15 +856,24 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
         // server-authored spawn location; otherwise it can still be approaching
         // Borean Tundra when the server correctly transfers the rider back to map 0.
         if (storedEntry && storedEntry->spline.durationMs() > 0) {
-            if (entry == 190536u && !storedEntry->spline.keys().empty()) {
+            // Where the server says this hull is, not what time it happens to
+            // be. A wall-clock modulo put the phase somewhere unrelated to the
+            // route, so the zeppelin was departing its tower while the server
+            // had it arriving at the other one. The server's own published
+            // phase overrides this the moment it lands; this is what the hull
+            // does until then, and the position the server spawned it at is
+            // the only evidence there is.
+            if (!transport.hasServerRouteClock && transport.serverUpdateCount > 0 &&
+                !storedEntry->spline.keys().empty()) {
                 const size_t nearest = storedEntry->spline.findNearestKey(serverSpawnPosition);
                 transport.localClockMs = storedEntry->spline.keys()[nearest].timeMs;
-            } else {
+            } else if (!transport.hasServerRouteClock) {
                 transport.localClockMs = static_cast<uint32_t>(
                     nowEpochMs() % storedEntry->spline.durationMs());
             }
-            transport.position = storedEntry->spline.evaluatePosition(
-                transport.localClockMs % storedEntry->spline.durationMs());
+            transport.localClockMs %= storedEntry->spline.durationMs();
+            transport.position = storedEntry->spline.evaluatePosition(transport.localClockMs);
+            transport.onThisMap = storedEntry->presentAt(transport.localClockMs);
         }
 
         updateTransformMatrices(transport);

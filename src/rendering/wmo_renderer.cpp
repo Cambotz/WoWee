@@ -1198,6 +1198,12 @@ void WMORenderer::setInstanceIsTransport(uint32_t instanceId, bool isTransport) 
     instances[idxIt->second].isTransport = isTransport;
 }
 
+void WMORenderer::setInstanceHidden(uint32_t instanceId, bool hidden) {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end()) return;
+    instances[idxIt->second].hidden = hidden;
+}
+
 void WMORenderer::setInstanceTransform(uint32_t instanceId, const glm::mat4& transform) {
     auto idxIt = instanceIndexById.find(instanceId);
     if (idxIt == instanceIndexById.end()) return;
@@ -1564,10 +1570,14 @@ void WMORenderer::gatherCandidates(const glm::vec3& queryMin, const glm::vec3& q
                                    std::vector<size_t>& outIndices) const {
     outIndices.clear();
 
+    // Hidden instances are filtered here rather than in each caller: every
+    // collision, floor and containment query in this file reaches the world
+    // through this one function, and a transport that is on another continent
+    // must not be standable on this one.
     gatherIds(spatialGrid, queryMin, queryMax, tl_candidateIdScratch,
               [&](uint32_t id) {
                   auto idxIt = instanceIndexById.find(id);
-                  if (idxIt != instanceIndexById.end()) {
+                  if (idxIt != instanceIndexById.end() && !instances[idxIt->second].hidden) {
                       outIndices.push_back(idxIt->second);
                   }
               });
@@ -1577,7 +1587,7 @@ void WMORenderer::gatherCandidates(const glm::vec3& queryMin, const glm::vec3& q
     if (outIndices.empty() && !instances.empty()) {
         outIndices.reserve(instances.size());
         for (size_t i = 0; i < instances.size(); i++) {
-            outIndices.push_back(i);
+            if (!instances[i].hidden) outIndices.push_back(i);
         }
     }
 }
@@ -1652,6 +1662,8 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
     auto cullInstance = [&](size_t instIdx, InstanceDrawList& result) {
         if (instIdx >= instances.size()) return;
         const auto& instance = instances[instIdx];
+        // Somewhere else entirely - see setInstanceHidden.
+        if (instance.hidden) return;
         auto mdlIt = loadedModels.find(instance.modelId);
         if (mdlIt == loadedModels.end()) return;
         const ModelData& model = mdlIt->second;

@@ -71,8 +71,54 @@ struct PathEntry {
     bool fromDBC = false;     // Loaded from TransportAnimation.dbc
     bool worldCoords = false; // TaxiPathNode absolute world positions (not local offsets)
 
+    /// Spans of the route's cycle during which the hull is on this slice's map.
+    ///
+    /// A taxi route crosses continents - the Undercity zeppelin spends half
+    /// its cycle over Howling Fjord - and the slice held here covers the whole
+    /// cycle so the server's published phase maps onto it directly. Outside
+    /// these spans the hull is on another map and must not be drawn: the
+    /// spline holds it still there, and the renderer hides it.
+    ///
+    /// Empty means always present, which is every path that never leaves one
+    /// map and every TransportAnimation route.
+    std::vector<std::pair<uint32_t, uint32_t>> presentMs;
+
+    [[nodiscard]] bool presentAt(uint32_t timeMs) const {
+        if (presentMs.empty()) return true;
+        for (const auto& [from, to] : presentMs) {
+            if (timeMs >= from && timeMs <= to) return true;
+        }
+        return false;
+    }
+
     PathEntry(math::CatmullRomSpline s, uint32_t id, bool zo, bool dbc, bool wc)
         : spline(std::move(s)), pathId(id), zOnly(zo), fromDBC(dbc), worldCoords(wc) {}
+};
+
+/// One node of a taxi route, as TaxiPathNode.dbc authored it.
+struct TaxiRouteNode {
+    glm::vec3 position;      ///< canonical world coordinates
+    uint32_t mapId = 0;
+    uint32_t dwellMs = 0;    ///< authored stop at this node
+};
+
+/// A transport's whole route, across every map it touches.
+///
+/// Kept whole rather than sliced per map, because the route's timeline is what
+/// the server publishes a phase against. Sliced first and timed separately,
+/// each map's piece got a cycle of its own and the hull flew laps of one shore
+/// while the server's schedule ran elsewhere.
+struct TaxiRoute {
+    std::vector<TaxiRouteNode> nodes;   ///< NodeIndex order
+    /// The route closes back on itself: the last node leads straight to the
+    /// first. False for an open A-to-B run, which the hull flies out and back.
+    bool circuit = false;
+    /// Distance covered in one cycle, and time stopped in one cycle. A map
+    /// change covers no distance - the server teleports the hull across.
+    /// Together with a published route period these give the hull's real
+    /// speed, which is otherwise a guess.
+    float cycleDistance = 0.0f;
+    uint32_t cycleDwellMs = 0;
 };
 
 /// Owns and manages transport path data.
@@ -130,32 +176,55 @@ public:
     // Anything left over after this slice's own cost is spent waiting at the
     // pier, so the boat makes one departure per server cycle rather than lapping
     // its shore until the transfer comes due. 0 disables the stretch.
-    static math::CatmullRomSpline buildTaxiSegmentSpline(
-        const std::vector<glm::vec3>& pts,
-        const std::vector<uint32_t>& nodeDelaysMs,
-        float transportSpeed = 28.0f,
-        uint32_t fullRouteCycleMs = 0);
+    /// One map's view of a whole taxi route, over the route's own timeline.
+    ///
+    /// Every slice of a route shares one cycle length and one phase, so a
+    /// phase the server publishes lands in the same place on every map. Where
+    /// the route is on another map the hull holds still and `presentMs` says
+    /// it is not here.
+    ///
+    /// speed is yards per second. Pass the hull's real speed when it is known
+    /// - solved from the server's published period, see taxiRouteSpeedFor -
+    /// because the authored dwells are absolute and the legs are not, so a
+    /// wrong speed does not merely stretch the cycle, it moves the dock stop
+    /// relative to it.
+    ///
+    /// Static and dependency-free so the timeline can be unit-tested without
+    /// a DBC.
+    [[nodiscard]] static PathEntry buildTaxiRouteSlice(const TaxiRoute& route,
+                                                      uint32_t mapId,
+                                                      float speed = kDefaultTransportSpeed);
 
-    /// Whether a slice's nodes form a circuit rather than an out-and-back run.
+    /// Whether the route closes back on itself rather than running A to B.
     ///
-    /// Measured against the slice's own length, not against a fixed distance.
-    /// The Undercity zeppelin's slice of taxi path 737 comes in from the
-    /// north-east, docks, circles the tower and leaves the same way: its ends
-    /// are 118 units apart on a 787-unit circuit, which a flat 60-unit
-    /// threshold called an open route. So the hull flew the circuit and then
-    /// retraced it backwards - arriving at the tower it had just left, which
-    /// is exactly what a rider reported seeing. A harbour shuttle's ends are
-    /// most of its length apart and stays open.
+    /// A route that ends on a different map than it began always does: the
+    /// closing leg is the server's teleport home. On one map it is measured
+    /// against the route's own length - the Undercity zeppelin comes in from
+    /// the north-east, docks, circles the tower and leaves the same way, its
+    /// ends 118 units apart on a 787-unit circuit, while a harbour shuttle's
+    /// ends are most of its length apart.
+    [[nodiscard]] static bool taxiRouteIsCircuit(const TaxiRoute& route);
+
+    /// The speed that makes this route take periodMs, or 0 if there is none.
     ///
-    /// Shared by the cycle accounting and the spline build, which have to
-    /// agree: one deciding circuit and the other out-and-back puts the surplus
-    /// dwell off by the whole return leg.
-    [[nodiscard]] static bool taxiSliceIsCircuit(const std::vector<glm::vec3>& pts);
+    /// The dwells are fixed and the legs are not, so this is the only way to
+    /// make the client's timeline proportional to the server's rather than
+    /// merely the same length.
+    [[nodiscard]] static float taxiRouteSpeedFor(const TaxiRoute& route, uint32_t periodMs);
+
+    [[nodiscard]] const TaxiRoute* findTaxiRoute(uint32_t taxiPathId) const;
+
+    static constexpr float kDefaultTransportSpeed = 28.0f;
+
 
 private:
     std::unordered_map<uint32_t, PathEntry> paths_;
     // taxiPathId -> mapId -> world-coordinate path segment for that map.
     std::unordered_map<uint32_t, std::unordered_map<uint32_t, PathEntry>> taxiPaths_;
+    // taxiPathId -> the whole route, every map, as authored. Kept so a slice
+    // can be rebuilt at the hull's real speed once the server publishes its
+    // route period.
+    std::unordered_map<uint32_t, TaxiRoute> taxiRoutes_;
 };
 
 } // namespace wowee::game

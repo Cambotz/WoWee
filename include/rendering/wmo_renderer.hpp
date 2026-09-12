@@ -143,6 +143,17 @@ public:
     /// safe on every register.
     void setInstanceIsTransport(uint32_t instanceId, bool isTransport);
 
+    /// Take an instance out of the world without unloading it.
+    ///
+    /// A cross-continent transport is one object on a route that spans two
+    /// maps: for half its cycle the Undercity zeppelin is over Howling Fjord
+    /// and is not here at all. Its hull holds still on this map's slice while
+    /// it is away, so without this it would sit invisible-but-solid over the
+    /// tower, and a player could stand on a zeppelin that is on another
+    /// continent. Hidden instances are skipped by drawing and by every spatial
+    /// query, which is where collision comes from.
+    void setInstanceHidden(uint32_t instanceId, bool hidden);
+
     /**
      * Add doodad (child M2) to WMO instance
      * @param instanceId WMO instance to add doodad to
@@ -683,6 +694,10 @@ private:
         // this deck, so a lift cycling past a bystander cannot become their ground
         // (the Undercity elevator yo-yo).
         bool isTransport = false;
+
+        /// Loaded, positioned, and not in the world right now. See
+        /// setInstanceHidden.
+        bool hidden = false;
 
         void updateModelMatrix();
     };

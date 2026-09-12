@@ -371,170 +371,181 @@ TEST_CASE("PathEntry findNearestKey finds closest waypoint", "[transport_path_re
     REQUIRE(nearest == 2);
 }
 
-// ── buildTaxiSegmentSpline: wrap topology per route shape ──────
 
-// Sample a spline densely and return the longest interval (ms) over which its position
-// does not move - used to prove a ferry never parks dead (no stationary offshore hold).
-static uint32_t longestStationaryMs(const math::CatmullRomSpline& s) {
-    const uint32_t dur = s.durationMs();
-    const uint32_t step = std::max<uint32_t>(1u, dur / 400u);
-    uint32_t worst = 0, run = 0;
-    glm::vec3 prev = s.evaluatePosition(0);
-    for (uint32_t t = step; t <= dur; t += step) {
-        const glm::vec3 cur = s.evaluatePosition(t);
-        if (glm::distance(cur, prev) < 1.0f) { run += step; worst = std::max(worst, run); }
-        else run = 0;
+// ── Taxi routes: one journey, one clock, a view per map ────────
+
+/// Taxi path 737 verbatim from TaxiPathNode.dbc: the Undercity zeppelin.
+/// Nodes 0-5 circle Vengeance Landing on map 571, nodes 6-16 circle the
+/// Undercity tower on map 0, and the route closes from 16 back to 0. Both
+/// joins are map changes - the server teleports the hull and the rider gets a
+/// loading screen. The dock stops are 60s each.
+static game::TaxiRoute zeppelinRoute737() {
+    game::TaxiRoute route;
+    route.nodes = {
+        {{1933.1f, -6500.4f,  86.1f}, 571, 0u},
+        {{2065.0f, -6331.5f,  86.1f}, 571, 0u},
+        {{2059.0f, -6194.8f,  86.1f}, 571, 0u},
+        {{1989.4f, -6082.8f,  85.6f}, 571, 60000u},
+        {{1807.1f, -6001.6f,  86.2f}, 571, 0u},
+        {{1671.7f, -6134.8f,  82.9f}, 571, 0u},
+        {{2344.7f,   620.8f, 140.0f},   0, 0u},
+        {{2306.9f,   554.1f, 134.1f},   0, 0u},
+        {{2251.1f,   504.5f, 126.2f},   0, 0u},
+        {{2149.1f,   429.6f, 102.6f},   0, 0u},
+        {{2056.5f,   381.6f, 100.4f},   0, 60000u},
+        {{2005.0f,   370.3f,  94.2f},   0, 0u},
+        {{1978.1f,   410.0f, 100.5f},   0, 0u},
+        {{2041.0f,   449.2f, 100.9f},   0, 0u},
+        {{2091.8f,   481.2f, 109.9f},   0, 0u},
+        {{2173.6f,   534.1f, 128.9f},   0, 0u},
+        {{2235.2f,   575.6f, 141.8f},   0, 0u},
+    };
+    route.circuit = game::TransportPathRepository::taxiRouteIsCircuit(route);
+    return route;
+}
+
+TEST_CASE("a route that ends on another map is a ring", "[transport_path_repo][taxi]") {
+    const auto route = zeppelinRoute737();
+    REQUIRE(route.circuit);
+
+    // A harbour shuttle on one map, ends the whole run apart, is not.
+    game::TaxiRoute shuttle;
+    shuttle.nodes = {
+        {{0.0f, 0.0f, 0.0f}, 0, 0u},
+        {{500.0f, 0.0f, 0.0f}, 0, 60000u},
+        {{1000.0f, 0.0f, 0.0f}, 0, 0u},
+    };
+    REQUIRE_FALSE(game::TransportPathRepository::taxiRouteIsCircuit(shuttle));
+}
+
+TEST_CASE("every map's slice of a route shares one cycle", "[transport_path_repo][taxi]") {
+    const auto route = zeppelinRoute737();
+    const auto onDurotar = game::TransportPathRepository::buildTaxiRouteSlice(route, 0);
+    const auto onFjord = game::TransportPathRepository::buildTaxiRouteSlice(route, 571);
+
+    // The server publishes one phase against one route, so a fraction of the
+    // cycle has to mean the same thing on either map.
+    REQUIRE(onDurotar.spline.durationMs() == onFjord.spline.durationMs());
+    REQUIRE(onDurotar.spline.durationMs() > 120000u);   // both 60s dock stops
+}
+
+TEST_CASE("a slice says when the hull is somewhere else", "[transport_path_repo][taxi]") {
+    const auto route = zeppelinRoute737();
+    const auto onDurotar = game::TransportPathRepository::buildTaxiRouteSlice(route, 0);
+    const auto onFjord = game::TransportPathRepository::buildTaxiRouteSlice(route, 571);
+    const uint32_t cycle = onDurotar.spline.durationMs();
+
+    REQUIRE_FALSE(onDurotar.presentMs.empty());
+    REQUIRE_FALSE(onFjord.presentMs.empty());
+
+    // The hull is on exactly one of them at any moment, and on each for some
+    // of the cycle. Neither map gets to animate it the whole way round.
+    uint32_t here = 0, there = 0, both = 0, neither = 0;
+    for (uint32_t t = 0; t < cycle; t += cycle / 200) {
+        const bool a = onDurotar.presentAt(t);
+        const bool b = onFjord.presentAt(t);
+        if (a && b) both++;
+        else if (a) here++;
+        else if (b) there++;
+        else neither++;
+    }
+    CHECK(both == 0);
+    CHECK(neither == 0);
+    CHECK(here > 10);
+    CHECK(there > 10);
+
+    // Fjord first, since the route's nodes start there.
+    CHECK(onFjord.presentAt(0));
+    CHECK_FALSE(onDurotar.presentAt(0));
+}
+
+TEST_CASE("a hull holds still on the map it has left", "[transport_path_repo][taxi]") {
+    const auto route = zeppelinRoute737();
+    const auto onDurotar = game::TransportPathRepository::buildTaxiRouteSlice(route, 0);
+    const uint32_t cycle = onDurotar.spline.durationMs();
+
+    // Interpolating across the gap would sweep the hull over Tirisfal in one
+    // frame. While it is away the slice does not move at all.
+    glm::vec3 prev = onDurotar.spline.evaluatePosition(0);
+    float worst = 0.0f;
+    for (uint32_t t = 0; t < cycle; t += 250) {
+        if (onDurotar.presentAt(t)) { prev = onDurotar.spline.evaluatePosition(t); continue; }
+        const glm::vec3 cur = onDurotar.spline.evaluatePosition(t);
+        worst = std::max(worst, glm::distance(cur, prev));
         prev = cur;
     }
-    return worst;
+    CHECK(worst < 1.0f);
 }
 
-TEST_CASE("buildTaxiSegmentSpline single-map shuttle sails back (position-closed)",
-          "[transport_path_repo][taxi]") {
-    // Dock at origin, open water 1000 units out. The boat must return under sail, so the
-    // cycle ends where it began.
-    std::vector<glm::vec3> pts = {
-        {0.0f, 0.0f, 0.0f}, {400.0f, 0.0f, 0.0f}, {1000.0f, 0.0f, 0.0f},
-    };
-    std::vector<uint32_t> delays(pts.size(), 0u);
-    auto spline = game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays);
-
-    // Position-closed: no teleport-snap at the modulo wrap.
-    const glm::vec3 atStart = spline.evaluatePosition(0);
-    const glm::vec3 atEnd = spline.evaluatePosition(spline.durationMs());
-    requireVec3Near(atEnd, atStart.x, atStart.y, atStart.z, 0.5f);
-    requireVec3Near(atStart, 0.0f, 0.0f, 0.0f, 0.5f);
-
-    // Mid-cycle the hull is out at the far turnaround, i.e. it actually leaves the dock.
-    const glm::vec3 mid = spline.evaluatePosition(spline.durationMs() / 2);
-    REQUIRE(mid.x > 800.0f);
-}
-
-TEST_CASE("buildTaxiSegmentSpline continent slice ferries without parking offshore",
-          "[transport_path_repo][taxi]") {
-    // One map's slice of a cross-continent route: offshore-in -> dock -> offshore-out.
-    // It must oscillate (there-and-back), reaching the far offshore node so the server's
-    // handoff can fire there, and NEVER hold stationary at sea (the reported bug).
-    std::vector<glm::vec3> pts = {
-        {0.0f, 0.0f, 0.0f}, {500.0f, 0.0f, 0.0f}, {1000.0f, 0.0f, 0.0f},  // dock at 500
-    };
-    std::vector<uint32_t> delays(pts.size(), 0u);
-    auto spline = game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays);
-
-    // Position-closed and reaches the far offshore node mid-cycle.
-    const glm::vec3 atStart = spline.evaluatePosition(0);
-    const glm::vec3 atEnd = spline.evaluatePosition(spline.durationMs());
-    requireVec3Near(atEnd, atStart.x, atStart.y, atStart.z, 0.5f);
-    REQUIRE(spline.evaluatePosition(spline.durationMs() / 2).x > 900.0f);
-
-    // No dead offshore hold: with no authored dwell, the only near-stationary moment is
-    // the brief deceleration as the hull U-turns at a node (a few seconds), nowhere near
-    // the tens of seconds the old offshore hold parked it for.
-    REQUIRE(longestStationaryMs(spline) < 5000u);
-}
-
-TEST_CASE("buildTaxiSegmentSpline honors an authored dock dwell but nothing longer",
-          "[transport_path_repo][taxi]") {
-    // A 60s dwell at the mid dock is the only stationary stretch; there is no offshore
-    // hold anywhere near the ~2s the boat needs to sail each 500u leg.
-    std::vector<glm::vec3> pts = {
-        {0.0f, 0.0f, 0.0f}, {500.0f, 0.0f, 0.0f}, {1000.0f, 0.0f, 0.0f},
-    };
-    std::vector<uint32_t> delays = {0u, 60000u, 0u};
-    auto spline = game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays);
-
-    const uint32_t stationary = longestStationaryMs(spline);
-    REQUIRE(stationary >= 55000u);   // the authored dock dwell is preserved
-    REQUIRE(stationary <= 65000u);   // and nothing parks longer than it
-}
-
-TEST_CASE("buildTaxiSegmentSpline closed loop returns to first node",
-          "[transport_path_repo][taxi]") {
-    // Endpoints coincide (within 60u): a ring that closes back to the start.
-    std::vector<glm::vec3> pts = {
-        {0.0f, 0.0f, 0.0f}, {300.0f, 0.0f, 0.0f}, {300.0f, 300.0f, 0.0f}, {10.0f, 5.0f, 0.0f},
-    };
-    std::vector<uint32_t> delays(pts.size(), 0u);
-    auto spline = game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays);
-
-    const glm::vec3 atStart = spline.evaluatePosition(0);
-    const glm::vec3 atEnd = spline.evaluatePosition(spline.durationMs());
-    requireVec3Near(atEnd, atStart.x, atStart.y, atStart.z, 0.5f);
-}
-
-TEST_CASE("a zeppelin's tower circuit is flown round, not retraced backwards",
+TEST_CASE("a zeppelin flies its tower circuit round, not backwards",
           "[transport_path_repo][taxi][transport]") {
-    // Taxi path 737's map-0 slice, verbatim from TaxiPathNode.dbc: the
-    // Undercity zeppelin comes in from the north-east, docks at the tower,
-    // circles it and leaves the same way. Its ends are 118 units apart on a
-    // 787-unit circuit, which the old flat 60-unit test called an open route -
-    // so the hull flew the circuit and then retraced every node backwards,
-    // arriving at the tower it had just departed.
-    std::vector<glm::vec3> pts = {
-        {2344.7f, 620.8f, 140.0f}, {2306.9f, 554.1f, 134.1f}, {2251.1f, 504.5f, 126.2f},
-        {2149.1f, 429.6f, 102.6f}, {2056.5f, 381.6f, 100.4f}, {2005.0f, 370.3f,  94.2f},
-        {1978.1f, 410.0f, 100.5f}, {2041.0f, 449.2f, 100.9f}, {2091.8f, 481.2f, 109.9f},
-        {2173.6f, 534.1f, 128.9f}, {2235.2f, 575.6f, 141.8f},
-    };
-    REQUIRE(game::TransportPathRepository::taxiSliceIsCircuit(pts));
+    // The slice used to be flown out and then retraced node by node, so the
+    // hull departed the tower and came straight back to arrive at it again -
+    // which is what a rider reported seeing on both sides of the trip.
+    const auto route = zeppelinRoute737();
+    const auto onDurotar = game::TransportPathRepository::buildTaxiRouteSlice(route, 0);
 
-    // A harbour shuttle, whose ends are the whole run apart, stays open.
-    std::vector<glm::vec3> shuttle = {
-        {0.0f, 0.0f, 0.0f}, {500.0f, 0.0f, 0.0f}, {1000.0f, 0.0f, 0.0f},
-    };
-    REQUIRE_FALSE(game::TransportPathRepository::taxiSliceIsCircuit(shuttle));
-
-    // Flown as a circuit, every node is visited once per cycle - the hull never
-    // passes the same node twice heading opposite ways.
-    std::vector<uint32_t> delays(pts.size(), 0u);
-    const auto spline = game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays);
-    const auto& keys = spline.keys();
-    // One key per node plus the closing key back to the first.
-    REQUIRE(keys.size() == pts.size() + 1);
-    requireVec3Near(keys.back().position, pts.front().x, pts.front().y, pts.front().z, 0.5f);
+    // Each of the eleven map-0 nodes is passed once per cycle. Retracing would
+    // pass nine of them twice.
+    int passes = 0;
+    const uint32_t cycle = onDurotar.spline.durationMs();
+    bool near = false;
+    for (uint32_t t = 0; t <= cycle; t += 100) {
+        if (!onDurotar.presentAt(t)) { near = false; continue; }
+        const bool nowNear =
+            glm::distance(onDurotar.spline.evaluatePosition(t),
+                          glm::vec3(2149.1f, 429.6f, 102.6f)) < 12.0f;
+        if (nowNear && !near) passes++;
+        near = nowNear;
+    }
+    CHECK(passes == 1);
 }
 
-TEST_CASE("buildTaxiSegmentSpline waits at the pier for the rest of the route",
-          "[transport_path_repo]") {
-    // A cross-continent route is split into a slice per map, each animated on its
-    // own. Sized from its own nodes alone, a slice's cycle is far shorter than the
-    // server's, so the boat laps its shore several times before the transfer comes
-    // due - the Kraken doing circuits instead of leaving Borean Tundra.
-    //
-    // The surplus is spent at the pier: visibly stopped, still boardable, and
-    // never adrift offshore.
-    std::vector<glm::vec3> pts = {
-        glm::vec3(0.0f, 0.0f, 0.0f),        // offshore in
-        glm::vec3(500.0f, 0.0f, 0.0f),      // the pier
-        glm::vec3(1000.0f, 0.0f, 0.0f),     // offshore out
+TEST_CASE("a single-map route is always present and closes its ring",
+          "[transport_path_repo][taxi]") {
+    // The Grom'gol zeppelin's path 301 never leaves map 0: an open 18km run
+    // that the hull flies out and back along. It is here the whole cycle.
+    game::TaxiRoute shuttle;
+    shuttle.nodes = {
+        {{0.0f, 0.0f, 0.0f}, 0, 0u},
+        {{500.0f, 0.0f, 0.0f}, 0, 60000u},
+        {{1000.0f, 0.0f, 0.0f}, 0, 0u},
     };
-    std::vector<uint32_t> delays = {0u, 20000u, 0u};
+    shuttle.circuit = game::TransportPathRepository::taxiRouteIsCircuit(shuttle);
+    const auto slice = game::TransportPathRepository::buildTaxiRouteSlice(shuttle, 0);
 
-    const auto bare = game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays);
-    const uint32_t bareMs = bare.durationMs();
+    CHECK(slice.presentMs.empty());          // always here
+    CHECK(slice.presentAt(0));
+    CHECK(slice.presentAt(slice.spline.durationMs() / 2));
 
-    // Whole route costs half again as much as this slice.
-    const uint32_t fullCycleMs = bareMs + 90000u;
-    const auto stretched =
-        game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays, 28.0f, fullCycleMs);
+    // Position-closed, so the phase wrap is seamless.
+    const glm::vec3 atStart = slice.spline.evaluatePosition(0);
+    const glm::vec3 atEnd = slice.spline.evaluatePosition(slice.spline.durationMs());
+    CHECK(glm::distance(atStart, atEnd) < 0.5f);
+    // And it actually leaves the dock.
+    CHECK(slice.spline.evaluatePosition(slice.spline.durationMs() / 2).x > 400.0f);
+}
 
-    REQUIRE(stretched.durationMs() == bareMs + 90000u);
-
-    // The extra time is spent held at the pier, not adrift: the hull sits at the
-    // dock node across the whole surplus rather than moving through it.
-    const auto& keys = stretched.keys();
-    uint32_t longestHold = 0;
-    glm::vec3 holdAt(0.0f);
-    for (size_t i = 1; i < keys.size(); ++i) {
-        if (glm::distance(keys[i].position, keys[i - 1].position) > 0.01f) continue;
-        const uint32_t held = keys[i].timeMs - keys[i - 1].timeMs;
-        if (held > longestHold) { longestHold = held; holdAt = keys[i].position; }
+TEST_CASE("the hull's speed is solved from the period the server publishes",
+          "[transport_path_repo][taxi]") {
+    auto route = zeppelinRoute737();
+    route.cycleDwellMs = 120000u;
+    route.cycleDistance = 0.0f;
+    for (size_t i = 0; i < route.nodes.size(); ++i) {
+        const auto& a = route.nodes[i];
+        const auto& b = route.nodes[(i + 1) % route.nodes.size()];
+        if (a.mapId == b.mapId) route.cycleDistance += glm::distance(a.position, b.position);
     }
-    REQUIRE(longestHold >= 90000u);
-    REQUIRE(holdAt.x == Catch::Approx(500.0f));
 
-    // A single-map route has no other slice to wait for and is left alone.
-    const auto unchanged =
-        game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays, 28.0f, bareMs);
-    REQUIRE(unchanged.durationMs() == bareMs);
+    // The dwells are fixed and the legs are not, so matching the period is not
+    // the same as scaling the cycle: the dock stop has to land in the right
+    // place within it.
+    const float speed = game::TransportPathRepository::taxiRouteSpeedFor(route, 203000u);
+    REQUIRE(speed > 1.0f);
+    const auto slice = game::TransportPathRepository::buildTaxiRouteSlice(route, 0, speed);
+    CHECK(slice.spline.durationMs() == Catch::Approx(203000u).margin(2000));
+
+    // A period that cannot describe this route is refused rather than believed.
+    CHECK(game::TransportPathRepository::taxiRouteSpeedFor(route, 0u) == 0.0f);
+    CHECK(game::TransportPathRepository::taxiRouteSpeedFor(route, 119000u) == 0.0f);
 }
