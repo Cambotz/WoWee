@@ -1055,13 +1055,21 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
         }
 
         if ((cachedInsideWMO || atTunnelSeam) && wmoH) {
-            // Transition seam (e.g. tunnel mouths): if terrain is much higher than
-            // nearby WMO walkable floor, prefer the WMO floor so we can enter.
-            // Do not require downward velocity or an already-inside state:
-            // both arrive after a level tunnel entrance has begun choosing
-            // between the two surfaces.
-            // Only where the terrain stands a full step above the WMO floor,
-            // which is what a tunnel mouth looks like. See wmoFloorIsWayIn.
+            // The terrain wins at a seam unless it is not really there.
+            //
+            // Two ways it can fail to be. The quad is cut by a hole, which is
+            // how the map opens a cave mouth or a below-ground entrance - that
+            // is vetoed further up, before any of this, so there is simply no
+            // terrain candidate left here. Or it is standing overhead out of
+            // reach, which is what the heightfield is once the player is
+            // inside a passage burrowing under unholed ground: taking it would
+            // lift them back out. See wmoFloorIsWayIn.
+            //
+            // Anything else is real ground under real feet, and a WMO floor
+            // that happens to run beneath it is not a way in. Orgrimmar's
+            // valley entrance is the case: its ramp passes about 1.3 yards
+            // under the ground beside it, and there is no hole anywhere in
+            // that tile.
             const bool preferWmoAtSeam =
                 atTunnelSeam &&
                 (!terrainH ||
@@ -1069,8 +1077,9 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             if (preferWmoAtSeam) {
                 groundH = wmoH;
             } else if (terrainH) {
-                // At tunnel seams where both exist, pick the one closest to current feet Z
-                // to avoid oscillating between top terrain and deep WMO floors.
+                // Both real and both reachable: whichever is actually under the
+                // feet, rather than oscillating between the ground above and a
+                // deep WMO floor below.
                 groundH = selectClosestFloor(terrainH, wmoH, targetPos.z);
             } else {
                 groundH = selectReachableFloor3(terrainH, wmoH, m2H, targetPos.z, stepUpBudget);
