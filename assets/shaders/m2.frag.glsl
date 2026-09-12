@@ -34,6 +34,7 @@ layout(set = 1, binding = 2) uniform M2Material {
     float tintR;
     float tintG;
     float tintB;
+    int volumetricBeam;
 };
 
 layout(set = 0, binding = 1) uniform sampler2DShadow uShadowMap;
@@ -98,6 +99,27 @@ float bayerDither4x4(ivec2 p) {
         15.0/16.0,  7.0/16.0, 13.0/16.0,  5.0/16.0
     );
     return m[idx];
+}
+
+/// Value noise on a world position, for the haze inside a light beam.
+///
+/// Trilinear between eight hashed lattice corners with a smoothstep fade, so
+/// it is continuous and has no visible grid. Sampled in world space by the
+/// caller, which is what keeps the mist still while the beam sweeps over it.
+float beamHash(vec3 p) {
+    p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+    p += dot(p, p.yxz + 33.33);
+    return fract((p.x + p.y) * p.z);
+}
+
+float beamHaze(vec3 p) {
+    vec3 i = floor(p);
+    vec3 f = fract(p);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(beamHash(i + vec3(0, 0, 0)), beamHash(i + vec3(1, 0, 0)), f.x),
+                   mix(beamHash(i + vec3(0, 1, 0)), beamHash(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(beamHash(i + vec3(0, 0, 1)), beamHash(i + vec3(1, 0, 1)), f.x),
+                   mix(beamHash(i + vec3(0, 1, 1)), beamHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
 }
 
 void main() {
@@ -325,6 +347,96 @@ void main() {
     if (vHighlight > 0.0) {
         float lift = clamp(vHighlight, 0.0, 1.0);
         result = result * (1.0 + 0.6 * lift) + vec3(0.22, 0.19, 0.10) * lift;
+    }
+
+    // A shaft of light has no edge, and it is full of the air it lights.
+    //
+    // A searchlight, a god ray and a window shaft are all drawn as geometry -
+    // a card or a flattened cone - and the geometry ends somewhere. Where it
+    // ends the light stops dead, so the zeppelin's searchlight over Tirisfal
+    // came to a straight bright line across the sky with the polygon's corner
+    // plainly visible.
+    //
+    // Four attenuations soften it: the card's border, the cone's silhouette,
+    // haze through the volume, and distance from the emitter. All four are
+    // needed because no one of them reaches every beam - see each below.
+    //
+    // Applied to the whole model rather than only to batches whose blend mode
+    // reads additive. That guard was here to spare the lamp housing and is
+    // what kept the effect off the thing it was written for: the searchlight's
+    // batches carry a raw blend mode of 0 or 1 and are turned additive later,
+    // by the pass that draws them.
+    if (volumetricBeam != 0) {
+        vec2 fromEdge = min(TexCoord, vec2(1.0) - TexCoord);
+        float border = min(fromEdge.x, fromEdge.y);
+        float t = fogParams.z;
+        vec3 drift = vec3(0.02, 0.013, -0.007) * t;
+
+        // The edge, eaten into by the same air.
+        //
+        // A smooth falloff still reads as an edge, because it is the same
+        // width the whole way along and perfectly straight. Real light gives
+        // out against whatever is floating in front of it, so the boundary
+        // wanders. This pushes the falloff in and out with a finer octave of
+        // the same world-anchored field the haze uses - finer, so the edge
+        // frays rather than scallops, and world-anchored for the same reason
+        // as the haze: the fraying belongs to the air, so it must not travel
+        // with the beam.
+        float edgeNoise = beamHaze((FragPos + drift * 2.0) * 0.62) * 0.6
+                        + beamHaze((FragPos - drift * 1.3) * 1.6) * 0.4;
+        float wobble = (edgeNoise - 0.5) * 0.30;
+
+        float cardFade = smoothstep(0.0, 0.38, border + wobble * 0.55);
+
+        vec3 toEye = normalize(viewPos.xyz - FragPos);
+        float facing = abs(dot(normalize(Normal), toEye));
+        float coneFade = mix(1.0, smoothstep(0.0, 0.62, facing + wobble), 0.8);
+
+        // Three octaves of value noise on the world position: mist the beam
+        // sweeps through, not a texture painted on the blade.
+        //
+        // Sampled in world space, and barely drifting. At a third of a yard a
+        // second the drift and the sweep could not be told apart and the haze
+        // read as surface detail; what is wanted here is standing air, so the
+        // field is very nearly fixed and what moves is the beam. Coarse, too -
+        // a cell is about ten yards, the scale of a bank of mist, where three
+        // cells to a yard looked like noise on a surface.
+        float haze = beamHaze((FragPos + drift) * 0.17) * 0.55
+                   + beamHaze((FragPos - drift * 0.6) * 0.44) * 0.30
+                   + beamHaze((FragPos + drift * 1.7) * 1.05) * 0.15;
+        // Taken hard enough to punch holes, and never quite to nothing.
+        //
+        // A beam is several additive cards laid over each other and their
+        // contributions sum, so the core is saturated white: dimming a layer
+        // to a fifth still adds to white through the middle, which is why a
+        // 0.55-to-1.15 multiply showed nothing at all. The troughs have to go
+        // nearly black before the core breaks up - but not to zero, or the
+        // beam flickers inside its own haze rather than swirling.
+        haze = mix(0.26, 1.35, smoothstep(0.22, 0.78, haze));
+
+        // And a fade along the beam's own length, which does not care how the
+        // mesh was built or how its UVs run.
+        //
+        // The card fade above needs the UVs to reach 0 and 1 at the card's
+        // border to find it, and the zeppelin's upper beam does not: its
+        // triangle keeps a crisp outline while the lower beam softens. The
+        // cone fade cannot help there either, because a flat card turned
+        // toward the eye has no silhouette to catch. Distance from the
+        // emitter is the one handle every beam has, whatever its geometry -
+        // and a searchlight genuinely does give out as it reaches.
+        float reach = length(FragPos - InstanceOrigin);
+        float lengthFade = 1.0 - smoothstep(10.0, 52.0, reach) * 0.45;
+
+        // Four attenuations multiplied together take a beam to nothing long
+        // before any one of them looks wrong: at 0.7 each the product is a
+        // quarter, and the searchlight all but disappeared. Each is gentler
+        // now, and the whole is lifted so the middle of the beam comes back
+        // to roughly the brightness it had while the edges still go.
+        float beamFade = cardFade * coneFade * haze * lengthFade * 2.3;
+        outAlpha *= beamFade;
+        // Additive beams carry their brightness in the colour rather than the
+        // alpha, so fading one means dimming it.
+        if (blendMode >= 3) result *= beamFade;
     }
 
     outColor = vec4(result, outAlpha);

@@ -455,6 +455,17 @@ M2ClassificationResult classifyM2Model(
     // therefore freezes the whole lighthouse beam in its bind pose.
     r.isLightBeam = has(n, "lighthousebeam") || has(n, "lightbeam")
                  || has(n, "lightray");
+    // Light drawn as geometry, which wants a soft edge. Named tokens rather
+    // than a bare "beam": burnedbeam and catapultbeam are timber, and a
+    // structural beam faded out at its silhouette would go see-through.
+    r.isVolumetricBeam = has(n, "spotlight")   || has(n, "lighthousebeam")
+                      || has(n, "lightbeam")   || has(n, "lightray")
+                      || has(n, "lightshaft")  || has(n, "godray")
+                      || has(n, "sunray");
+    // Not maintenancelight: that is the zeppelin's deck lanterns, which are
+    // lamps in glass and not cones of light. They were added here while
+    // hunting for the searchlight and the debug colour showed them lighting
+    // up instead of it.
     r.isTransportDoodad = has(n, "transportship_sails")
                        || has(n, "icebreaker_paddlewheel");
 

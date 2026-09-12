@@ -1522,6 +1522,13 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     }
     gpuModel.isSkyBird                   = flightPathDoodad;
     gpuModel.isLightBeam                 = cls.isLightBeam;
+    gpuModel.isVolumetricBeam            = cls.isVolumetricBeam;
+    if (cls.isVolumetricBeam) {
+        // Said once per model, because "the beams look the same" has no way
+        // of telling a softening that did nothing from one that never ran.
+        LOG_INFO("Volumetric beam: '", gpuModel.name,
+                 "' will be softened and hazed");
+    }
     gpuModel.isTransportDoodad           = cls.isTransportDoodad;
     gpuModel.ambientEmitterType          = cls.ambientEmitterType;
     gpuModel.boundMin = tightMin;
@@ -1805,6 +1812,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
 
     // Build per-batch GPU entries
     if (!model.batches.empty()) {
+        bool beamBatchSeen = false;
         for (const auto& batch : model.batches) {
             // A submesh that reaches past the model's own indices is not drawn.
             //
@@ -1881,6 +1889,53 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                 }
             }
             bgpu.texture = tex;
+            // The searchlight's cone.
+            //
+            // It took a texture dump to find: the beam is a batch of
+            // HordeZepAnimation drawn additively with particles\gradient64b,
+            // a generic gradient shared by all sorts of effects. Nothing in
+            // the model's name, the batch's name or the material says light,
+            // which is why looking for spotlights, light shafts, additive
+            // materials and blended WMO geometry all missed it.
+            //
+            // Scoped to the model, because that gradient on its own would
+            // catch half the spell effects in the game. glow.blp beside it is
+            // the lens at the emitter - already a small bright card, and
+            // hidden behind the cone, so it is left alone.
+            {
+                const bool zepModel =
+                    gpuModel.name.find("ZepAnimation") != std::string::npos ||
+                    gpuModel.name.find("zepanimation") != std::string::npos;
+                bgpu.volumetricBeam =
+                    zepModel &&
+                    batchTexKeyLower.find("gradient64b") != std::string::npos;
+                // A swept beam wants its sweep to come back the way it went -
+                // but only the beam. Walk this batch's own indices into the
+                // model's vertices and mark every bone they are weighted to,
+                // so the reversal reaches the light and not the propeller
+                // turning beside it on the same timeline.
+                if (bgpu.volumetricBeam) {
+                    gpuModel.pingPongAnim = true;
+                    beamBatchSeen = true;
+                    if (gpuModel.pingPongBones.size() < model.bones.size()) {
+                        gpuModel.pingPongBones.assign(model.bones.size(), 0);
+                    }
+                    for (uint32_t i = batch.indexStart;
+                         i < batch.indexStart + batch.indexCount && i < model.indices.size();
+                         ++i) {
+                        const uint16_t vi = model.indices[i];
+                        if (vi >= model.vertices.size()) continue;
+                        const auto& v = model.vertices[vi];
+                        for (int b = 0; b < 4; ++b) {
+                            if (v.boneWeights[b] == 0) continue;
+                            const uint8_t bi = v.boneIndices[b];
+                            if (bi < gpuModel.pingPongBones.size()) {
+                                gpuModel.pingPongBones[bi] = 1;
+                            }
+                        }
+                    }
+                }
+            }
             const auto tcls = classifyBatchTexture(batchTexKeyLower);
             bgpu.starLayer = tcls.starPointLayer;
             const bool modelLanternFamily = gpuModel.isLanternLike;
@@ -2088,6 +2143,35 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             }
             gpuModel.batches.push_back(bgpu);
         }
+        if (beamBatchSeen) {
+            // A bone's world transform is its parent's times its own, so a
+            // beam bone on the reversing clock still snaps at the loop if the
+            // arm it hangs off is on the looping one. Four of the zeppelin's
+            // 125 bones carry the searchlight and none of them is the mast
+            // that swings it. Carry the flag up every ancestor chain.
+            const std::size_t boneCount = gpuModel.pingPongBones.size();
+            for (std::size_t i = 0; i < boneCount; ++i) {
+                if (!gpuModel.pingPongBones[i]) continue;
+                int32_t parent = (i < model.bones.size())
+                    ? model.bones[i].parentBone : -1;
+                // Bounded by the bone count: a malformed parent cycle would
+                // otherwise spin here forever.
+                for (std::size_t guard = 0; parent >= 0 && guard < boneCount; ++guard) {
+                    const std::size_t p = static_cast<std::size_t>(parent);
+                    if (p >= boneCount || p >= model.bones.size()) break;
+                    gpuModel.pingPongBones[p] = 1;
+                    parent = model.bones[p].parentBone;
+                }
+            }
+            // How many bones the reversal actually reaches. An empty set
+            // means every bone reads the looping clock and the sweep snaps
+            // back exactly as it did before - which is what happened when
+            // the ping-pong was moved off animTime onto its own clock.
+            std::size_t marked = 0;
+            for (uint8_t b : gpuModel.pingPongBones) marked += b ? 1 : 0;
+            LOG_INFO("Beam sweep: '", gpuModel.name, "' reverses ", marked,
+                     " of ", gpuModel.pingPongBones.size(), " bones");
+        }
     } else {
         // Fallback: single batch covering all indices with first texture
         M2ModelGPU::BatchGPU bgpu;
@@ -2147,6 +2231,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             mat.colorKeyThreshold = 0.08f;
             mat.unlit = (bgpu.materialFlags & 0x01) ? 1 : 0;
             mat.blendMode = bgpu.blendMode;
+            mat.volumetricBeam = bgpu.volumetricBeam ? 1 : 0;
             mat.fadeAlpha = 1.0f;
             mat.interiorDarken = 0.0f;
             mat.specularIntensity = 0.5f;

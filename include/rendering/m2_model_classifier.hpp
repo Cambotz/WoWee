@@ -101,6 +101,11 @@ struct M2ClassificationResult {
     bool isForge            = false; ///< Smithy forge - a contained fire that lights its surroundings
     bool isSkyBird          = false; ///< Flying bird/bat doodad (hide until animation range)
     bool isLightBeam        = false; ///< Distant rotating lighthouse/light-ray beam
+    /// A cone or shaft of light drawn as geometry: a searchlight, a god ray,
+    /// a shaft through a window. Its silhouette is a polygon edge and reads
+    /// as one unless it is faded out where the surface turns away from the
+    /// eye, which is where a real beam thins to nothing.
+    bool isVolumetricBeam   = false;
     bool isTransportDoodad  = false; ///< Ship sail/paddle child whose motion must remain visible
 
     // --- Ambient emitter type (for sound system) ---
