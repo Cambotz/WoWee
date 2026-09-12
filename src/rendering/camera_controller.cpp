@@ -1110,6 +1110,7 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
                 core::Logger::getInstance().warning(
                     "Player floor jump: feet=", targetPos.z,
                     " lastGround=", lastGroundZ, " -> chose ", *groundH,
+                    " grounded=", grounded ? 1 : 0,
                     " (terrain=", terrainH ? *terrainH : -99999.0f,
                     " wmo=", wmoH ? *wmoH : -99999.0f,
                     " m2=", m2H ? *m2H : -99999.0f,
@@ -1122,11 +1123,17 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             // dump prints, so dump it here automatically on a jump
             // (rate-limited hard, it is verbose): the log then carries
             // the answer from ordinary play, with no key to remember.
-            // Threshold is 0.9m, not 2m: the overhang gap the player
-            // is pulled across is about a metre, so a 2m gate never
-            // fired while the yo-yo bobbed under it. A metre is still
-            // above a stair step, so ordinary walking does not trip it.
-            if (wmoRenderer && std::abs(*groundH - lastGroundZ) > 0.9f) {
+            // Threshold matches the line above it, not a metre.
+            //
+            // 0.9 was chosen for a pull that crossed an overhang, and it
+            // never fired for the one actually reported in Undercity: the
+            // sink there is 0.41, 0.60, 0.56, 0.40 - the thickness of the
+            // floor slab, the player dropping onto the ceiling of the room
+            // beneath - and every one of those passed under the gate with
+            // the jump line printed and no group data behind it. Whatever
+            // is worth naming is worth dumping; the five second limiter is
+            // what keeps it cheap, not the size of the drop.
+            if (wmoRenderer && std::abs(*groundH - lastGroundZ) > 0.35f) {
                 static std::chrono::steady_clock::time_point lastFloorDump{};
                 if (now - lastFloorDump > std::chrono::seconds(5)) {
                     lastFloorDump = now;
