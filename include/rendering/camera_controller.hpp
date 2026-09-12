@@ -505,6 +505,10 @@ private:
     /// their zoom is a setting changed behind their back.
     float outdoorTargetDistance_ = 0.0f;
     bool indoorZoomHeld_ = false;
+    /// How much of the zoom the collision sweep has taken, and how long
+    /// nothing has been in the way. See the pull in updateOrbitCamera.
+    float collisionZoomDebt_ = 0.0f;
+    float collisionClearSeconds_ = 0.0f;
     int insideStateCheckCounter_ = 0;
     glm::vec3 lastInsideStateCheckPos_ = glm::vec3(0.0f);
     int insideWMOCheckCounter = 0;

@@ -1902,7 +1902,10 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
             indoorZoomHeld_ = false;
             // Given back only if they have not chosen something closer while
             // they were inside: their own wheel outranks the restore.
-            if (userTargetDistance >= MAX_DISTANCE_INTERIOR - 0.01f &&
+            // Plus what the collision took: a zoom the sweep pulled in is not
+            // a zoom the player chose, and without this a walk down one
+            // corridor meant never getting the outdoor distance back.
+            if (userTargetDistance + collisionZoomDebt_ >= MAX_DISTANCE_INTERIOR - 0.01f &&
                 outdoorTargetDistance_ > userTargetDistance) {
                 userTargetDistance = outdoorTargetDistance_;
             }
@@ -2024,6 +2027,40 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
         }
 
         collisionDistance = std::min(collisionDistance, smoothedCollisionDist_);
+
+        // A collision takes the zoom in with it.
+        //
+        // The sweep moved the camera and left the zoom where it was, so the
+        // moment the obstruction passed the camera sprang back out to a
+        // distance the room had already refused - and the next step pushed it
+        // in again. That in-and-out is the whole of what makes an interior
+        // unpleasant, and no amount of smoothing fixes it, because the target
+        // it is smoothing toward is the wrong one. Bringing the target in
+        // behind the camera is what lets the view settle.
+        const float bite = userTargetDistance - smoothedCollisionDist_;
+        if (bite > 0.1f) {
+            collisionClearSeconds_ = 0.0f;
+            // Toward what the sweep is asking for and no further, over about a
+            // second: passing a doorway should not collapse the zoom.
+            constexpr float kPullTau = 1.0f;
+            const float step = bite * (1.0f - std::exp(-deltaTime / kPullTau));
+            const float pulled = std::max(userTargetDistance - step, MIN_DISTANCE);
+            collisionZoomDebt_ += userTargetDistance - pulled;
+            userTargetDistance = pulled;
+        } else {
+            collisionClearSeconds_ += deltaTime;
+            // Given back only once nothing has been in the way for a moment,
+            // and more slowly than it was taken, so clearing a doorway does
+            // not throw the camera straight out into the next wall. Slower out
+            // than in is also what stops the two rules chasing each other.
+            constexpr float kSettleSeconds = 1.0f;
+            constexpr float kGiveTau = 2.5f;
+            if (collisionClearSeconds_ > kSettleSeconds && collisionZoomDebt_ > 0.001f) {
+                const float give = collisionZoomDebt_ * (1.0f - std::exp(-deltaTime / kGiveTau));
+                userTargetDistance += give;
+                collisionZoomDebt_ -= give;
+            }
+        }
     } else {
         smoothedCollisionDist_ = -1.0f;   // Reset when no collision sources available
         smoothedTerrainDist_ = -1.0f;
@@ -3379,6 +3416,11 @@ void CameraController::applyLookDelta(float dxPixels, float dyPixels) {
 }
 
 void CameraController::processMouseWheel(float delta) {
+    // The player's own choice clears whatever the sweep had taken: a distance
+    // they picked outranks one this arrived at, and it must not be given back
+    // on top of theirs a moment later.
+    collisionZoomDebt_ = 0.0f;
+    collisionClearSeconds_ = 0.0f;
     // Scale zoom speed proportionally to current distance for fine control up close
     float zoomSpeed = glm::max(userTargetDistance * 0.15f, 0.3f);
     userTargetDistance -= delta * zoomSpeed;
