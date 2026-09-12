@@ -161,11 +161,39 @@ void main() {
         float dLdy = dFdy(lum);
         vec3 dpdx = dFdx(FragPos);
         vec3 dpdy = dFdy(FragPos);
-        float bumpStrength = 9.0 * bumpFade;
-        vec3 perturbation = (dLdx * cross(norm, dpdy) + dLdy * cross(dpdx, norm)) * bumpStrength;
-        vec3 candidate = norm - perturbation;
-        float len2 = dot(candidate, candidate);
-        norm = (len2 > 1e-8) ? candidate * inversesqrt(len2) : norm;
+        // Unit tangents, not the raw position derivatives.
+        //
+        // cross(norm, dpdy) is as long as a pixel is wide in world space, and
+        // multiplying a luminance step by it made the perturbation grow with
+        // the size of the pixel's footprint on the ground. Standing in an inn
+        // a pixel covers a centimetre and this is invisible; looking out
+        // across a Dragonblight snowfield it covers tens of yards, so a
+        // luminance step of 0.02 became a perturbation many times longer than
+        // the unit normal it was subtracted from. The normal then pointed
+        // wherever the derivative did - constant across each triangle, because
+        // dFdx of a planar surface is - and the ground broke into hard-edged
+        // facets and streaks. Snow shows it worst: it has no real detail to
+        // enhance, so all that is amplified is sampling noise.
+        //
+        // Normalised, the strength means what it says: how far the normal
+        // tilts per unit of luminance change from one pixel to the next,
+        // whatever the pixel happens to cover.
+        vec3 tangentU = cross(norm, dpdy);
+        vec3 tangentV = cross(dpdx, norm);
+        float lenU = length(tangentU);
+        float lenV = length(tangentV);
+        if (lenU > 1e-6 && lenV > 1e-6) {
+            vec3 perturbation = (dLdx * (tangentU / lenU) + dLdy * (tangentV / lenV))
+                              * (9.0 * bumpFade);
+            // A texture edge is a step, not a slope. Left unbounded, one
+            // crossing a sharp boundary still turns the normal further than
+            // any real ground ever slopes.
+            float amount = length(perturbation);
+            if (amount > 0.7) perturbation *= 0.7 / amount;
+            vec3 candidate = norm - perturbation;
+            float len2 = dot(candidate, candidate);
+            norm = (len2 > 1e-8) ? candidate * inversesqrt(len2) : norm;
+        }
     }
 
     vec3 lightDir2 = normalize(-lightDir.xyz);
