@@ -462,6 +462,38 @@ TEST_CASE("buildTaxiSegmentSpline closed loop returns to first node",
     requireVec3Near(atEnd, atStart.x, atStart.y, atStart.z, 0.5f);
 }
 
+TEST_CASE("a zeppelin's tower circuit is flown round, not retraced backwards",
+          "[transport_path_repo][taxi][transport]") {
+    // Taxi path 737's map-0 slice, verbatim from TaxiPathNode.dbc: the
+    // Undercity zeppelin comes in from the north-east, docks at the tower,
+    // circles it and leaves the same way. Its ends are 118 units apart on a
+    // 787-unit circuit, which the old flat 60-unit test called an open route -
+    // so the hull flew the circuit and then retraced every node backwards,
+    // arriving at the tower it had just departed.
+    std::vector<glm::vec3> pts = {
+        {2344.7f, 620.8f, 140.0f}, {2306.9f, 554.1f, 134.1f}, {2251.1f, 504.5f, 126.2f},
+        {2149.1f, 429.6f, 102.6f}, {2056.5f, 381.6f, 100.4f}, {2005.0f, 370.3f,  94.2f},
+        {1978.1f, 410.0f, 100.5f}, {2041.0f, 449.2f, 100.9f}, {2091.8f, 481.2f, 109.9f},
+        {2173.6f, 534.1f, 128.9f}, {2235.2f, 575.6f, 141.8f},
+    };
+    REQUIRE(game::TransportPathRepository::taxiSliceIsCircuit(pts));
+
+    // A harbour shuttle, whose ends are the whole run apart, stays open.
+    std::vector<glm::vec3> shuttle = {
+        {0.0f, 0.0f, 0.0f}, {500.0f, 0.0f, 0.0f}, {1000.0f, 0.0f, 0.0f},
+    };
+    REQUIRE_FALSE(game::TransportPathRepository::taxiSliceIsCircuit(shuttle));
+
+    // Flown as a circuit, every node is visited once per cycle - the hull never
+    // passes the same node twice heading opposite ways.
+    std::vector<uint32_t> delays(pts.size(), 0u);
+    const auto spline = game::TransportPathRepository::buildTaxiSegmentSpline(pts, delays);
+    const auto& keys = spline.keys();
+    // One key per node plus the closing key back to the first.
+    REQUIRE(keys.size() == pts.size() + 1);
+    requireVec3Near(keys.back().position, pts.front().x, pts.front().y, pts.front().z, 0.5f);
+}
+
 TEST_CASE("buildTaxiSegmentSpline waits at the pier for the rest of the route",
           "[transport_path_repo]") {
     // A cross-continent route is split into a slice per map, each animated on its

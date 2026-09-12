@@ -477,6 +477,19 @@ bool TransportPathRepository::loadTransportAnimationDBC(pipeline::AssetManager* 
 
 // ── DBC: TaxiPathNode ──────────────────────────────────────────
 
+bool TransportPathRepository::taxiSliceIsCircuit(const std::vector<glm::vec3>& pts) {
+    if (pts.size() < 3) return false;
+    float length = 0.0f;
+    for (size_t i = 0; i + 1 < pts.size(); ++i) {
+        length += glm::distance(pts[i], pts[i + 1]);
+    }
+    const float endGap = glm::distance(pts.front(), pts.back());
+    // A quarter of the run, with a floor for the very short slices where the
+    // ratio is noise. 118 on 787 is a circuit; a pier-to-open-water shuttle
+    // has its ends the whole way apart.
+    return endGap < std::max(60.0f, length * 0.25f);
+}
+
 math::CatmullRomSpline TransportPathRepository::buildTaxiSegmentSpline(
     const std::vector<glm::vec3>& pts,
     const std::vector<uint32_t>& nodeDelaysMs,
@@ -494,16 +507,19 @@ math::CatmullRomSpline TransportPathRepository::buildTaxiSegmentSpline(
     }
 
     const float endGap = glm::distance(pts.front(), pts.back());
-    const bool closedLoop = endGap < 60.0f;
+    const bool closedLoop = taxiSliceIsCircuit(pts);
 
-    // What this slice costs on its own, in the same terms the caller measured the
-    // whole route in: legs travelled twice for the there-and-back, dwells once.
+    // What this slice costs on its own, in the same terms the caller measured
+    // the whole route in: a circuit travels its legs once and closes the ring,
+    // an out-and-back travels them twice; dwells count once either way.
     uint32_t sliceLegMs = 0, sliceDelayMs = 0;
     for (size_t i = 0; i < pts.size(); ++i) {
         sliceDelayMs += (i < nodeDelaysMs.size()) ? nodeDelaysMs[i] : 0u;
         if (i + 1 < pts.size()) sliceLegMs += legMs(glm::distance(pts[i], pts[i + 1]));
     }
-    const uint32_t sliceCycleMs = sliceLegMs * 2u + sliceDelayMs;
+    const uint32_t sliceCycleMs = closedLoop
+        ? sliceLegMs + legMs(endGap) + sliceDelayMs
+        : sliceLegMs * 2u + sliceDelayMs;
 
     // The rest of the route belongs to the other map, and the boat has to account
     // for that time somewhere or it simply laps this shore while the server's
@@ -640,16 +656,24 @@ bool TransportPathRepository::loadTaxiPathNodeDBC(pipeline::AssetManager* assetM
     std::unordered_map<uint32_t, uint32_t> routeCycleMs;
     for (const auto& [key, nodes] : nodesByPathMap) {
         if (nodes.size() < 2) continue;
+        std::vector<glm::vec3> slicePts;
+        slicePts.reserve(nodes.size());
+        for (const auto& n : nodes) slicePts.emplace_back(n.x, n.y, n.z);
+        // The same circuit test the spline build makes, on the same points.
+        // These two used to disagree by construction - this one always
+        // doubled the legs - so a circuit slice was credited with a return
+        // leg it never flies and the surplus dwell came out that much short.
+        const bool circuit = taxiSliceIsCircuit(slicePts);
         uint32_t legs = 0, delays = 0;
         for (size_t i = 0; i < nodes.size(); ++i) {
             delays += nodes[i].delaySeconds * 1000u;
             if (i + 1 < nodes.size()) {
-                legs += legMsFor(glm::distance(
-                    glm::vec3(nodes[i].x, nodes[i].y, nodes[i].z),
-                    glm::vec3(nodes[i + 1].x, nodes[i + 1].y, nodes[i + 1].z)));
+                legs += legMsFor(glm::distance(slicePts[i], slicePts[i + 1]));
             }
         }
-        routeCycleMs[key.first] += legs * 2u + delays;
+        routeCycleMs[key.first] +=
+            circuit ? legs + legMsFor(glm::distance(slicePts.front(), slicePts.back())) + delays
+                    : legs * 2u + delays;
     }
 
     // Build world-coordinate transport paths, one segment per (pathId, mapId).

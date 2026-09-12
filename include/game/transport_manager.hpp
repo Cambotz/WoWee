@@ -335,6 +335,13 @@ private:
     TransportAnimator animator_;
     mutable std::mutex mutex_;  // Guards transports_ map insert/erase for cross-thread snapshotTransports().
     std::unordered_map<uint64_t, ActiveTransport> transports_;
+    /// Route phases the server published before the transport was registered.
+    ///
+    /// A transport is registered once its model has loaded, several frames
+    /// after its create block arrives - and the create block is where the
+    /// server puts the route phase. See applyServerRouteClock.
+    struct PendingRouteClock { float phase; uint32_t periodMs; };
+    std::unordered_map<uint64_t, PendingRouteClock> pendingRouteClocks_;
     rendering::WMORenderer* wmoRenderer_ = nullptr;
     rendering::M2Renderer* m2Renderer_ = nullptr;
     bool clientSideAnimation_ = false;  // DISABLED - use server positions instead of client prediction

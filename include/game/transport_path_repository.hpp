@@ -136,6 +136,22 @@ public:
         float transportSpeed = 28.0f,
         uint32_t fullRouteCycleMs = 0);
 
+    /// Whether a slice's nodes form a circuit rather than an out-and-back run.
+    ///
+    /// Measured against the slice's own length, not against a fixed distance.
+    /// The Undercity zeppelin's slice of taxi path 737 comes in from the
+    /// north-east, docks, circles the tower and leaves the same way: its ends
+    /// are 118 units apart on a 787-unit circuit, which a flat 60-unit
+    /// threshold called an open route. So the hull flew the circuit and then
+    /// retraced it backwards - arriving at the tower it had just left, which
+    /// is exactly what a rider reported seeing. A harbour shuttle's ends are
+    /// most of its length apart and stays open.
+    ///
+    /// Shared by the cycle accounting and the spline build, which have to
+    /// agree: one deciding circuit and the other out-and-back puts the surplus
+    /// dwell off by the whole return leg.
+    [[nodiscard]] static bool taxiSliceIsCircuit(const std::vector<glm::vec3>& pts);
+
 private:
     std::unordered_map<uint32_t, PathEntry> paths_;
     // taxiPathId -> mapId -> world-coordinate path segment for that map.

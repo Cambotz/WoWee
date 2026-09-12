@@ -272,6 +272,14 @@ void TransportManager::registerTransport(uint64_t guid,
 
     transports_[guid] = transport;
 
+    // A route phase the server published before this was registered.
+    if (auto pendingClock = pendingRouteClocks_.find(guid);
+        pendingClock != pendingRouteClocks_.end()) {
+        const auto [phase, periodMs] = pendingClock->second;
+        pendingRouteClocks_.erase(pendingClock);
+        applyServerRouteClock(guid, phase, periodMs);
+    }
+
     glm::vec3 renderPos = core::coords::canonicalToRender(transport.position);
     LOG_INFO("TransportManager: Registered transport 0x", std::hex, guid, std::dec,
              " at path ", pathId, " with ", (pathEntry ? pathEntry->spline.keyCount() : 0u), " waypoints",
@@ -298,6 +306,9 @@ void TransportManager::registerTransport(uint64_t guid,
 void TransportManager::clearTransports() {
     const size_t count = transports_.size();
     transports_.clear();
+    // Held phases belong to the map that published them; a reused GUID on the
+    // next map must not inherit one.
+    pendingRouteClocks_.clear();
     if (count != 0) {
         LOG_INFO("TransportManager: Cleared ", count, " transports for map transition");
     }
@@ -443,9 +454,20 @@ bool TransportManager::isPointOnTransportDeck(uint64_t transportGuid,
 
 void TransportManager::applyServerRouteClock(uint64_t transportGuid, float phase,
                                              uint32_t periodMs) {
-    auto* transport = getTransport(transportGuid);
-    if (!transport || periodMs == 0) return;
+    if (periodMs == 0) return;
     if (!(phase >= 0.0f) || phase >= 1.0f) return;   // also rejects NaN
+
+    auto* transport = getTransport(transportGuid);
+    if (!transport) {
+        // The create block carries this, and a transport is not registered
+        // when it arrives - registration waits on the model loading, which
+        // takes several frames. The server publishes the phase when the object
+        // is created and rarely again, so dropping it here meant a hull that
+        // never adopted the server's clock at all and invented one from
+        // distance over speed instead. Held until registerTransport asks.
+        pendingRouteClocks_[transportGuid] = {phase, periodMs};
+        return;
+    }
 
     const bool firstSample = !transport->hasServerRouteClock;
     transport->hasServerRouteClock = true;
@@ -454,7 +476,7 @@ void TransportManager::applyServerRouteClock(uint64_t transportGuid, float phase
     transport->routePhaseAtTime = elapsedTime_;
 
     if (firstSample) {
-        LOG_INFO("Transport 0x", std::hex, transportGuid, std::dec,
+        LOG_WARNING("Transport 0x", std::hex, transportGuid, std::dec,
                  " adopted server route clock: period=", periodMs, "ms phase=", phase,
                  " (client period was ", [&]() -> uint32_t {
                      const auto* p = pathRepo_.findPath(transport->pathId);
