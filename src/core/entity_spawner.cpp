@@ -1027,8 +1027,11 @@ std::string EntitySpawner::getHumanoidBakePath(uint32_t displayId) const {
     auto extra = humanoidExtraMap_.find(disp->second.extraDisplayId);
     if (extra == humanoidExtraMap_.end() || extra->second.bakeName.empty()) return "";
 
-    // The bakes live in one directory and the dbc names only the file.
-    const std::string path = "Creature\\Baked\\" + extra->second.bakeName;
+    // The bakes live in one directory and the dbc names only the file. It is
+    // Textures\BakedNpcTextures, which is where the world path has always
+    // looked; Creature\Baked is not a directory in any of this client's data,
+    // so this returned nothing for every NPC there has ever been.
+    const std::string path = "Textures\\BakedNpcTextures\\" + extra->second.bakeName;
     return assetManager_->fileExists(path) ? path : std::string();
 }
 
@@ -1136,6 +1139,15 @@ EntitySpawner::getCreatureSkinPaths(uint32_t displayId,
         }
         return "";
     };
+
+    // The bake first, where the display has one: it is the whole appearance
+    // already composited, and the world puts it over these same slots. It is
+    // what a goblin, a naga or a broken has instead of skin fields - those are
+    // empty on a display whose appearance lives in CreatureDisplayInfoExtra,
+    // and a creature loaded from them alone draws as a white silhouette.
+    if (const std::string bake = getHumanoidBakePath(displayId); !bake.empty()) {
+        for (uint32_t texType : {1u, 11u, 12u, 13u}) out.emplace_back(texType, bake);
+    }
 
     const std::pair<uint32_t, const std::string*> kSkins[] = {
         {11u, &it->second.skin1}, {12u, &it->second.skin2}, {13u, &it->second.skin3},

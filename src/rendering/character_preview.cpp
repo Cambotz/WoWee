@@ -1005,6 +1005,14 @@ bool CharacterPreview::applyEquipment(const std::vector<game::EquipmentItem>& eq
 /// creature model needs nothing here that the world does not already do.
 bool CharacterPreview::setBakedSkin(const std::string& bakePath) {
     if (!charRenderer_ || instanceId_ == 0 || bakePath.empty()) return false;
+    // A bake is only right for the model it was baked for. Where an asset pack
+    // has put an HD character model under a display, the bake knows nothing
+    // about its face and the table is the better answer - the same rule, and
+    // the same vertex ceiling, the world spawner applies.
+    constexpr size_t kShippedCharacterVertexCeiling = 12000;
+    if (const auto* md = charRenderer_->getModelData(PREVIEW_MODEL_ID)) {
+        if (md->vertices.size() > kShippedCharacterVertexCeiling) return false;
+    }
     VkTexture* tex = charRenderer_->loadTexture(bakePath);
     if (!tex) return false;
     charRenderer_->setTextureSlotOverride(
