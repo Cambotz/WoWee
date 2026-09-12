@@ -16,6 +16,8 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <limits>
+#include <set>
 
 namespace wowee {
 namespace rendering {
@@ -640,6 +642,13 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         bool cachedIsTiled = false;
         float invAnimMs = 1.0f / 1000.0f;
 
+        // How far this instance's particles actually reach, against how far
+        // the model says it extends. A fire twice the height of the hut behind
+        // it is either particles outliving their authored lifespan, flying at
+        // the wrong speed, or drawn at the wrong size - and none of those says
+        // which model it is. This does.
+        float highestParticleZ = -std::numeric_limits<float>::max();
+
         for (const auto& p : inst.particles) {
             if (p.emitterIndex < 0 || p.emitterIndex >= static_cast<int>(gpu.particleEmitters.size())) continue;
 
@@ -730,6 +739,8 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 runGroup = cachedGroup;
                 particleRuns_.push_back({.group = cachedGroup, .first = vbWritten, .count = 0});
             }
+            highestParticleZ = std::max(highestParticleZ, p.position.z);
+
             float* vd = vbBase + static_cast<size_t>(vbWritten) * 9;
             vd[0] = p.position.x;
             vd[1] = p.position.y;
@@ -750,6 +761,23 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             ++vbWritten;
             ++particleRuns_.back().count;
             totalParticles++;
+        }
+
+        // Said once per model, and only when the overshoot is large enough to
+        // be the thing somebody is looking at rather than a stray spark.
+        if (highestParticleZ > -std::numeric_limits<float>::max()) {
+            const float reach = highestParticleZ - inst.position.z;
+            const float authored = gpu.boundMax.z * std::max(inst.scale, 0.001f);
+            if (authored > 0.1f && reach > authored * 1.75f) {
+                static std::set<std::string> saidTall;
+                if (saidTall.insert(gpu.name).second) {
+                    LOG_WARNING("Particles overshoot their model: '", gpu.name,
+                                "' reaches ", reach, " yd above its origin, model bound is ",
+                                authored, " yd (scale ", inst.scale, ", ",
+                                gpu.particleEmitters.size(), " emitters, ",
+                                inst.particles.size(), " live)");
+                }
+            }
         }
     }
 
