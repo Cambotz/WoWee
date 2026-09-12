@@ -40,9 +40,15 @@ TEST_CASE("no additive batch is alpha tested", "[m2]") {
     }
 }
 
-TEST_CASE("alpha key is always tested, that being what it means", "[m2]") {
+TEST_CASE("alpha key is tested where there is alpha to key on", "[m2]") {
     CHECK(m2BatchNeedsAlphaTest(1, true));
-    CHECK(m2BatchNeedsAlphaTest(1, false));
+    // And not where there is none. Every texel passes a test against an alpha
+    // that is 1 everywhere, so the test decides nothing - but it still puts
+    // the batch on the cutout pipeline and its alpha-to-coverage. Tirisfal's
+    // canopy trunks are drawn alpha-keyed over a DXT1 texture with no
+    // punch-through block in it; the one of the seven whose trunk is plain
+    // opaque is the one that renders right.
+    CHECK_FALSE(m2BatchNeedsAlphaTest(1, false));
 }
 
 TEST_CASE("a blended batch with no alpha still falls back to cutout",

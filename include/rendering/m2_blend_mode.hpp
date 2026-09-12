@@ -43,12 +43,25 @@ inline bool m2BlendIsAdditive(uint8_t blendMode) {
 
 /// Should this batch be alpha tested?
 ///
-/// Alpha key always is, that being what it means. A blended batch whose
-/// texture has no alpha is tested as a fallback, because blending by a missing
-/// alpha draws it solid. An additive batch never is: it has nothing to test
-/// and does not need one.
+/// Alpha key is, that being what it means - but only where there is alpha to
+/// key on. A blended batch whose texture has no alpha is tested as a fallback,
+/// because blending by a missing alpha draws it solid. An additive batch never
+/// is: it has nothing to test and does not need one.
+///
+/// An alpha key over a texture with no transparent texel is the case worth
+/// naming. Every texel passes, so the test decides nothing - but it still puts
+/// the batch on the cutout pipeline, where alpha-to-coverage decides how much
+/// of each sample the batch covers. Tirisfal's canopy trees are two batches,
+/// and their trunk is exactly this: TirrisFallCanopyTree01_Trunk is DXT1 with
+/// no punch-through block anywhere in it, drawn alpha-keyed. The one tree of
+/// the seven whose trunk is plain opaque - canopytree07 - is the one that
+/// renders right.
+///
+/// Safe to lean on, because hasAlpha is measured rather than guessed:
+/// BLPImage::hasTransparency walks level 0 and, for DXT1, counts a block only
+/// when it is in punch-through mode and a texel actually selects index 3.
 inline bool m2BatchNeedsAlphaTest(uint8_t blendMode, bool hasAlpha) {
-    if (blendMode == M2_BLEND_ALPHA_KEY) return true;
+    if (blendMode == M2_BLEND_ALPHA_KEY) return hasAlpha;
     if (m2BlendIsAdditive(blendMode)) return false;
     return blendMode >= M2_BLEND_ALPHA && !hasAlpha;
 }
