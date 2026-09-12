@@ -564,12 +564,19 @@ M2ClassificationResult classifyM2Model(
     // timber, and hardTreePart is already exactly that set. They matched
     // treeLike on the name and bent in the wind like a sapling.
     r.shadowWindFoliage = (r.isFoliageLike || r.isGroundDetail) && !hardTreePart;
-    // Cloth hung from a bar: banners, flags, tapestries, pennants. Not the
-    // pole or the stand they hang from, which are named for the whole thing -
-    // the sway is applied per vertex from the top down, so a rigid pole in the
-    // same model barely moves and the cloth below it does.
-    // "flag" alone is not enough: a flagstone is a floor tile, and swaying a
-    // floor is worse than a still banner.
+    // Cloth: banners, flags, tapestries, pennants.
+    //
+    // The name is all this sees, and it is not enough on its own. It used to
+    // say the pole in the same model barely moves because the sway is applied
+    // from the top down - which is backwards: a standard planted in the ground
+    // has its foot where the weight is greatest, and that is what swung the
+    // Undercity gate's flagpole hardest at its base. The caller settles both
+    // halves from the geometry the classifier never sees - whether the model
+    // is painted as cloth at all, whether its own bones already move it, and
+    // which end it is held by. See m2_renderer.cpp.
+    //
+    // "flag" alone is not enough here either: a flagstone is a floor tile, and
+    // swaying a floor is worse than a still banner.
     const bool flagCloth = has(n, "flag") && !has(n, "flagstone") &&
                            !has(n, "flagging");
     r.isHangingCloth = !r.isFoliageLike &&
