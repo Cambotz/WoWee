@@ -130,7 +130,14 @@ def convert(storage, file_id, name, out_dir, fetched, dest=None):
     struct.pack_into("<I", patched, 4, WOTLK_VERSION)
     model_path = dest or ("environments\\stars\\%s.m2" % name)
     write(out_dir, model_path, bytes(patched))
-    beside = model_path.replace("/", "\\").rsplit("\\", 1)[0]
+    # The skin is named after the model file, not after the name inside the
+    # model. The client works the skin path out from the model path, and
+    # anything else walking a pack matches them by filename stem - a stem that
+    # differs even in case is a model with no index data, which draws as
+    # spikes. Legion's internal name is CamelCase and a 3.3.5 path is often
+    # not.
+    written_dir, _, written_file = model_path.replace("/", "\\").rpartition("\\")
+    stem = written_file[:-3] if written_file.lower().endswith(".m2") else written_file
 
     # Skins moved out of the M2 into files of their own, named by the SFID
     # chunk. The loader still wants them beside the model as <name>0N.skin.
@@ -140,7 +147,7 @@ def convert(storage, file_id, name, out_dir, fetched, dest=None):
             skin_id = struct.unpack_from("<I", blob, at + lod * 4)[0]
             skin = storage.read_fileid(skin_id)
             if skin:
-                write(out_dir, "%s\\%s%02d.skin" % (beside, name, lod), skin)
+                write(out_dir, "%s\\%s%02d.skin" % (written_dir, stem, lod), skin)
 
     missing = 0
     for tex in named:
@@ -160,15 +167,25 @@ def index_local(root):
     """Every model in the local installation: name -> (vertex count, path).
 
     This is the baseline `--better` compares against and the placement every
-    written file needs. `override/` is skipped: art installed from an earlier
-    pack is not what the client originally shipped, and counting it as the
-    baseline would hide the very models a pack was built from.
+    written file needs.
+
+    `override/` counts, and counts first, because that is the order
+    AssetManager::resolveFile reads in: a pack already installed there is what
+    the client draws, so it is what a candidate has to beat. Measuring against
+    the untouched 3.3.5 file instead says every model in an installed pack is
+    an improvement worth making again - and worse, will happily replace a
+    better model with a poorer one. Elwynn's lion statue is 205 vertices as
+    shipped, 980 in a pack already installed, and 919 in a raw Legion install:
+    taking it "because it beats 205" loses 61.
+
+    The path recorded is always the game-relative one, never the override
+    copy's, because that is where a new pack has to put its file.
     """
     out = {}
     for dirpath, _dirs, files in os.walk(root):
         rel_dir = os.path.relpath(dirpath, root)
-        if rel_dir.lower().split(os.sep)[0] == "override":
-            continue
+        parts = rel_dir.lower().split(os.sep)
+        overridden = parts[0] == "override"
         for name in files:
             if not name.lower().endswith(".m2") or name.startswith("._"):
                 continue
@@ -189,9 +206,17 @@ def index_local(root):
                 continue
             key = name[:-3].lower()
             rel = os.path.relpath(path, root)
-            if key not in out or verts > out[key][0]:
-                out[key] = (verts, rel)
-    return out
+            if overridden:
+                rel = os.sep.join(rel.split(os.sep)[1:])
+            previous = out.get(key)
+            if previous is None:
+                out[key] = (verts, rel, overridden)
+            elif overridden and not previous[2]:
+                # An override replaces the shipped file whatever its size.
+                out[key] = (verts, rel, True)
+            elif overridden == previous[2] and verts > previous[0]:
+                out[key] = (verts, rel, overridden)
+    return {k: (v[0], v[1]) for k, v in out.items()}
 
 
 def main():
