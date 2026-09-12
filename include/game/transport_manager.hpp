@@ -215,6 +215,13 @@ public:
     void setM2Renderer(rendering::M2Renderer* renderer) { m2Renderer_ = renderer; }
 
     void update(float deltaTime);
+    // Which transport the player is standing on, or 0. A cross-continent route
+    // spends part of its cycle on the other map, and the slice hides the hull
+    // and stops posing it for that stretch - which, with a rider aboard, takes
+    // the deck out from under them and leaves them frozen off the world. The
+    // manager has no other way to know a rider is there: boarding is decided
+    // entirely on the client.
+    void setRiderTransport(uint64_t guid) { riderTransportGuid_ = guid; }
     void registerTransport(uint64_t guid,
                            uint32_t wmoInstanceId,
                            uint32_t pathId,
@@ -355,6 +362,7 @@ private:
     /// server puts the route phase. See applyServerRouteClock.
     struct PendingRouteClock { float phase; uint32_t periodMs; };
     std::unordered_map<uint64_t, PendingRouteClock> pendingRouteClocks_;
+    uint64_t riderTransportGuid_ = 0;
     rendering::WMORenderer* wmoRenderer_ = nullptr;
     rendering::M2Renderer* m2Renderer_ = nullptr;
     bool clientSideAnimation_ = false;  // DISABLED - use server positions instead of client prediction

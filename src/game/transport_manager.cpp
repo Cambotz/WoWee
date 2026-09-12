@@ -588,7 +588,16 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
     // A cross-continent route spends part of its cycle on the other map. The
     // slice holds the hull still there rather than sweeping it across, and
     // there is nothing here to draw, stand on, or board until it returns.
-    const bool presentNow = pathEntry->presentAt(pathTimeMs);
+    //
+    // Not while someone is standing on it. Hiding the hull and skipping the
+    // pose below takes the deck out from under a rider and freezes them at a
+    // position the world has already streamed away from - the client has no
+    // authority to carry them across a map boundary, only the server does, and
+    // until it says so the honest thing is to keep the deck where it is. The
+    // slice holds the hull at its last dock through the off-map stretch, so
+    // this parks the rider at the pier rather than dropping them mid-ocean.
+    const bool carryingRider = riderTransportGuid_ != 0 && transport.guid == riderTransportGuid_;
+    const bool presentNow = pathEntry->presentAt(pathTimeMs) || carryingRider;
     if (presentNow != transport.onThisMap) {
         transport.onThisMap = presentNow;
         LOG_INFO("Transport 0x", std::hex, transport.guid, std::dec,

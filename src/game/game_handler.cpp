@@ -874,6 +874,7 @@ void GameHandler::update(float deltaTime) {
 
         // Update transport manager
         if (transportManager_) {
+            transportManager_->setRiderTransport(playerTransportGuid_);
             transportManager_->update(deltaTime);
             updateAttachedTransportChildren(deltaTime);
         }
