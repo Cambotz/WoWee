@@ -1,4 +1,7 @@
 #include "game/game_handler.hpp"
+
+#include <set>
+
 #include "game/item_text.hpp"
 #include "game/achievement_criteria.hpp"
 #include "game/game_utils.hpp"
@@ -1603,7 +1606,21 @@ void GameHandler::updateM2TransportBoarding(const glm::vec3& playerCanonical) {
         constexpr float kDeeprunTramBoardHalfWidth = 5.68f + 1.5f;   // across the car's width
         constexpr float kShipBoardHalfLength = 65.0f;
         constexpr float kShipBoardHalfWidth = 30.0f;
-        constexpr float kShipBoardMinZ = 1.0f;
+        // Down as well as up, because a deck is not always above the origin.
+        //
+        // A boat's model origin sits at the waterline with its deck above, so
+        // a floor of +1 fitted every ship this was written against. A zeppelin
+        // hangs its gondola under a balloon and puts the origin up in the
+        // envelope: standing on the Tirisfal deck measures -16.4 locally, well
+        // under the old floor, so the boarding test rejected a player who was
+        // demonstrably standing on it - isPointOnTransportDeck said 1 in the
+        // same breath. Same shape of fault as SubwayCar and the Thunder Bluff
+        // lifts above, whose origins sit below their decks instead.
+        //
+        // The real guard here is the deck query, which traces actual collision;
+        // these bounds only keep a swimmer under a hull or a bird over one from
+        // being picked up, and -34 is still well inside the gondola.
+        constexpr float kShipBoardMinZ = -34.0f;
         constexpr float kShipBoardMaxZ = 35.0f;
 
         uint64_t bestGuid = 0;
@@ -1619,9 +1636,26 @@ void GameHandler::updateM2TransportBoarding(const glm::vec3& playerCanonical) {
         float nearestDeeprunVertDist = 0.0f;
         const glm::vec3 playerRenderPos = core::coords::canonicalToRender(playerCanonical);
         for (auto& [guid, transport] : tm->getTransports()) {
-            const bool isClientShip = !transport.isM2 && transport.worldCoords &&
-                                      transport.useClientAnimation;
-            if (!transport.isM2 && !isClientShip) continue;
+            const bool isClientShip = !transport.isM2 && transport.carriesRiders();
+            if (!transport.isM2 && !isClientShip) {
+                // Said once per transport, because this is where a rider is
+                // lost. Boarding is decided entirely on the client - the
+                // server never tells you that you stepped aboard your own
+                // transport - so a WMO ship that fails this test can sail
+                // away with the player standing where the deck used to be,
+                // and nothing anywhere reports it.
+                static std::set<uint64_t> saidSkip;
+                if (saidSkip.insert(guid).second) {
+                    LOG_WARNING("Transport not eligible for boarding: guid=0x",
+                                std::hex, guid, std::dec,
+                                " entry=", transport.entry,
+                                " isM2=", transport.isM2 ? 1 : 0,
+                                " worldCoords=", transport.worldCoords ? 1 : 0,
+                                " useClientAnimation=",
+                                transport.useClientAnimation ? 1 : 0);
+                }
+                continue;
+            }
             const bool isThunderBluffLift =
                 (transport.entry >= 20649u && transport.entry <= 20657u);
             const bool isDeeprunTram =
@@ -1763,11 +1797,21 @@ void GameHandler::updateM2TransportBoarding(const glm::vec3& playerCanonical) {
         (tr->entry >= 20649u && tr->entry <= 20657u);
     const bool isDeeprunTram = TransportManager::isDeeprunTramTransport(*tr);
 
-    if (!tr->isM2 && tr->worldCoords && tr->useClientAnimation) {
+    if (!tr->isM2 && tr->carriesRiders()) {
         constexpr float kShipDisembarkHalfLength = 70.0f;
         constexpr float kShipDisembarkHalfWidth = 35.0f;
-        constexpr float kShipDisembarkMinZ = -3.0f;
-        constexpr float kShipDisembarkMaxZ = 40.0f;
+        // Wider than the boarding floor, and for the same reason.
+        //
+        // Boarding accepts a deck below the model origin - a zeppelin's
+        // gondola measures about -17 - and this said anything under -3 had
+        // walked off the ship. So the player was attached by one check and
+        // thrown off by the other in the same breath: the log shows
+        // onTransport flipping 1/0 every twenty milliseconds until they fell.
+        //
+        // Kept a little looser than the boarding window, so the two do not
+        // fight over a player standing exactly on the boundary.
+        constexpr float kShipDisembarkMinZ = -40.0f;
+        constexpr float kShipDisembarkMaxZ = 45.0f;
         const glm::vec3 playerRenderPos = core::coords::canonicalToRender(playerCanonical);
         const glm::vec3 local(tr->invTransform * glm::vec4(playerRenderPos, 1.0f));
         const bool outsideBounds =

@@ -766,6 +766,22 @@ void EntityController::applyPlayerTransportState(const UpdateBlock& block,
         return isCorruptOriginPosition(owner_.getCurrentMapId(), x, y, z);
     };
 
+    // What the server says about the player and transports, when it changes.
+    //
+    // The attach below is the only way a WMO transport ever picks the player
+    // up, and it is gated entirely on this flag. "The zeppelin leaves without
+    // me" is either this flag never arriving or the attach being refused
+    // underneath it, and neither said anything at all.
+    {
+        static uint32_t lastFlags = 0xFFFFFFFFu;
+        if (block.moveFlags != lastFlags) {
+            lastFlags = block.moveFlags;
+            LOG_WARNING("Player moveFlags=0x", std::hex, block.moveFlags, std::dec,
+                        " onTransport=", block.onTransport ? 1 : 0,
+                        " transportGuid=0x", std::hex, block.transportGuid, std::dec);
+        }
+    }
+
     if (block.onTransport) {
         // Convert transport offset from server → canonical coordinates
         glm::vec3 serverOffset(block.transportX, block.transportY, block.transportZ);
@@ -809,8 +825,10 @@ void EntityController::applyPlayerTransportState(const UpdateBlock& block,
         bool isClientAnimatedTransport = false;
         if (owner_.playerTransportGuidRef() != 0 && owner_.getTransportManager()) {
             auto* tr = owner_.getTransportManager()->getTransport(owner_.playerTransportGuidRef());
-            isClientAnimatedTransport = tr &&
-                (tr->isM2 || (tr->worldCoords && tr->useClientAnimation));
+            // The same question the boarding check asks, asked the same way:
+            // these three used to spell the condition out separately and a
+            // rider admitted by one would be thrown off by another.
+            isClientAnimatedTransport = tr && tr->carriesRiders();
         }
         if (owner_.playerTransportGuidRef() != 0 && !isClientAnimatedTransport) {
             LOG_INFO("Player left transport");

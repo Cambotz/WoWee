@@ -701,3 +701,46 @@ TEST_CASE("Animator: a docked hull lies on the chord through its berth, not the 
     REQUIRE(std::abs(wowee::core::coords::normalizeAngleRad(actual - chordYaw)) < 0.02f);
     REQUIRE(std::abs(wowee::core::coords::normalizeAngleRad(actual - arrivalYaw)) > 0.2f);
 }
+
+// ══════════════════════════════════════════════════════════════════
+// Borrowed routes
+// ══════════════════════════════════════════════════════════════════
+
+TEST_CASE("A borrowed route still carries riders", "[transport][borrowed_path]") {
+    ActiveTransport t = makeTransport();
+    t.isM2 = false;
+    t.useClientAnimation = false;
+    t.worldCoords = false;
+
+    REQUIRE_FALSE(t.carriesRiders());
+
+    // The zeppelin: a WMO hull, not animating a route of its own, moved by
+    // the server. It still has a deck and the client still knows where it is.
+    t.borrowedPath = true;
+    CHECK(t.carriesRiders());
+}
+
+TEST_CASE("A borrowed route seeds no phase on the path it borrowed",
+          "[transport_clock_sync][borrowed_path]") {
+    // TransportManager hands ClockSync a null path for a borrowed-route
+    // transport, so nothing here can anchor it to a spline it will not fly.
+    // Positions and yaw still come through; localClockMs must not move.
+    ActiveTransport t = makeTransport();
+    t.isM2 = false;
+    t.borrowedPath = true;
+    t.useClientAnimation = true;   // as registerTransport would have left it
+    t.localClockMs = 1234;
+
+    TransportClockSync sync;
+    const glm::vec3 serverPos(500.0f, 600.0f, 70.0f);
+    sync.processServerUpdate(t, /*pathEntry=*/nullptr, serverPos, 1.25f, /*elapsed=*/1.0);
+
+    CHECK(t.position.x == Catch::Approx(500.0f));
+    CHECK(t.position.y == Catch::Approx(600.0f));
+    CHECK(t.position.z == Catch::Approx(70.0f));
+    CHECK(t.serverYaw == Catch::Approx(1.25f));
+    CHECK(t.hasServerYaw);
+    // No path means no client animation: the hull is the server's to move.
+    CHECK_FALSE(t.useClientAnimation);
+    CHECK(t.localClockMs == 1234u);
+}

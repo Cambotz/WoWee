@@ -1,4 +1,6 @@
 #include "game/transport_manager.hpp"
+
+#include <set>
 #include "game/transport_clock_sync.hpp"
 #include "game/transport_animator.hpp"
 #include "game/game_utils.hpp"
@@ -158,10 +160,31 @@ void TransportManager::registerTransport(uint64_t guid,
     transport.worldCoords = pathEntry->worldCoords;
     transport.allowBootstrapVelocity = false;
 
+    // A moving path registered under someone else's entry is a borrowed route.
+    //
+    // Marked here rather than where the borrowing is decided, because it is
+    // decided in more than one place: the Tirisfal zeppelin was flagged on its
+    // first spawn and then respawned unflagged on the far side of a world
+    // transfer, so the arrival-side instance went back to flying the wrong
+    // route with a passenger aboard. Every registration comes through here.
+    if (!isM2 && !pathEntry->worldCoords && spline.durationMs() > 0 &&
+        spline.keyCount() > 1 && pathId != entry) {
+        transport.borrowedPath = true;
+        static std::set<uint32_t> saidBorrow;
+        if (saidBorrow.insert(entry).second) {
+            LOG_WARNING("Transport entry=", entry, " is flying path ", pathId,
+                        ", which is not its own - following server position "
+                        "updates instead of animating it");
+        }
+    }
+
     // CRITICAL: Set basePosition from spawn position and t=0 offset
     // For stationary paths (1 waypoint), just use spawn position directly
-    if (spline.durationMs() == 0 || spline.keyCount() <= 1) {
-        // Stationary transport - no path animation
+    if (spline.durationMs() == 0 || spline.keyCount() <= 1 || transport.borrowedPath) {
+        // Stationary transport, or one on a borrowed route it will not fly -
+        // either way the spawn position is where it is, not an offset into a
+        // path. Inferring a base from the borrowed spline's first waypoint put
+        // the hull a whole route away from the dock the server spawned it at.
         transport.basePosition = spawnWorldPos;
         transport.position = spawnWorldPos;
     } else if (pathEntry->worldCoords) {
@@ -206,7 +229,12 @@ void TransportManager::registerTransport(uint64_t guid,
     // If the server sends actual position updates, updateServerTransport() will switch
     // to server-driven mode. This ensures transports like trams (which the server doesn't
     // stream updates for) still animate, while ships/zeppelins switch to server authority.
-    transport.useClientAnimation = (pathEntry->fromDBC && spline.durationMs() > 0);
+    // The borrowed-path test above turned this off and this line turned it back
+    // on, sixty lines later and out of sight: the zeppelin flew the borrowed
+    // route under client animation while the server drove it somewhere else, so
+    // it played both journeys at once and read as two hulls.
+    transport.useClientAnimation =
+        (pathEntry->fromDBC && spline.durationMs() > 0 && !transport.borrowedPath);
     transport.clientAnimationReverse = false;
     transport.serverYaw = 0.0f;
     transport.hasServerYaw = false;
@@ -502,6 +530,16 @@ void TransportManager::updateTransportMovement(ActiveTransport& transport, float
         return;
     }
 
+    // A borrowed route belongs to another transport. Its position comes from
+    // updateServerTransport and nowhere else; evaluating the spline here is
+    // what carried a rider along a journey the hull was not making.
+    if (transport.borrowedPath) {
+        updateTransformMatrices(transport);
+        pushTransform(transport);
+        applyDoodadMotionState(transport, /*moving=*/transport.hasServerVelocity);
+        return;
+    }
+
     const auto& spline = pathEntry->spline;
     if (spline.keyCount() == 0) {
         return;
@@ -649,7 +687,12 @@ void TransportManager::updateServerTransport(uint64_t guid, const glm::vec3& pos
     }
 
     // Delegate clock sync, yaw correction, and velocity bootstrap to ClockSync.
-    clockSync_.processServerUpdate(*transport, pathEntry, position, orientation, elapsedTime_);
+    // A borrowed-route transport is handed no path at all: it still gets the
+    // server's position and the heading-vs-velocity yaw correction, and none of
+    // the phase seeding that would put it back on someone else's route.
+    clockSync_.processServerUpdate(*transport,
+                                   transport->borrowedPath ? nullptr : pathEntry,
+                                   position, orientation, elapsedTime_);
 
     updateTransformMatrices(*transport);
     pushTransform(*transport);
@@ -729,6 +772,7 @@ bool TransportManager::assignTaxiPathToTransport(uint32_t entry, uint32_t taxiPa
         // Update transport to use the new path
         transport.pathId = entry;
         transport.worldCoords = true;
+        transport.borrowedPath = false;  // This route is its own now.
         transport.basePosition = glm::vec3(0.0f);  // World-coordinate path, no base offset
         transport.useClientAnimation = true;  // Server won't send position updates
 

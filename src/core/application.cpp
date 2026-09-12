@@ -2563,7 +2563,11 @@ void Application::applyServerMovementState(float deltaTime) {
     static bool wasOnTransport = false;
     bool onTransportNowDbg = gameHandler->isOnTransport();
     if (onTransportNowDbg != wasOnTransport) {
-        LOG_DEBUG("Transport state changed: onTransport=", onTransportNowDbg,
+        // At warning, not debug. Whether the player is attached to a transport
+        // decides which movement branch runs, and "the zeppelin leaves without
+        // me" has no other symptom - the transport moves, the player does not,
+        // and nothing anywhere says whether the attachment was ever made.
+        LOG_WARNING("Transport state changed: onTransport=", onTransportNowDbg,
                  " isM2=", isM2Transport,
                  " guid=0x", std::hex, gameHandler->getPlayerTransportGuid(), std::dec);
         wasOnTransport = onTransportNowDbg;

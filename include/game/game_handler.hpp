@@ -18,6 +18,7 @@
 #include "game/entity_controller.hpp"
 #include "game/game_services.hpp"
 #include "network/packet.hpp"
+#include "core/logger.hpp"
 #include <glm/glm.hpp>
 #include <memory>
 #include <string>
@@ -1663,6 +1664,22 @@ public:
         // Validate transport is registered before attaching player
         // (defer if transport not yet registered to prevent desyncs)
         if (transportGuid != 0 && !isTransportGuid(transportGuid)) {
+            // Said, rather than dropped in silence.
+            //
+            // This is the one decision between the server saying the player
+            // has boarded and the client agreeing, and taking it means the
+            // player stands still while the transport leaves without them -
+            // with nothing logged, nothing raised, and no retry. If the
+            // zeppelin sails off and the player does not, this line is the
+            // first place to look.
+            static uint64_t saidFor = 0;
+            if (saidFor != transportGuid) {
+                saidFor = transportGuid;
+                LOG_WARNING("Transport attach refused: guid=0x", std::hex,
+                            transportGuid, std::dec,
+                            " is not a registered transport yet - the player "
+                            "will not move with it");
+            }
             return;  // Transport not yet registered; skip attachment
         }
         playerTransportGuid_ = transportGuid;

@@ -74,6 +74,40 @@ struct ActiveTransport {
     bool allowBootstrapVelocity;   // Disable DBC bootstrap when spawn/path mismatch is clearly invalid
     bool isM2 = false;             // True if rendered as M2 (not WMO), uses M2Renderer for transforms
     bool worldCoords = false;       // TaxiPathNode absolute-world route (client-owned WMO ship)
+    /// Running a route borrowed from another transport, not its own.
+    ///
+    /// A transport with no TransportAnimation entry and no TaxiPathNode route
+    /// is given some other transport's moving path so it is not left sitting
+    /// still. That looks right from the shore and is wrong to ride: the client
+    /// flies the borrowed route while the server's transport is somewhere
+    /// else, so a passenger is carried to the wrong place and then snapped to
+    /// the real one - the Tirisfal zeppelin plays both journeys at once doing
+    /// this. Such a transport is moved by the server's own position updates
+    /// instead of being animated locally.
+    bool borrowedPath = false;
+
+    /// Whether a player standing on this is carried by it.
+    ///
+    /// The client decides boarding for itself - the server never says "you
+    /// stepped onto your own transport" - so what matters is whether this
+    /// client knows where the deck is from one frame to the next. An M2
+    /// transport always does, and a WMO one does when it animates the path
+    /// itself.
+    ///
+    /// worldCoords used to be required as well, and it is not the same
+    /// question: it says the route is in absolute world coordinates rather
+    /// than relative to the spawn, which is about where the path is drawn and
+    /// not about whether there is a deck under the player. It is only ever set
+    /// when a TaxiPathNode route is assigned, and the Tirisfal zeppelin gets a
+    /// remapped fallback path instead - so it animated, carried its own
+    /// searchlights around, and left every passenger standing in the air where
+    /// the deck had been.
+    [[nodiscard]] bool carriesRiders() const {
+        // A borrowed-path transport no longer animates locally, but it still
+        // has a deck and still knows where it is - it is moved by server
+        // updates rather than by a spline. Riders belong on it either way.
+        return isM2 || useClientAnimation || borrowedPath;
+    }
 
     // Whether the hull is currently holding at an authored dock stop, and what
     // was last pushed to its child doodads because of it. A paddlewheel that
