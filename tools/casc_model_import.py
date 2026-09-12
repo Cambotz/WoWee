@@ -1,25 +1,30 @@
 #!/usr/bin/env python3
 """Bring models out of a CASC installation and into MD20 this client reads.
 
-    tools/casc_model_import.py <legion-install> <output-dir> \
-        --catalogue=m2names.txt --name=SUBSTR
-    tools/casc_model_import.py <legion-install> <output-dir> \
-        --catalogue=m2names.txt --list=wanted.txt
+    tools/casc_model_import.py <casc-install> <output-dir> \
+        --catalogue=m2names.txt --local=<3.3.5 install> \
+        --prefix=world/azeroth/elwynn --better
 
-The list is one model per line, and where a line carries a tab the second
-field is where to write it - "stranglethorntree01<TAB>world/azeroth/...". A
-pack has to put a model at the path the client already looks for it at, and
-CASC does not know that path: it is the local installation that knows, so the
-placement comes in with the list rather than out of the archive.
+The local installation is what says where a model goes and what it is being
+improved on. CASC knows a FileDataID and not a path, so a pack cannot be
+written without it: the name inside the model is matched against the local
+tree, and the file lands where its counterpart already lives.
+
+Given that, the selection can be made rather than curated. `--prefix` takes
+everything under a path, `--better` keeps only what the later client draws
+with more geometry than the local copy, and the two compose - "every model in
+Elwynn worth replacing" is one command.
 
 The catalogue is the model list a sweep of the install produces: one line of
-"fileDataId<TAB>version<TAB>name" per M2. CASC has no filenames, but an M2
-carries its own, so that sweep is how a skybox is found at all.
+"fileDataId<TAB>version<TAB>name" per M2, written by
+`casc_extract.py --sweep`. CASC has no filenames, but an M2 carries its own,
+so that sweep is what makes any of this addressable.
 
 Most art is not re-authored between expansions - of 22033 models Cataclysm
-shares with 3.3.5, 20992 have the identical vertex count - but some is, and a
-sweep finds it: 241 models Legion draws with more geometry than the originals
-here, Teldrassil's canopy at 7x and Tirisfal's graves at 5x among them.
+shares with 3.3.5, 20992 have the identical vertex count - which is why
+`--better` is worth having: pointed at a whole zone it takes the handful that
+changed and leaves the rest, and moving a model that did not change is pure
+cost.
 
 For a model that already existed in Wrath the format barely moved. Legion
 wraps the model in an `MD21` chunk whose offsets are relative to the chunk, so
@@ -151,54 +156,108 @@ def convert(storage, file_id, name, out_dir, fetched, dest=None):
     return "ok" if not missing else "ok, %d textures missing" % missing
 
 
+def index_local(root):
+    """Every model in the local installation: name -> (vertex count, path).
+
+    This is the baseline `--better` compares against and the placement every
+    written file needs. `override/` is skipped: art installed from an earlier
+    pack is not what the client originally shipped, and counting it as the
+    baseline would hide the very models a pack was built from.
+    """
+    out = {}
+    for dirpath, _dirs, files in os.walk(root):
+        rel_dir = os.path.relpath(dirpath, root)
+        if rel_dir.lower().split(os.sep)[0] == "override":
+            continue
+        for name in files:
+            if not name.lower().endswith(".m2") or name.startswith("._"):
+                continue
+            path = os.path.join(dirpath, name)
+            try:
+                head = open(path, "rb").read(200)
+            except OSError:
+                continue
+            if head[:4] != b"MD20":
+                continue
+            version = struct.unpack_from("<I", head, 4)[0]
+            # Vanilla and TBC carry a playable-animation lookup WotLK dropped,
+            # so every array after it sits eight bytes later.
+            shift = 0 if version >= 264 else 8
+            try:
+                verts = struct.unpack_from("<I", head, 60 + shift)[0]
+            except struct.error:
+                continue
+            key = name[:-3].lower()
+            rel = os.path.relpath(path, root)
+            if key not in out or verts > out[key][0]:
+                out[key] = (verts, rel)
+    return out
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("--")]
-    flags = [a for a in sys.argv[1:] if a.startswith("--")]
+    flags = dict()
+    for flag in sys.argv[1:]:
+        if flag.startswith("--"):
+            key, _, value = flag[2:].partition("=")
+            flags[key] = value
     if len(args) < 2:
         raise SystemExit(__doc__)
     install, out_dir = args[0], args[1]
-    want = None
-    catalogue = None
-    wanted_names = None
-    for flag in flags:
-        if flag.startswith("--name="):
-            want = flag.split("=", 1)[1].lower()
-        elif flag.startswith("--catalogue="):
-            catalogue = flag.split("=", 1)[1]
-        elif flag.startswith("--list="):
-            wanted_names = {}
-            for line in open(flag.split("=", 1)[1]):
-                line = line.rstrip("\n")
-                if not line.strip():
-                    continue
-                parts = line.split("\t")
-                wanted_names[parts[0].strip().lower()] = \
-                    parts[1].strip() if len(parts) > 1 else None
-    if want is None and wanted_names is None:
-        raise SystemExit("pass --name=<substring> or --list=<file of model names>")
+
+    catalogue = flags.get("catalogue")
+    if not catalogue or not os.path.exists(catalogue):
+        raise SystemExit("pass --catalogue=<model list from casc_extract --sweep>")
+    local_root = flags.get("local")
+    if not local_root or not os.path.isdir(local_root):
+        raise SystemExit("pass --local=<the installation being improved>")
+
+    prefix = (flags.get("prefix") or "").lower().replace("\\", "/").strip("/")
+    substring = (flags.get("name") or "").lower() or None
+    ratio = float(flags.get("better") or 1.3) if "better" in flags else 0.0
+    if not prefix and not substring and not ratio:
+        raise SystemExit("pass at least one of --prefix, --name or --better")
+
+    local = index_local(local_root)
+    print("local models: %d" % len(local))
 
     storage = ce.CascStorage(install)
-    print("index %d, encoding %d, root %d" %
+    print("casc: index %d, encoding %d, root %d" %
           (len(storage.index.entries), len(storage.encoding), len(storage.root)))
-
-    if not catalogue or not os.path.exists(catalogue):
-        raise SystemExit("pass --catalogue=<model list>; see the module docstring")
 
     done = {}
     fetched = set()
+    skipped_unknown = 0
     for line in open(catalogue):
         file_id, _version, name = line.rstrip("\n").split("\t")
         low = name.lower()
-        if wanted_names is not None and low not in wanted_names:
+        if substring and substring not in low:
             continue
-        if want is not None and want not in low:
+        here = local.get(low)
+        if here is None:
+            # Nothing to improve and nowhere to put it. A model the local
+            # client never had is new content, not an upgrade.
+            skipped_unknown += 1
             continue
-        dest = wanted_names.get(low) if wanted_names else None
-        done[name] = convert(storage, int(file_id), name, out_dir, fetched, dest)
+        verts, rel = here
+        if prefix and not rel.lower().replace(os.sep, "/").startswith(prefix):
+            continue
+        if ratio:
+            try:
+                blob = storage.read_fileid(int(file_id), limit=2048)
+                body, _chunks = md21_body(blob) if blob else (None, {})
+                theirs = struct.unpack_from("<I", body, 60)[0] if body else 0
+            except Exception:
+                continue
+            if verts < 20 or theirs <= verts * ratio:
+                continue
+        done[name] = convert(storage, int(file_id), name, out_dir, fetched,
+                             rel.replace(os.sep, "\\"))
         print("  %-44s %s" % (name, done[name]), flush=True)
 
     ok = sum(1 for v in done.values() if v.startswith("ok"))
-    print("%d selected, %d written" % (len(done), ok))
+    print("%d selected, %d written (%d models the local client does not have)"
+          % (len(done), ok, skipped_unknown))
     for name, status in sorted(done.items()):
         if not status.startswith("ok"):
             print("  %-40s %s" % (name, status))
