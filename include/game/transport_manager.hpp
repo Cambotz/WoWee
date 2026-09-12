@@ -222,6 +222,21 @@ public:
     // manager has no other way to know a rider is there: boarding is decided
     // entirely on the client.
     void setRiderTransport(uint64_t guid) { riderTransportGuid_ = guid; }
+
+    /// Whether a point stands over an M2 transport's actual footprint.
+    ///
+    /// getTransportDeckFloorHeight refuses an M2 outright, so the ship path's
+    /// deck test has never been available to a lift, and boarding one is
+    /// decided on a radius about its origin instead - twelve yards across and
+    /// fifteen tall for anything that is not a tram or a Thunder Bluff lift.
+    /// An Undercity lift car is about fifteen wide, so that radius reaches
+    /// well past the deck and out into the shaft: standing beside one attaches
+    /// you to it, and it then carries you down through the floor.
+    ///
+    /// Nullopt where the renderer has no bounds for the instance, so a caller
+    /// can keep its old test rather than refuse a board it cannot judge.
+    [[nodiscard]] std::optional<bool> isPointOverM2Footprint(
+        uint64_t transportGuid, const glm::vec3& canonicalPosition) const;
     void registerTransport(uint64_t guid,
                            uint32_t wmoInstanceId,
                            uint32_t pathId,

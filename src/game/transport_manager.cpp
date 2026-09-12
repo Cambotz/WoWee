@@ -512,6 +512,31 @@ bool TransportManager::isTransportCollisionReady(uint64_t transportGuid) const {
     return wmoRenderer_->instanceHasCollisionGeometry(it->second.wmoInstanceId);
 }
 
+std::optional<bool> TransportManager::isPointOverM2Footprint(
+    uint64_t transportGuid, const glm::vec3& canonicalPosition) const {
+    if (!m2Renderer_) return std::nullopt;
+    const auto it = transports_.find(transportGuid);
+    if (it == transports_.end() || !it->second.isM2 || it->second.wmoInstanceId == 0) {
+        return std::nullopt;
+    }
+    glm::vec3 boundsMin, boundsMax;
+    if (!m2Renderer_->getInstanceWorldBounds(it->second.wmoInstanceId, boundsMin, boundsMax)) {
+        return std::nullopt;
+    }
+    // The bounds are the renderer's, so the point has to be too.
+    const glm::vec3 render = core::coords::canonicalToRender(canonicalPosition);
+    // A step of slack, so stepping aboard from the edge still counts and
+    // standing a car's width away does not.
+    constexpr float kEdge = 0.6f;
+    if (render.x < boundsMin.x - kEdge || render.x > boundsMax.x + kEdge ||
+        render.y < boundsMin.y - kEdge || render.y > boundsMax.y + kEdge) {
+        return false;
+    }
+    // And underfoot rather than a storey away: the car is as tall as it is
+    // wide, and its origin can sit either end of that.
+    return render.z >= boundsMin.z - 1.0f && render.z <= boundsMax.z + 1.0f;
+}
+
 std::optional<float> TransportManager::getTransportDeckFloorHeight(
     uint64_t transportGuid,
     const glm::vec3& canonicalPosition) const {

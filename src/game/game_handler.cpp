@@ -1709,7 +1709,23 @@ void GameHandler::updateM2TransportBoarding(const glm::vec3& playerCanonical) {
                 ? kTbLiftBoardVertDist
                 : kM2BoardVertDist;
             float horizDistSq = diff.x * diff.x + diff.y * diff.y;
-            if (horizDistSq < maxHorizDistSq && vertDist < maxVertDist) {
+            // Over the car, not merely near it.
+            //
+            // The radius alone is twelve yards across and fifteen tall, and an
+            // Undercity lift car is about fifteen wide - so it reaches past the
+            // deck into the shaft, and walking by one attached the player to
+            // it. The lift then carried them down through the floor: reported
+            // live as falling at the elevator while standing beside it, with
+            // the log showing onTransport=1 on the frame the fall began and a
+            // descent that wandered twenty yards sideways, which gravity does
+            // not do.
+            //
+            // The footprint is the renderer's own collision bounds for the
+            // car. Where it has none the radius stands, as before.
+            const std::optional<bool> overDeck =
+                tm->isPointOverM2Footprint(guid, playerCanonical);
+            if (horizDistSq < maxHorizDistSq && vertDist < maxVertDist &&
+                overDeck.value_or(true)) {
                 float score = horizDistSq + vertDist * vertDist;
                 if (score < bestScore) {
                     bestScore = score;

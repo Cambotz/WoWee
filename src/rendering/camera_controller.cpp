@@ -1106,6 +1106,28 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             groundH = selectReachableFloor3(terrainH, wmoH, m2H, targetPos.z, stepUpBudget);
         }
 
+        // Nothing to stand on at all, with a building overhead.
+        //
+        // The jump dump below only fires when a floor is chosen and it is a
+        // long way from the last one. Stepping onto an Undercity lift produces
+        // no floor whatsoever - the deck is an M2 transport and the shaft has
+        // no WMO floor under it - so the player simply falls, and the one dump
+        // that would name the deck never ran. UndeadElevator ships 68
+        // collision triangles and is not marked skipCollision, so what is
+        // wanted here is which test the instance fails, or whether it is a
+        // candidate at all.
+        if (!groundH && m2Renderer) {
+            static std::chrono::steady_clock::time_point lastNoFloorDump{};
+            const auto nowNoFloor = std::chrono::steady_clock::now();
+            if (nowNoFloor - lastNoFloorDump > std::chrono::seconds(5)) {
+                lastNoFloorDump = nowNoFloor;
+                LOG_WARNING("No floor at all under the player (feet ", targetPos.z,
+                            ") - dumping doodad candidates");
+                m2Renderer->debugDumpFloorCandidatesAt(
+                    targetPos.x, targetPos.y, targetPos.z);
+            }
+        }
+
         // The local player's own floor pick, named when it jumps.
         //
         // The movingEntityFloor log covers creatures and other

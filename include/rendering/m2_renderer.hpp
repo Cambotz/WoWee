@@ -526,6 +526,14 @@ public:
     /// used for cursor picking and selection circles. Returns false for an
     /// unknown instance or a degenerate (zero-radius) model.
     bool getInstanceBounds(uint32_t instanceId, glm::vec3& outCenter, float& outRadius) const;
+
+    /// The world-space box of an instance's collision geometry.
+    ///
+    /// What a lift's deck actually covers, as opposed to how far its origin is
+    /// from you. Boarding a generic M2 transport is decided on a radius around
+    /// that origin, which is why standing beside an Undercity lift shaft
+    /// attaches you to the car.
+    bool getInstanceWorldBounds(uint32_t instanceId, glm::vec3& outMin, glm::vec3& outMax) const;
     /// True while the instance is still live in the renderer. Owners that cache
     /// instance IDs (game objects, transports) use this to notice an instance
     /// that was dropped underneath them - e.g. by a renderer-wide clear - and

@@ -887,6 +887,17 @@ void M2Renderer::debugDumpFloorCandidatesAt(float glX, float glY, float glZ) con
     LOG_WARNING("=== Total: ", reported, " M2 candidates ===");
 }
 
+bool M2Renderer::getInstanceWorldBounds(uint32_t instanceId, glm::vec3& outMin,
+                                        glm::vec3& outMax) const {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) return false;
+    const auto& inst = instances[idxIt->second];
+    if (!inst.cachedModel) return false;
+    outMin = inst.worldBoundsMin;
+    outMax = inst.worldBoundsMax;
+    return true;
+}
+
 std::optional<float> M2Renderer::getFloorHeight(float glX, float glY, float glZ, float* outNormalZ) const {
     QueryTimer timer(&queryTimeMs, &queryCallCount);
     std::optional<float> bestFloor;
