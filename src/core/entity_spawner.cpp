@@ -2118,7 +2118,10 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
     // for a size of its own, so it does not fold CreatureDisplayInfo's scale
     // into the unit field and the multiply above is the client's to make.
     // What each display actually resolves to, once per display, because the
-    // three terms are in three files and only their product is visible.
+    // three terms are in three files and only their product is visible. This
+    // is how the Greater Duskbat was settled: entry 1553, display 4734, a
+    // FelBat at 0.15, which is a 2.2 yard wingspan and exactly what the data
+    // asks for - the size came from CreatureDisplayInfo, not from here.
     {
         static std::set<uint32_t> saidDisplay;
         if (saidDisplay.size() < 60 && saidDisplay.insert(displayId).second) {
@@ -2139,7 +2142,7 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
                     }
                 }
             }
-            LOG_WARNING("Creature display ", displayId, " (", (name.empty() ? "?" : name),
+            LOG_INFO("Creature display ", displayId, " (", (name.empty() ? "?" : name),
                         ", entry ", entry, ") draws ", path,
                         " at ", scale, " (server ", serverScale,
                         " x display ", dispScale,
