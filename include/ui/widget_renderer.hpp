@@ -110,7 +110,6 @@ private:
     std::vector<uint8_t> readTextureFile(const std::string& path,
                                          std::string& resolvedOut);
 
-    void sizeTooltips(WidgetTree& tree);
     /// Labels whose glyphs are wider than the rect they were given.
     void reportOverflowingText(WidgetTree& tree);
     /// Labels holding a coin amount with a letter on the end of it.

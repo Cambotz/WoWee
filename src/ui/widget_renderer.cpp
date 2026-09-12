@@ -523,18 +523,6 @@ void WidgetRenderer::sizeTooltipWidget(Widget* w, ImFont* font, WidgetTree& tree
     }
 }
 
-/// Tooltips, in a pass of their own. See sizeTooltipWidget for why.
-void WidgetRenderer::sizeTooltips(WidgetTree& tree) {
-    ImFont* font = interfaceFace("frizqt__");
-    if (!font) font = ImGui::GetFont();
-    if (!font) return;
-    for (size_t id = 1; id < tree.size(); ++id) {
-        Widget* w = tree.get(static_cast<uint32_t>(id));
-        if (!w || !w->isTooltip) continue;
-        sizeTooltipWidget(w, font, tree);
-    }
-}
-
 /// Every label and every texture that decides its own size, in one pass.
 ///
 /// These were two passes, each walking all 28018 widgets to act on the few
@@ -1871,8 +1859,9 @@ void WidgetRenderer::draw(WidgetTree& tree, float screenW, float screenH) {
 
     // Size the tooltips again, now that FrameXML has finished with them.
     //
-    // sizeTooltips runs in the layout stage; FrameXML adds to a tooltip after
-    // that, from OnUpdate handlers which run between that stage and this one.
+    // Tooltips used to be sized in the layout stage; FrameXML adds to one
+    // after that, from OnUpdate handlers which run between that stage and
+    // this one.
     // The micro button's carries a latency and a framerate appended every
     // frame, so the pass that decides how tall it is has never seen the lines
     // it will be drawn with. Its box came out two lines tall while six were
