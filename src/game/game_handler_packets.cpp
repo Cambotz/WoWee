@@ -293,7 +293,7 @@ void GameHandler::registerCoreOpcodes() {
             static bool saidTimer[3] = {false, false, false};
             if (!saidTimer[type]) {
                 saidTimer[type] = true;
-                LOG_WARNING("Mirror timer ", timerName, " from the server: value=", value,
+                LOG_INFO("Mirror timer ", timerName, " from the server: value=", value,
                             "ms of max=", maxV, "ms scale=", scale,
                             " paused=", (paused != 0 ? 1 : 0));
             }

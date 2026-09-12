@@ -881,7 +881,7 @@ void GameScreen::renderMinimapQuestGivers(const MinimapFrame& frame, const Quest
         if (mark.symbol && !mark.onMinimap) {
             static std::set<int> saidOffMap;
             if (saidOffMap.insert(static_cast<int>(status)).second) {
-                LOG_WARNING("Quest giver status ", static_cast<int>(status),
+                LOG_INFO("Quest giver status ", static_cast<int>(status),
                             " draws its ", mark.symbol,
                             " over the NPC but not on the minimap - that is what"
                             " the status means. Anything missing from the minimap"

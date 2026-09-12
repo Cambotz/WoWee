@@ -1691,20 +1691,25 @@ void WidgetRenderer::reportWidgetDiagnostics(WidgetTree& tree,
             all.insert(all.end(), candidates.begin(), candidates.end());
 
             size_t index = 0;
+            int quiet = 0;
             for (const std::string& name : all) {
                 const bool candidate = (index++ >= firstCandidate);
-                if (candidate && index == firstCandidate + 1) {
+                if (askedFor && candidate && index == firstCandidate + 1) {
                     LOG_WARNING("  -- not handed over yet, for readiness --");
                 }
                 const Widget* w = tree.findByName(name);
                 if (!w) {
                     // Distinguished so the line does not read as a failure: an
                     // aura button that does not exist yet is the normal state
-                    // for a character carrying no auras.
-                    LOG_WARNING("  ", name,
-                                frameXmlBuiltOnDemand(name)
-                                    ? " - not built yet (created when needed)"
-                                    : " - NOT BUILT");
+                    // for a character carrying no auras - and on an automatic
+                    // pass it is not worth a line at all.
+                    if (frameXmlBuiltOnDemand(name)) {
+                        if (askedFor) {
+                            LOG_WARNING("  ", name, " - not built yet (created when needed)");
+                        }
+                    } else {
+                        LOG_WARNING("  ", name, " - NOT BUILT");
+                    }
                     continue;
                 }
                 const bool offscreen = (w->left * s > screenW) ||
@@ -1765,6 +1770,21 @@ void WidgetRenderer::reportWidgetDiagnostics(WidgetTree& tree,
                 const std::string stack =
                     " strata=" + std::to_string(static_cast<int>(w->effStrata)) +
                     " level=" + std::to_string(w->effLevel);
+                // The roll call is for the asked-for check. Firing it at load
+                // and again in world put four hundred and thirty nine lines
+                // into a twenty-three second log, nearly half of everything
+                // written, and a reader who scrolls past a page of frames that
+                // are fine scrolls past the one that is not. The automatic
+                // passes keep only the rows that say something is wrong; the
+                // scans above them - off screen, no size, duplicate, same
+                // text, overlapping - report unconditionally either way.
+                const bool troubled =
+                    !bar.empty() || !slice.empty() ||
+                    w->rectW <= 0.0f || w->rectH <= 0.0f || offscreen ||
+                    (w->visible && w->kind == WidgetKind::Texture &&
+                     w->externalTexture == 0 && !w->texturePath.empty() &&
+                     resident(w->texturePath, w->blendAdd) == kMissing);
+                if (!askedFor && !troubled) { ++quiet; continue; }
                 LOG_WARNING("  ", name,
                             (w->visible ? " shown" : " HIDDEN"), mouse, kindName, anchors,
                             stack, bar, label, slice,
@@ -1788,6 +1808,10 @@ void WidgetRenderer::reportWidgetDiagnostics(WidgetTree& tree,
                              resident(w->texturePath, w->blendAdd) == kMissing
                                  ? " NOTRESIDENT" : ""),
                             (w->texturePath.empty() ? "" : " tex="), w->texturePath);
+            }
+            if (quiet > 0) {
+                LOG_WARNING("  and ", quiet, " more built, sized and on screen"
+                            " (/fxcheck for the full roll call)");
             }
         }
     }
