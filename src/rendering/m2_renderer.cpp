@@ -2148,6 +2148,25 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             // Start at full opacity; hide only if texture failed to load.
             bgpu.batchOpacity = (texFailed && !groundDetailModel) ? 0.0f : 1.0f;
 
+            // And say so, because invisible is indistinguishable from absent.
+            //
+            // A tree reported as missing its inner bark, with the top floating
+            // over a transparent gap, is one batch of two: the trunk drawn at
+            // zero opacity while the canopy draws normally. Nothing named it.
+            // The texture loader logs where a file fails, but a batch turned
+            // invisible three steps later on the strength of that flag said
+            // nothing at all, so the search went to the texture files - which
+            // were all present and correct - instead of to the batch.
+            if (texFailed && !groundDetailModel) {
+                static core::LogBudget hiddenBatchBudget(
+                    16, "M2 batches hidden because their texture did not load");
+                if (hiddenBatchBudget.take()) {
+                    LOG_WARNING("M2 batch drawn invisible: '", model.name, "' batch ",
+                                gpuModel.batches.size(), " wanted '", batchTexKeyLower,
+                                "' and did not get it");
+                }
+            }
+
             // Apply at-rest transparency and color alpha from the M2 animation tracks.
             // These provide per-batch opacity for ghosts, ethereal effects, fading doodads, etc.
             // Skip zero values: some animated tracks start at 0 and animate up, and baking
