@@ -428,9 +428,19 @@ private:
     /// Twelve still reached the walls of an ordinary room, so the collision
     /// sweep pulled the camera in and let it back out with every step and every
     /// turn - and that in-and-out is the motion that makes people ill. Eight
-    /// sits inside most rooms, so the sweep has nothing to hit and the view
-    /// stays still.
-    static constexpr float MAX_DISTANCE_INTERIOR = 8.0f;
+    /// sat inside most rooms but still met the walls of a corridor, which is
+    /// most of what an interior is: Undercity is corridors, and so are the inns
+    /// and barracks a player spends time in.
+    ///
+    /// A camera that never reaches a wall is never pushed off one, so the only
+    /// way to stop the sweep firing is to keep the camera inside the room. Six
+    /// clears the corridors. It is closer than the game's own default and that
+    /// is the trade: the alternative is a view that swims.
+    ///
+    /// Chosen rather than computed, because the room's own clearance is what
+    /// the sweep already measures and feeding that back would let a doorway set
+    /// the cap for the hall beyond it.
+    static constexpr float MAX_DISTANCE_INTERIOR = 6.0f;
     bool extendedZoom_ = false;
     static constexpr float ZOOM_SMOOTH_SPEED = 15.0f;  // How fast zoom eases
     static constexpr float CAM_SMOOTH_SPEED_DEFAULT = 30.0f;
