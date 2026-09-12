@@ -25,7 +25,7 @@ BLP, and `src/pipeline/m2_loader.cpp` reads both. This is the case that works.
 **Warlords onwards needs a different reader.** 6.x moved to CASC, which
 `asset_extract` does not read - it is built on StormLib and StormLib is an MPQ
 library - and its models are the chunked `MD21`. `tools/casc_extract.py` reads
-the storage and `tools/casc_skybox_import.py` converts what comes out of it;
+the storage and `tools/casc_model_import.py` converts what comes out of it;
 see [Reading a CASC installation](#reading-a-casc-installation). That path is
 narrower than the MPQ one and worth understanding before relying on it.
 
@@ -175,8 +175,9 @@ Two steps. Sweep the install for its models once, then convert from that list:
 python3 tools/casc_extract.py "/path/to/World of Warcraft - Legion" \
     --sweep > m2names.txt
 
-python3 tools/casc_skybox_import.py "/path/to/World of Warcraft - Legion" \
-    /somewhere/legion-sky/expansions/wotlk --catalogue=m2names.txt
+python3 tools/casc_model_import.py "/path/to/World of Warcraft - Legion" \
+    /somewhere/legion-pack/expansions/wotlk \
+    --catalogue=m2names.txt --list=wanted.txt
 ```
 
 The output lands in the layout a pack wants, so it installs like any other -
@@ -203,23 +204,55 @@ every archive number is astronomical, which is the shape of that mistake.
 
 ### Converting a model
 
-For a skybox the format barely moved. Legion wraps the model in an `MD21` chunk
-whose internal offsets are relative to the chunk, so lifting the chunk out
-gives a standalone MD20; the header's arrays sit where they sat in 264, field
-for field - `BladesedgeSkyBox` has the same 17-byte name, 7 global sequences, 4
-bones, 1976 vertices and 15 textures in both clients; and unlike most Legion
-models a skybox still names its textures inline rather than by FileDataID. So
-the conversion is to unwrap it, stamp the version this client expects, and
-fetch the skins named by the `SFID` chunk and the textures named inside.
+For a model that already existed in Wrath the format barely moved. Legion wraps
+it in an `MD21` chunk whose internal offsets are relative to the chunk, so
+lifting the chunk out gives a standalone MD20; the header's arrays sit where
+they sat in 264, field for field - `BladesedgeSkyBox` has the same 17-byte
+name, 7 global sequences, 4 bones, 1976 vertices and 15 textures in both
+clients; and it still names its textures inline. So the conversion is to unwrap
+it, stamp the version this client expects, and fetch the skins named by the
+`SFID` chunk and the textures named inside.
 
-Particle and ribbon emitters are the exception - those two structs did change -
-so a model carrying them is reported and skipped rather than written out
-broken. Of 195 skybox models in Legion, 191 convert and 4 do not.
+Two things are refused, before anything is written rather than after - a
+half-written model is worse than none, because it is on disk, it looks
+complete, and it renders white where a texture never arrived:
 
-None of this generalises to a creature or a building. Those reference their
-textures by FileDataID through a `TXID` chunk, which needs a listfile to turn
-back into paths, and they carry the emitters and the newer bone and animation
-structures that a version stamp does not fix.
+- **Particle and ribbon emitters.** Those two structs grew after Wrath. This is
+  the common refusal: 63 of the 241 improved models below carry one.
+- **Textures named by id.** Only models authored after Wrath use the `TXID`
+  chunk, but creatures and armour compose their skins from ids too, and
+  resolving those needs a listfile this does not have. 13 of the 241.
+
+**Where the model goes is not in the archive.** CASC knows a FileDataID, not a
+path, and a pack has to put a model where the client already looks for it. That
+placement comes from the local installation - which is also what the model is
+being compared against - so it is passed in with the list rather than guessed.
+
+### Finding what is worth taking
+
+Compare vertex counts by model name, against a baseline with `override/`
+excluded so an already-installed pack does not hide its own source:
+
+| against 3.3.5a | shared | identical | richer |
+|---|---|---|---|
+| Cataclysm | 22033 | 20992 | 205 |
+| Legion | 15627 | 14451 | 241 |
+
+The shape of it is that old art is not re-authored: better than nine in ten
+shared models have the identical vertex count in both later clients. What is
+left is worth having, though, and the two clients do not overlap much - 94
+models are richer in both, 147 only in Legion, 111 only in this Cataclysm
+extract.
+
+Legion's are Teldrassil's canopy at 350 vertices to 2584, Tirisfal's graves at
+1236 to 6964, Winterspring's trees at 422 to 2584, Booty Bay's at 148 to 924;
+signs, benches, bookstacks, banners and statues; and the holiday doodads, which
+were re-cut repeatedly. Of the 241, **165 convert as they are**.
+
+Take the whole of a thing rather than part of it - see
+[What to expect](#what-to-expect) - and check a family before taking it: a
+model can be richer and still be the same shape, and one that is the same
+vertex count is certainly not worth moving.
 
 ### What the light tables say
 
@@ -253,7 +286,9 @@ column, so taking the `_Layer01` half of a layered sky on its own gets half the
 sky. The unlayered ones do not have this problem.
 
 So the value in a later client's skies is the ones this one has never had, put
-somewhere by hand, and not an upgrade to what is already there.
+somewhere by hand, and not an upgrade to what is already there. Legion carries
+195 of them and 191 convert, which is a lot of sky for zones that have to be
+chosen one at a time.
 
 ## What to expect
 

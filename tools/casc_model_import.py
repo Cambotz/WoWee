@@ -1,28 +1,38 @@
 #!/usr/bin/env python3
-"""Bring skyboxes out of a CASC installation and into MD20 this client reads.
+"""Bring models out of a CASC installation and into MD20 this client reads.
 
-    tools/casc_skybox_import.py <legion-install> <output-dir> \
-        --catalogue=m2names.txt [--name=SUBSTR]
+    tools/casc_model_import.py <legion-install> <output-dir> \
+        --catalogue=m2names.txt --name=SUBSTR
+    tools/casc_model_import.py <legion-install> <output-dir> \
+        --catalogue=m2names.txt --list=wanted.txt
+
+The list is one model per line, and where a line carries a tab the second
+field is where to write it - "stranglethorntree01<TAB>world/azeroth/...". A
+pack has to put a model at the path the client already looks for it at, and
+CASC does not know that path: it is the local installation that knows, so the
+placement comes in with the list rather than out of the archive.
 
 The catalogue is the model list a sweep of the install produces: one line of
 "fileDataId<TAB>version<TAB>name" per M2. CASC has no filenames, but an M2
 carries its own, so that sweep is how a skybox is found at all.
 
-A skybox is a dome with a few painted layers on it, and the ones this client
-ships have not changed since Wrath - Cataclysm's copies are the same models
-with the same textures, byte for byte but for the version field. What a later
-client has that this one does not is *different* skies: Argus under a fel sun,
-Suramar at night, the Broken Shore under a storm.
+Most art is not re-authored between expansions - of 22033 models Cataclysm
+shares with 3.3.5, 20992 have the identical vertex count - but some is, and a
+sweep finds it: 241 models Legion draws with more geometry than the originals
+here, Teldrassil's canopy at 7x and Tirisfal's graves at 5x among them.
 
-Those are M2 like any other, and for a skybox the format barely moved. Legion
+For a model that already existed in Wrath the format barely moved. Legion
 wraps the model in an `MD21` chunk whose offsets are relative to the chunk, so
 lifting the chunk out gives a standalone MD20; the header's arrays sit where
-they sat in 264, field for field; and unlike most Legion models a skybox still
-names its textures inline rather than by FileDataID. So the conversion is to
-unwrap it, stamp the version this client expects, and fetch what it references.
+they sat in 264, field for field; and it still names its textures inline. Only
+models authored after Wrath reference textures by FileDataID through a `TXID`
+chunk, and those need a listfile this does not have. So the conversion is to
+unwrap, stamp the version this client expects, and fetch what it references.
 
-Particle and ribbon emitters are the exception - those structs did change - so
-a model carrying them is reported and skipped rather than written out broken.
+Two exceptions are reported and skipped rather than written out broken:
+particle and ribbon emitters, whose structs did change, and the handful of
+models - creatures and armour, which compose their skins - that name some
+texture by id. Of those 241 improved models, 165 convert as they are.
 """
 
 import os
@@ -81,7 +91,7 @@ def write(out_dir, rel_path, blob):
     return path
 
 
-def convert(storage, file_id, name, out_dir, fetched):
+def convert(storage, file_id, name, out_dir, fetched, dest=None):
     """One skybox, its skins and its textures. Returns a short status.
 
     `fetched` carries the texture paths already written. Skies share their
@@ -97,13 +107,25 @@ def convert(storage, file_id, name, out_dir, fetched):
 
     if struct.unpack_from("<I", body, RIBBONS_COUNT)[0] or \
        struct.unpack_from("<I", body, PARTICLES_COUNT)[0]:
-        # These two structs grew after Wrath. A dome that emits nothing is the
+        # These two structs grew after Wrath. A model that emits nothing is the
         # common case; one that does needs more than a version stamp.
         return "has emitters"
 
+    # Both refusals come before anything is written. A model left half-written
+    # is worse than one not written at all: it is on disk, it looks complete,
+    # and it renders white where the texture it wanted never arrived.
+    named = texture_paths(body)
+    declared = struct.unpack_from("<I", body, TEXTURES_COUNT)[0]
+    if len(named) < declared:
+        # A creature or a piece of armour, composing its skin from ids this
+        # has no listfile to resolve.
+        return "%d textures by id" % (declared - len(named))
+
     patched = bytearray(body)
     struct.pack_into("<I", patched, 4, WOTLK_VERSION)
-    write(out_dir, "environments\\stars\\%s.m2" % name, bytes(patched))
+    model_path = dest or ("environments\\stars\\%s.m2" % name)
+    write(out_dir, model_path, bytes(patched))
+    beside = model_path.replace("/", "\\").rsplit("\\", 1)[0]
 
     # Skins moved out of the M2 into files of their own, named by the SFID
     # chunk. The loader still wants them beside the model as <name>0N.skin.
@@ -113,10 +135,10 @@ def convert(storage, file_id, name, out_dir, fetched):
             skin_id = struct.unpack_from("<I", blob, at + lod * 4)[0]
             skin = storage.read_fileid(skin_id)
             if skin:
-                write(out_dir, "environments\\stars\\%s%02d.skin" % (name, lod), skin)
+                write(out_dir, "%s\\%s%02d.skin" % (beside, name, lod), skin)
 
     missing = 0
-    for tex in texture_paths(body):
+    for tex in named:
         key = tex.lower()
         if key in fetched:
             continue
@@ -137,11 +159,23 @@ def main():
     install, out_dir = args[0], args[1]
     want = None
     catalogue = None
+    wanted_names = None
     for flag in flags:
         if flag.startswith("--name="):
             want = flag.split("=", 1)[1].lower()
         elif flag.startswith("--catalogue="):
             catalogue = flag.split("=", 1)[1]
+        elif flag.startswith("--list="):
+            wanted_names = {}
+            for line in open(flag.split("=", 1)[1]):
+                line = line.rstrip("\n")
+                if not line.strip():
+                    continue
+                parts = line.split("\t")
+                wanted_names[parts[0].strip().lower()] = \
+                    parts[1].strip() if len(parts) > 1 else None
+    if want is None and wanted_names is None:
+        raise SystemExit("pass --name=<substring> or --list=<file of model names>")
 
     storage = ce.CascStorage(install)
     print("index %d, encoding %d, root %d" %
@@ -155,15 +189,16 @@ def main():
     for line in open(catalogue):
         file_id, _version, name = line.rstrip("\n").split("\t")
         low = name.lower()
-        if not any(token in low for token in ("skybox", "sky0", "_sky", "skydome")):
+        if wanted_names is not None and low not in wanted_names:
             continue
-        if want and want not in low:
+        if want is not None and want not in low:
             continue
-        done[name] = convert(storage, int(file_id), name, out_dir, fetched)
+        dest = wanted_names.get(low) if wanted_names else None
+        done[name] = convert(storage, int(file_id), name, out_dir, fetched, dest)
         print("  %-44s %s" % (name, done[name]), flush=True)
 
     ok = sum(1 for v in done.values() if v.startswith("ok"))
-    print("%d skyboxes, %d written" % (len(done), ok))
+    print("%d selected, %d written" % (len(done), ok))
     for name, status in sorted(done.items()):
         if not status.startswith("ok"):
             print("  %-40s %s" % (name, status))
