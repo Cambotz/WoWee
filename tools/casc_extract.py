@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Read a local CASC installation - Warlords and later - and pull files out of it.
 
-    tools/casc_extract.py <install-dir> [--list] [--name SUBSTR] [--out DIR]
+    tools/casc_extract.py <install-dir>            # what the storage holds
+    tools/casc_extract.py <install-dir> --sweep    # every model, by name
 
 asset_extract handles MPQ, which covers Classic through Mists. From Warlords
 on the game stores its files in CASC instead, and nothing here could read one -
@@ -342,15 +343,56 @@ class CascStorage:
         return blte_decode(raw[30:], limit)
 
 
+def sweep_models(storage, out):
+    """Every M2 in the install, as "fileDataId<TAB>version<TAB>name".
+
+    The listfile CASC does not ship, for models at least: an M2 carries its own
+    name, so reading a couple of kilobytes of each file is enough to build one.
+    Both the chunked MD21 and a plain MD20 are read; the name array sits at the
+    same place in each, once the chunk header is stepped over.
+    """
+    found = 0
+    for file_id in sorted(storage.root):
+        try:
+            blob = storage.read_fileid(file_id, limit=2048)
+        except Exception:
+            continue
+        if not blob or len(blob) < 32:
+            continue
+        if blob[:4] == b"MD21":
+            body = 8
+        elif blob[:4] == b"MD20":
+            body = 0
+        else:
+            continue
+        try:
+            version = struct.unpack_from("<I", blob, body + 4)[0]
+            length, at = struct.unpack_from("<II", blob, body + 8)
+            name = blob[body + at:body + at + length].split(b"\0")[0].decode("latin-1")
+        except Exception:
+            continue
+        if name:
+            found += 1
+            out.write("%d\t%d\t%s\n" % (file_id, version, name))
+    return found
+
+
 def main():
-    if len(sys.argv) < 2:
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    flags = [a for a in sys.argv[1:] if a.startswith("--")]
+    if not args:
         raise SystemExit(__doc__)
-    install = sys.argv[1]
-    storage = CascStorage(install)
-    print("build config keys:", sorted(storage.config)[:12])
+    storage = CascStorage(args[0])
+
+    if "--sweep" in flags:
+        found = sweep_models(storage, sys.stdout)
+        print("# %d models of %d files" % (found, len(storage.root)), file=sys.stderr)
+        return
+
     print("root  =", storage.config["root"][0])
-    print("encoding =", storage.config["encoding"])
+    print("encoding =", storage.config["encoding"][1])
     print("index entries:", len(storage.index.entries))
+    print("files in root:", len(storage.root))
 
 
 if __name__ == "__main__":

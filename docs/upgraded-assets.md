@@ -22,9 +22,12 @@ they were, so this is a file swap rather than a port.
 TBC, WotLK, Cataclysm and Mists. Their models are `MD20`, their textures are
 BLP, and `src/pipeline/m2_loader.cpp` reads both. This is the case that works.
 
-**Nothing from Warlords onwards.** 6.x moved to CASC, which `asset_extract` does
-not read - it is built on StormLib and StormLib is an MPQ library. Legion's
-models are the chunked `MD21`, which nothing here parses.
+**Warlords onwards needs a different reader.** 6.x moved to CASC, which
+`asset_extract` does not read - it is built on StormLib and StormLib is an MPQ
+library - and its models are the chunked `MD21`. `tools/casc_extract.py` reads
+the storage and `tools/casc_skybox_import.py` converts what comes out of it;
+see [Reading a CASC installation](#reading-a-casc-installation). That path is
+narrower than the MPQ one and worth understanding before relying on it.
 
 **Player character models cannot be swapped, from any client.** This is worth
 stating plainly because it is the most-asked-for case. The HD player models
@@ -157,6 +160,100 @@ That is for the cases a directory cannot serve: giving the same art to a client
 that only reads archives, standing beside the `Patch-*.MPQ` files a server's
 players already install, or keeping a whole overlay as one file with its paths
 intact. `asset_extract` reads back what it writes, which is how to check one.
+
+## Reading a CASC installation
+
+A Legion install is 43GB of `data.###` archives with a bucket index beside
+them, and four lookups deep: the build config names a root file and an encoding
+file by content key, encoding maps a content key to an encoding key, the `.idx`
+buckets map an encoding key to an offset inside an archive, and every entry is
+BLTE - a container of independently compressed chunks.
+
+Two steps. Sweep the install for its models once, then convert from that list:
+
+```sh
+python3 tools/casc_extract.py "/path/to/World of Warcraft - Legion" \
+    --sweep > m2names.txt
+
+python3 tools/casc_skybox_import.py "/path/to/World of Warcraft - Legion" \
+    /somewhere/legion-sky/expansions/wotlk --catalogue=m2names.txt
+```
+
+The output lands in the layout a pack wants, so it installs like any other -
+see [Doing it](#doing-it) - and nothing is written into your game data.
+
+Two things about CASC shape everything else.
+
+**It holds no filenames.** The root maps a FileDataID to a content key and a
+64-bit hash of the path; the names themselves live in a community listfile that
+is not part of an install. So a path cannot be listed out of one, only asked
+for - `jenkins96()` is that question. Where the names are not known already,
+the way in is that an M2 carries its own name inside it: sweeping every file
+for a header and reading the name out took 140 seconds over 732,305 files and
+produced 64,134 model names, which is a listfile for models and enough to find
+anything by what it is called.
+
+**A local install may not have a `.build.info`.** The one this was written
+against does not, so the build config is found by reading `data/config` and
+taking the file that declares a root and an encoding.
+
+The `.idx` header is a `uint16` followed by six single bytes. Read as though
+the second field were also 16 bits, every key comes out thirty bytes long and
+every archive number is astronomical, which is the shape of that mistake.
+
+### Converting a model
+
+For a skybox the format barely moved. Legion wraps the model in an `MD21` chunk
+whose internal offsets are relative to the chunk, so lifting the chunk out
+gives a standalone MD20; the header's arrays sit where they sat in 264, field
+for field - `BladesedgeSkyBox` has the same 17-byte name, 7 global sequences, 4
+bones, 1976 vertices and 15 textures in both clients; and unlike most Legion
+models a skybox still names its textures inline rather than by FileDataID. So
+the conversion is to unwrap it, stamp the version this client expects, and
+fetch the skins named by the `SFID` chunk and the textures named inside.
+
+Particle and ribbon emitters are the exception - those two structs did change -
+so a model carrying them is reported and skipped rather than written out
+broken. Of 195 skybox models in Legion, 191 convert and 4 do not.
+
+None of this generalises to a creature or a building. Those reference their
+textures by FileDataID through a `TXID` chunk, which needs a listfile to turn
+back into paths, and they carry the emitters and the newer bone and animation
+structures that a version stamp does not fix.
+
+### What the light tables say
+
+`tools/db2_read.py` reads WDC1, the DB2 that replaced DBC, which is how to ask
+a later client where it actually uses a skybox. Its `LightSkybox` names the
+model by FileDataID rather than by path, and `LightParams` keeps its own id
+bit-packed into the tail of each record - the field structure reports that
+column as having no bits at all.
+
+Three measurements worth having before borrowing any sky:
+
+**Skyboxes are not re-authored between expansions.** Every one of the 52 this
+client ships exists in Cataclysm and in Legion, and the Cataclysm copies are
+the same models with the same textures at the same resolutions - identical
+vertex counts, identical texture lists, file sizes differing by the version
+field alone. There is no like-for-like upgrade to take.
+
+**A later client does not re-sky the old world either.** Of 64 light volumes
+that sit at the same position in Wrath and in Legion, 8 differ, and all 8 are
+instance maps: the Ulduar family moved to a layered sky and five indoor
+instances dropped theirs. What Legion adds to Eastern Kingdoms and Kalimdor is
+Cataclysm art - Twilight Highlands, Hyjal, Firelands, the Lost Isles - which is
+new zones carrying their own skies, not replacements for old ones. Legion's own
+skies stay on the Broken Isles and Argus.
+
+**Some later skies are two domes.** Legion's `LightSkybox` carries a second
+file id, and the six rows that use one name a `_Layer02` model - Suramar City,
+Highmountain, Hyjal, Ulduar, the Valley of Eternal Blossoms, and Argus. No
+`_Layer02` is ever named as a primary. `LightSkybox.dbc` here has one model
+column, so taking the `_Layer01` half of a layered sky on its own gets half the
+sky. The unlayered ones do not have this problem.
+
+So the value in a later client's skies is the ones this one has never had, put
+somewhere by hand, and not an upgrade to what is already there.
 
 ## What to expect
 
