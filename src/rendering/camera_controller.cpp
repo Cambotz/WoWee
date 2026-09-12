@@ -1135,6 +1135,16 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
                         "pull (feet ", targetPos.z, " -> ", *groundH, ")");
                     wmoRenderer->debugDumpGroupsAtPosition(
                         targetPos.x, targetPos.y, targetPos.z);
+                    // And the doodads, which is where the Undercity pull
+                    // actually lives: every one of these jumps happens while
+                    // the player is attached to a lift, and m2 comes back
+                    // empty each time even though UndeadElevator ships 68
+                    // collision triangles. The WMO dump alone could never say
+                    // why, because the deck it is looking for is not a WMO.
+                    if (m2Renderer) {
+                        m2Renderer->debugDumpFloorCandidatesAt(
+                            targetPos.x, targetPos.y, targetPos.z);
+                    }
                 }
             }
         }

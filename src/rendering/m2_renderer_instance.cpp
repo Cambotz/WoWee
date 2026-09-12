@@ -846,6 +846,47 @@ uint32_t M2Renderer::getTotalTriangleCount() const {
     return total;
 }
 
+void M2Renderer::debugDumpFloorCandidatesAt(float glX, float glY, float glZ) const {
+    LOG_WARNING("=== M2 Floor Debug at render(", glX, ", ", glY, ", ", glZ, ") ===");
+    glm::vec3 queryMin(glX - 2.0f, glY - 2.0f, glZ - 6.0f);
+    glm::vec3 queryMax(glX + 2.0f, glY + 2.0f, glZ + 8.0f);
+    gatherCandidates(queryMin, queryMax, tl_m2_candidateScratch);
+    int reported = 0;
+    for (size_t idx : tl_m2_candidateScratch) {
+        const auto& instance = instances[idx];
+        const char* rejected = nullptr;
+        if (collisionFocus.excludes(instance.worldBoundsMin, instance.worldBoundsMax)) {
+            rejected = "outside the collision focus";
+        } else if (!instance.cachedModel) {
+            rejected = "no model";
+        } else if (instance.scale <= 0.001f) {
+            rejected = "zero scale";
+        } else if (instance.skipCollision) {
+            rejected = "skipCollision";
+        }
+        const M2ModelGPU* model = instance.cachedModel;
+        const bool authored = model && model->collision.valid();
+        if (!rejected && model) {
+            if ((model->collisionNoBlock && !authored) || model->isInvisibleTrap ||
+                model->isSpellEffect) {
+                rejected = "classified as non-blocking";
+            }
+        }
+        if (++reported > 12) { LOG_WARNING("  ... and more"); break; }
+        LOG_WARNING("  '", model ? model->name : std::string("?"),
+                    "' isGameObject=", instance.isGameObject ? 1 : 0,
+                    " authoredCollision=", authored ? 1 : 0,
+                    " tris=", authored ? model->collision.triCount : 0u,
+                    " bounds z ", instance.worldBoundsMin.z, "..", instance.worldBoundsMax.z,
+                    (rejected ? "  REJECTED: " : "  considered"), (rejected ? rejected : ""));
+    }
+    if (reported == 0) {
+        LOG_WARNING("  nothing at all - no doodad instance overlaps this spot,"
+                    " so a deck underfoot is not in the spatial grid here");
+    }
+    LOG_WARNING("=== Total: ", reported, " M2 candidates ===");
+}
+
 std::optional<float> M2Renderer::getFloorHeight(float glX, float glY, float glZ, float* outNormalZ) const {
     QueryTimer timer(&queryTimeMs, &queryCallCount);
     std::optional<float> bestFloor;

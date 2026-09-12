@@ -558,6 +558,13 @@ public:
     bool checkCollision(const glm::vec3& from, const glm::vec3& to,
                         glm::vec3& adjustedPos, float playerRadius = 0.5f) const;
     std::optional<float> getFloorHeight(float glX, float glY, float glZ, float* outNormalZ = nullptr) const;
+
+    /// Every doodad the floor query would consider here, and what each one
+    /// contributes. The WMO side has had debugDumpGroupsAtPosition for this
+    /// since the Undercity pull was first chased; the M2 side had nothing, so
+    /// a floor that should have come from a lift deck and did not left no
+    /// trace at all beyond "m2=-99999".
+    void debugDumpFloorCandidatesAt(float glX, float glY, float glZ) const;
     [[nodiscard]] float raycastBoundingBoxes(const glm::vec3& origin, const glm::vec3& direction, float maxDistance) const;
     void setCollisionFocus(const glm::vec3& worldPos, float radius);
 
