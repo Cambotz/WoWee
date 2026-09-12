@@ -2106,7 +2106,35 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
     // per-unit scale the server sets - and only the last of those was applied,
     // so every display sharing a model came out the same size. That is one
     // model at 0.6 and at 1.5 both drawing at 1.0.
-    scale *= creatureDisplayScale(displayId) * creatureModelScale(modelId);
+    const float dispScale = creatureDisplayScale(displayId);
+    const float serverScale = scale;
+    scale *= dispScale * creatureModelScale(modelId);
+
+    // Whether that display term is the client's to apply at all.
+    //
+    // A server folds CreatureDisplayInfo.CreatureModelScale into the unit's
+    // own scale field when its creature template leaves the scale unset -
+    // TrinityCore's CheckCreatureTemplate does exactly that - and then the
+    // multiply above applies it a second time: a 0.45 bat draws at 0.20.
+    // Where the template names a scale, the field arrives independent of the
+    // display and the multiply is right. Nothing distinguishes the two from
+    // one spawn, so count them and say which this server does.
+    {
+        static int folded = 0, independent = 0, said = 0;
+        if (!said && dispScale != 1.0f && serverScale > 0.0f) {
+            if (std::abs(serverScale - dispScale) < 0.001f) ++folded;
+            else if (std::abs(serverScale - 1.0f) < 0.001f) ++independent;
+            if (folded + independent >= 40) {
+                said = 1;
+                LOG_WARNING("Creature scale: of 40 spawns whose display asks for a size "
+                            "other than 1.0, ", folded, " arrived with the server's scale "
+                            "already equal to it and ", independent, " arrived at 1.0. "
+                            "The first group is being scaled twice - a display scale of "
+                            "0.45 drawing at 0.20 - and the display term must not be "
+                            "applied to them.");
+            }
+        }
+    }
 
     // Apply skin textures from CreatureDisplayInfo.dbc (only once per displayId model).
     // Track separately from model cache because async loading may upload the model
