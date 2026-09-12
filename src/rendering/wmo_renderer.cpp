@@ -1660,6 +1660,17 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
     bool doDistanceCull = distanceCulling && cullingEnabled_;
 
     auto cullInstance = [&](size_t instIdx, InstanceDrawList& result) {
+        // Retire the slot before anything can return. drawLists_ is reused
+        // across frames, so a slot that bails out below would otherwise keep
+        // last frame's model pointer - and unloading a map clears
+        // loadedModels, which frees what that pointer names. The draw loop
+        // only tests it against null, so a stale one is followed.
+        result.model = nullptr;
+        result.visibleGroups.clear();
+        result.portalCulled = 0;
+        result.distanceCulled = 0;
+        result.instanceIndex = instIdx;
+
         if (instIdx >= instances.size()) return;
         const auto& instance = instances[instIdx];
         // Somewhere else entirely - see setInstanceHidden.
@@ -1668,11 +1679,7 @@ void WMORenderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const
         if (mdlIt == loadedModels.end()) return;
         const ModelData& model = mdlIt->second;
 
-        result.instanceIndex = instIdx;
         result.model = &model;   // cache so the draw-list loop doesn't redo the hash lookup
-        result.visibleGroups.clear();
-        result.portalCulled = 0;
-        result.distanceCulled = 0;
 
         // Portal-based visibility - reuse member scratch buffer (avoid per-frame alloc)
         bool usePortalCulling = doPortalCull && !model.portals.empty() && !model.portalRefs.empty();
