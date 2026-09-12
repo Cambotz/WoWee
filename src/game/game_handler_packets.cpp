@@ -284,6 +284,19 @@ void GameHandler::registerCoreOpcodes() {
             // kMirrorTimerNames, which every path that names a timer shares.
             const char* timerName = (type < 3) ? kMirrorTimerNames[type] : "BREATH";
             const char* timerLabel = (type < 3) ? kMirrorTimerLabels[type] : "Breath";
+            // Said once per timer, because nothing on this side decides any of
+            // it. The length of a breath is the server's: three minutes plus
+            // whatever SPELL_AURA_MOD_WATER_BREATHING adds, which for a
+            // Forsaken is 300% more and so twelve. A maxValue of 180000 on an
+            // undead character means the racial is not being applied there,
+            // and no change here can put it right.
+            static bool saidTimer[3] = {false, false, false};
+            if (!saidTimer[type]) {
+                saidTimer[type] = true;
+                LOG_WARNING("Mirror timer ", timerName, " from the server: value=", value,
+                            "ms of max=", maxV, "ms scale=", scale,
+                            " paused=", (paused != 0 ? 1 : 0));
+            }
             fireAddonEvent("MIRROR_TIMER_START", {
                     timerName, std::to_string(value),
                     std::to_string(maxV), std::to_string(scale),
