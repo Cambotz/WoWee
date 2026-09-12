@@ -2016,7 +2016,16 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                     // - coals, lava lumps, ARMORREFLECT/ORBREFLECT. Keying the
                     // whole model instead made the masonry and ironwork
                     // translucent, since a forge is mostly those.
-                    if (gpuModel.isForge && isForgeFireTexture(batchTexKeyLower, tcls)) {
+                    // And a bonfire's, which is the same thing at a different
+                    // scale: OrcBonFire draws its flame on cards textured with
+                    // LavaLump2 and FlameLickSmall over a black backing, with
+                    // the material marked opaque. Drawn as the material asks,
+                    // the black backing is a solid rectangle around the flame -
+                    // which is the hard-edged slab standing over Grom'gol. The
+                    // wood and ash batches carry neither an ember nor a flame
+                    // token, so they stay solid.
+                    if ((gpuModel.isForge || gpuModel.isBrazierOrFire) &&
+                        isForgeFireTexture(batchTexKeyLower, tcls)) {
                         bgpu.colorKeyBlack = true;
                         bgpu.forgeFireCard = true;
                     }

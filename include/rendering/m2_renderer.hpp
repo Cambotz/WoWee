@@ -397,6 +397,9 @@ struct M2MaterialUBO {
     /// through a window. The fragment shader fades it out where the surface
     /// turns away from the eye, so the mesh's silhouette stops being an edge.
     int32_t volumetricBeam;
+    /// A flame card. Fades out over the top of its own model, so the card's
+    /// upper edge is not where the fire stops.
+    int32_t fireCard;
 };
 
 // M2 params UBO - matches M2Params in m2.vert.glsl (set 1, binding 1)

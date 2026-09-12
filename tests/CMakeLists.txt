@@ -1568,6 +1568,13 @@ if(WOWEE_ENABLE_ASAN AND NOT MSVC)
     message(STATUS "Test targets: ASAN + UBSan ENABLED")
 endif()
 
+# ── test_m2_sway ─────────────────────────────────────────────
+# Header-only and pure: what a model's sway parameters come out as, and how
+# tall it reports itself. plantHeight was filled in only on the paths that
+# sway, so anything else told the shader nothing about its own height.
+wowee_add_test(test_m2_sway
+    SOURCES test_m2_sway.cpp)
+
 # ── test_m2_classifier_foliage ───────────────────────────────
 # Pins the wind-sway classification against substring collisions: foliage
 # tokens are matched inside concatenated names, so "thorn" landed inside

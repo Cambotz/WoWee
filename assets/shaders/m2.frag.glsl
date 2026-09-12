@@ -35,6 +35,7 @@ layout(set = 1, binding = 2) uniform M2Material {
     float tintG;
     float tintB;
     int volumetricBeam;
+    int fireCard;
 };
 
 layout(set = 0, binding = 1) uniform sampler2DShadow uShadowMap;
@@ -437,6 +438,24 @@ void main() {
         // Additive beams carry their brightness in the colour rather than the
         // alpha, so fading one means dimming it.
         if (blendMode >= 3) result *= beamFade;
+    }
+
+    // A flame stops before its card does.
+    //
+    // The bonfire's fire is drawn on cards whose material says opaque, so the
+    // black backing around the flame came out as a rectangle - a hard-edged
+    // slab with a straight top. Keying the black out and adding rather than
+    // covering deals with the backing; this deals with the edge, which is
+    // still an edge wherever the texture is bright right up to it.
+    //
+    // ModelHeight is how far up its own model this fragment sits, so the fade
+    // lands in the same place whatever size the fire is placed at.
+    if (fireCard != 0) {
+        float tipFade = 1.0 - smoothstep(0.55, 0.98, ModelHeight);
+        outAlpha *= tipFade;
+        // An additive card carries its brightness in the colour, so fading one
+        // means dimming it.
+        if (blendMode >= 3) result *= tipFade;
     }
 
     outColor = vec4(result, outAlpha);

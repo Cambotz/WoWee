@@ -38,6 +38,12 @@ struct M2Sway {
 inline M2Sway m2SwayFor(bool sky, bool hangingCloth, bool windFoliage, bool groundDetail,
                         float boundMinZ, float boundMaxZ) {
     M2Sway out;
+    // The model's own height, whatever it is made of. It used to be filled in
+    // only on the paths that sway, so anything else reached the shader with
+    // zero and ModelHeight came out as a flat 1.0 - which is no use to a
+    // fragment that wants to know how far up the model it is. A fire is not
+    // foliage and still has a top.
+    out.plantHeight = std::max(boundMaxZ - std::min(boundMinZ, 0.0f), 0.05f);
     if (sky) {
         out.mode = -1;
         return out;

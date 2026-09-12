@@ -1735,6 +1735,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                         }
                         mat->volumetricBeam =
                             (model.isVolumetricBeam || batch.volumetricBeam) ? 1 : 0;
+                        mat->fireCard = batch.forgeFireCard ? 1 : 0;
                     }
 
                     // Bind material descriptor set (set 1)
@@ -1951,6 +1952,7 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 // never ran on the one model it was written for.
                 mat->volumetricBeam =
                     (model.isVolumetricBeam || batch.volumetricBeam) ? 1 : 0;
+                mat->fireCard = batch.forgeFireCard ? 1 : 0;
                 mat->interiorDarken = 0.0f;
                 if (batch.colorKeyBlack)
                     mat->colorKeyThreshold = (effectiveBlendMode == 4 || effectiveBlendMode == 5) ? 0.7f : 0.08f;
