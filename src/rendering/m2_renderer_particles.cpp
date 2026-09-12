@@ -373,8 +373,13 @@ void M2Renderer::updateRibbons(M2Instance& inst, const M2ModelGPU& gpu, float dt
                 e.worldPos    = spineWorld;
                 e.color       = color;
                 e.alpha       = alpha;
-                e.heightAbove = heightAbove;
-                e.heightBelow = heightBelow;
+                // Scaled into world units here, where the instance is at hand.
+                // The spine is a world position the model matrix produced, and
+                // these two were model-space lengths added straight to it - so
+                // a doodad placed at any scale but 1 got a trail the right
+                // length and the wrong width.
+                e.heightAbove = heightAbove * inst.scale;
+                e.heightBelow = heightBelow * inst.scale;
                 e.age         = 0.0f;
                 edges.push_back(e);
 
@@ -405,9 +410,17 @@ void M2Renderer::renderM2Ribbons(VkCommandBuffer cmd, VkDescriptorSet perFrameSe
     static const bool kNoRibbons = envFlagEnabled("WOWEE_M2_NO_RIBBONS");
     if (kNoRibbons) return;
 
-    // Build camera right vector for billboard orientation
-    // For ribbons we orient the quad strip along the spine with screen-space up.
-    // Simple approach: use world-space Z=up for the ribbon cross direction.
+    // A ribbon's width runs across the trail and across the view, and it has to
+    // be computed per edge from the direction the trail is actually going.
+    //
+    // This used a fixed world Z, which is only right for a trail travelling
+    // horizontally. A flame licks upward, so its spine ran along the very axis
+    // the strip was being widened on: the top and bottom vertices of every
+    // edge landed on the spine itself, the quad collapsed, and the whole trail
+    // drew as one tall thin sliver with the fire texture smeared up it. That
+    // is the bonfire at Grom'gol standing four times the height of the huts
+    // behind it.
+    const glm::vec3 camPos = cachedCamPos_;
     const glm::vec3 upWorld(0.0f, 0.0f, 1.0f);
 
     float* dst     = static_cast<float*>(ribbonVBMapped_);
@@ -462,8 +475,25 @@ void M2Renderer::renderM2Ribbons(VkCommandBuffer cmd, VkDescriptorSet perFrameSe
                 float a = e.alpha * t;
                 float u = static_cast<float>(ei) / static_cast<float>(edges.size() - 1);
 
-                // Top vertex (above spine along upWorld)
-                glm::vec3 top = e.worldPos + upWorld * e.heightAbove;
+                // The trail's own direction here, from the edges either side.
+                const glm::vec3& prev = edges[ei > 0 ? ei - 1 : ei].worldPos;
+                const glm::vec3& next = edges[ei + 1 < edges.size() ? ei + 1 : ei].worldPos;
+                glm::vec3 spineDir = next - prev;
+                float spineLen = glm::length(spineDir);
+                // Widen across the trail and across the line of sight. Where
+                // the trail doubles back on itself or points straight at the
+                // eye there is no such direction, and world up is as good an
+                // answer as any.
+                glm::vec3 side = upWorld;
+                if (spineLen > 1e-5f) {
+                    glm::vec3 toEye = camPos - e.worldPos;
+                    glm::vec3 cross = glm::cross(spineDir / spineLen, toEye);
+                    float crossLen = glm::length(cross);
+                    if (crossLen > 1e-5f) side = cross / crossLen;
+                }
+
+                // Top vertex (one side of the spine)
+                glm::vec3 top = e.worldPos + side * e.heightAbove;
                 dst[written * 9 + 0] = top.x;
                 dst[written * 9 + 1] = top.y;
                 dst[written * 9 + 2] = top.z;
@@ -475,8 +505,8 @@ void M2Renderer::renderM2Ribbons(VkCommandBuffer cmd, VkDescriptorSet perFrameSe
                 dst[written * 9 + 8] = 0.0f; // v = top
                 written++;
 
-                // Bottom vertex (below spine)
-                glm::vec3 bot = e.worldPos - upWorld * e.heightBelow;
+                // Bottom vertex (the other side)
+                glm::vec3 bot = e.worldPos - side * e.heightBelow;
                 dst[written * 9 + 0] = bot.x;
                 dst[written * 9 + 1] = bot.y;
                 dst[written * 9 + 2] = bot.z;
