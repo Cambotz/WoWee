@@ -16,6 +16,7 @@
 #include "rendering/animation_controller.hpp"
 #include <algorithm>
 #include <bit>
+#include <set>
 #include <cstring>
 #include <zlib.h>
 
@@ -3065,17 +3066,39 @@ void EntityController::handleGameObjectQueryResponse(network::Packet& packet) {
         }
 
         // MO_TRANSPORT (type 15): assign TaxiPathNode path if available.
+        //
+        // This is the only route a zeppelin or a continent ship ever gets -
+        // none of them has a TransportAnimation.dbc entry - so every way it
+        // can fail leaves a transport standing at its dock, and every one of
+        // them used to be silent or at debug level. Said once per entry.
         const uint32_t mapId = owner_.getCurrentMapId();
-        if (data.type == 15 && data.hasData && data.data[0] != 0 && owner_.getTransportManager()) {
-            uint32_t taxiPathId = data.data[0];
-            if (owner_.getTransportManager()->hasTaxiPathForMap(taxiPathId, mapId)) {
-                if (owner_.getTransportManager()->assignTaxiPathToTransport(data.entry, taxiPathId, mapId)) {
-                    LOG_INFO("MO_TRANSPORT entry=", data.entry, " assigned TaxiPathNode path ", taxiPathId,
-                             " on map ", mapId);
+        if (data.type == 15 && owner_.getTransportManager()) {
+            static std::set<uint32_t> saidRoute;
+            const bool sayThis = saidRoute.insert(data.entry).second;
+            const uint32_t taxiPathId = data.hasData ? data.data[0] : 0u;
+            if (taxiPathId == 0) {
+                if (sayThis) {
+                    LOG_WARNING("MO_TRANSPORT entry=", data.entry,
+                                " carries no taxiPathId (hasData=", data.hasData ? 1 : 0,
+                                ") - it has no route to fly and will stay docked");
                 }
-            } else {
-                LOG_WARNING("MO_TRANSPORT entry=", data.entry, " taxiPathId=", taxiPathId,
-                         " has no TaxiPathNode segment on map ", mapId);
+            } else if (!owner_.getTransportManager()->hasTaxiPathForMap(taxiPathId, mapId)) {
+                if (sayThis) {
+                    LOG_WARNING("MO_TRANSPORT entry=", data.entry, " taxiPathId=", taxiPathId,
+                                " has no TaxiPathNode segment on map ", mapId,
+                                " (the path exists on some map: ",
+                                owner_.getTransportManager()->hasTaxiPath(taxiPathId) ? 1 : 0, ")");
+                }
+            } else if (owner_.getTransportManager()->assignTaxiPathToTransport(
+                           data.entry, taxiPathId, mapId)) {
+                if (sayThis) {
+                    LOG_WARNING("MO_TRANSPORT entry=", data.entry, " assigned TaxiPathNode path ",
+                                taxiPathId, " on map ", mapId);
+                }
+            } else if (sayThis) {
+                LOG_WARNING("MO_TRANSPORT entry=", data.entry, " has TaxiPathNode path ",
+                            taxiPathId, " on map ", mapId,
+                            " but no transport registered under that entry took it");
             }
         }
     }

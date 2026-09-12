@@ -1,4 +1,6 @@
 #include "core/entity_spawner.hpp"
+
+#include <set>
 #include "rendering/m2_model_classifier.hpp"
 #include "game/transport_path_repository.hpp"
 #include "core/coordinates.hpp"
@@ -1213,6 +1215,18 @@ void EntitySpawner::processPendingTransportRegistrations() {
                     transportManager->assignTaxiPathToTransport(pending.entry, taxiPathId, mapId);
                     LOG_DEBUG("Assigned cached TaxiPathNode path for MO_TRANSPORT entry=", pending.entry,
                              " taxiPathId=", taxiPathId, " map=", mapId);
+                }
+            } else if (shipOrZeppelinDisplay && !goData) {
+                // A zeppelin and a continent ship have no TransportAnimation.dbc
+                // route; the GO template's taxiPathId is the only one there is.
+                // Spawning before the query answers is normal and the hook picks
+                // it up - but if the answer never comes, the transport is left
+                // docked with nothing anywhere saying why. Said once per entry.
+                static std::set<uint32_t> saidNoTemplate;
+                if (saidNoTemplate.insert(pending.entry).second) {
+                    LOG_WARNING("Transport entry=", pending.entry, " displayId=", pending.displayId,
+                                " spawned before its GameObject template arrived - it stays docked"
+                                " until the query answers with a taxiPathId");
                 }
             }
         }

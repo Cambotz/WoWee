@@ -127,28 +127,18 @@ uint32_t TransportPathRepository::pickFallbackMovingPath(uint32_t entry, uint32_
         return e->fromDBC && !e->zOnly && e->spline.durationMs() > 0 && e->spline.keyCount() > 1;
     };
 
-    // Known AzerothCore transport entry remaps (WotLK): server entry -> moving DBC path id.
-    // Zeppelins are client-animated and map to real zeppelin TransportAnimation paths.
-    // The continent-crossing SHIPS (Maiden's Fancy, Bravery, Black Princess, and the
-    // icebreakers) were previously remapped to Deeprun Tram paths (176080-176085) here
-    // - a straight ~2482-unit underground line - which sailed them underwater to
-    // nowhere. Those ships are server-driven MO_TRANSPORT objects with no
-    // TransportAnimation.dbc entry; they get their route from their taxi path
-    // (GO template data[0] -> TaxiPathNode.dbc), assigned by the GO-query hook. So
-    // they are intentionally NOT listed here - a ship with no real/taxi path stays
-    // docked rather than borrowing an unrelated route (see the looksLikeShip guard below).
-    static const std::unordered_map<uint32_t, uint32_t> kEntryRemap = {
-        {164871u, 193182u}, // The Thundercaller (zeppelin)
-        {176495u, 193183u}, // The Purple Princess (zeppelin)
-        {175080u, 193182u}, // The Iron Eagle (zeppelin)
-        {181689u, 193183u}, // Cloudkisser (zeppelin)
-        {186238u, 193182u}, // The Mighty Wind (zeppelin)
-    };
-
-    auto itMapped = kEntryRemap.find(entry);
-    if (itMapped != kEntryRemap.end() && isUsableMovingPath(itMapped->second)) {
-        return itMapped->second;
-    }
+    // There was a table here remapping the five WotLK zeppelins onto paths
+    // 193182 and 193183. Those are real TransportAnimation.dbc entries, but
+    // they belong to two Cataclysm transports; none of 164871, 175080, 176495,
+    // 181689 or 186238 appears in that file at all. So each zeppelin was
+    // handed a stranger's loop, which is why the Undercity one flew its own
+    // journey while the server flew the real one and a rider saw both.
+    //
+    // A zeppelin is a MO_TRANSPORT like the continent ships below, and gets
+    // its route the same way: GO template data[0] into TaxiPathNode.dbc, via
+    // the GO-query hook. Until that arrives it stays docked - the transport
+    // the server is carrying the player on cannot be somewhere the server
+    // does not think it is.
 
     if (displayId == 3831u) {
         static constexpr uint32_t kDeeprunTramCandidates[] = {

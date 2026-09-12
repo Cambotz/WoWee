@@ -273,6 +273,28 @@ TEST_CASE("night-elf ships never borrow unrelated TransportAnimation paths",
     REQUIRE(repo.pickFallbackMovingPath(177233, 7087) == 0); // shared model, other route
 }
 
+TEST_CASE("zeppelins never borrow another transport's TransportAnimation path",
+          "[transport_path_repo][transport][expansion]") {
+    game::TransportPathRepository repo;
+    // 193182 and 193183 are real DBC paths - and they belong to two Cataclysm
+    // transports. A table used to hand them to the five WotLK zeppelins, none
+    // of which appears in TransportAnimation.dbc at all, so each flew a
+    // stranger's loop while the server flew the real route.
+    for (uint32_t pathId : {193182u, 193183u}) {
+        std::vector<math::SplineKey> keys = {{0, {0, 0, 0}}, {1000, {100, 0, 0}}};
+        math::CatmullRomSpline spline(std::move(keys), false);
+        repo.storePath(pathId, game::PathEntry(std::move(spline), pathId, false, true, false));
+    }
+
+    constexpr uint32_t kHordeZeppelin = 7546;
+    constexpr uint32_t kZeppelin = 3031;
+    CHECK(repo.pickFallbackMovingPath(164871, kZeppelin) == 0);       // The Thundercaller
+    CHECK(repo.pickFallbackMovingPath(175080, kZeppelin) == 0);       // The Iron Eagle
+    CHECK(repo.pickFallbackMovingPath(176495, kZeppelin) == 0);       // The Purple Princess
+    CHECK(repo.pickFallbackMovingPath(181689, kHordeZeppelin) == 0);  // Cloudkisser
+    CHECK(repo.pickFallbackMovingPath(186238, kHordeZeppelin) == 0);  // The Mighty Wind
+}
+
 // ── Repository: taxi paths ─────────────────────────────────────
 
 TEST_CASE("hasTaxiPath and findTaxiPath", "[transport_path_repo]") {
