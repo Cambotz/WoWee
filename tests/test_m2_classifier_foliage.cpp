@@ -333,3 +333,81 @@ TEST_CASE("the wooden parts of a tree do not sway", "[m2][classifier][foliage]")
         }
     }
 }
+
+// ── Fires whose names run their words together ────────────────
+
+// "bonfire" and "campfire" are matched as plain substrings. A delimited-word
+// match wants a non-letter in front of the token, and WoW's model names do not
+// oblige: 19 of the 37 fires in the WotLK data failed it, the Grom'gol bonfire
+// among them, and got none of the flame treatment or the ambient fire loop.
+TEST_CASE("a fire whose name runs its words together is still a fire",
+          "[m2][classifier][fire]") {
+    SECTION("no delimiter before the token") {
+        CHECK(classify("World\\Azeroth\\BurningSteppes\\PassiveDoodads\\Bonfire\\OrcBonFire.m2")
+                  .isBrazierOrFire);
+        CHECK(classify("orcpvpbonfirelarge.m2").isBrazierOrFire);
+        CHECK(classify("blackrockorccampfire.m2").isBrazierOrFire);
+        CHECK(classify("karazahnbonfire01.m2").isBrazierOrFire);
+        CHECK(classify("northrendundeadcampfire.m2").isBrazierOrFire);
+        CHECK(classify("orgrimmarbonfire01.m2").isBrazierOrFire);
+    }
+
+    SECTION("delimited names still match") {
+        CHECK(classify("summerfest_bonfire_large01.m2").isBrazierOrFire);
+        CHECK(classify("elwynncampfire.m2").isBrazierOrFire);
+    }
+
+    SECTION("firepit too, which has the same shape") {
+        CHECK(classify("largefirepit01.m2").isBrazierOrFire);
+        CHECK(classify("smallfirepit01.m2").isBrazierOrFire);
+    }
+
+    // A bare "fire" has to stand alone at both ends. Guarding only the front
+    // let it match the head of these, so a stack of logs was a burning one -
+    // with a flame's colour floor and an ambient fire loop over it.
+    SECTION("words that merely begin with fire are not fires") {
+        CHECK_FALSE(classify("firewoodpile03.m2").isBrazierOrFire);
+        CHECK_FALSE(classify("fireflies01.m2").isBrazierOrFire);
+        CHECK_FALSE(classify("gunshopfireworks01.m2").isBrazierOrFire);
+        CHECK_FALSE(classify("g_firework01blue.m2").isBrazierOrFire);
+        CHECK_FALSE(classify("firecrackerstring_red01.m2").isBrazierOrFire);
+    }
+
+    // And a fire named at the end of a compound still counts.
+    SECTION("fire at the end of a name") {
+        CHECK(classify("valgarde_fire.m2").isBrazierOrFire);
+        CHECK(classify("orctablecooker01fire.m2").isBrazierOrFire);
+    }
+
+    // The unlit variant of a fire is not a burning one: it would pick up a
+    // flame's colour floor and an ambient fire loop while standing cold.
+    SECTION("an explicitly unlit variant is not lit") {
+        CHECK_FALSE(classify("orcbonfireoff.m2").isBrazierOrFire);
+        CHECK_FALSE(classify("torch_out.m2").isTorch);
+        CHECK(classify("torch.m2").isTorch);
+    }
+}
+
+// The ambient sound system asks the same question with its own entry point.
+// It had its own copy of the test and the two had already drifted: a model
+// could be drawn as flame and play no fire, or the reverse.
+TEST_CASE("the fire sound and the fire rendering agree on what a fire is",
+          "[m2][classifier][fire]") {
+    using wowee::rendering::AmbientEmitterType;
+    const auto emitter = [](const char* name) {
+        return wowee::rendering::classifyAmbientEmitter(name);
+    };
+    for (const char* name : {"orcbonfire", "orcpvpbonfirelarge", "blackrockorccampfire",
+                             "largefirepit01", "valgarde_fire"}) {
+        CAPTURE(name);
+        CHECK(classify(std::string(name) + ".m2").isBrazierOrFire);
+        const auto type = emitter(name);
+        CHECK((type == AmbientEmitterType::FireplaceSmall ||
+               type == AmbientEmitterType::FireplaceLarge));
+    }
+    for (const char* name : {"firewoodpile03", "gunshopfireworks01", "orcbonfireoff"}) {
+        CAPTURE(name);
+        CHECK_FALSE(classify(std::string(name) + ".m2").isBrazierOrFire);
+        CHECK(emitter(name) == AmbientEmitterType::None);
+    }
+}

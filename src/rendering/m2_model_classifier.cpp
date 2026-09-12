@@ -36,6 +36,61 @@ inline bool hasWord(const std::string& lower, std::string_view token) noexcept {
     return false;
 }
 
+/// Whether the token stands alone: no letter on either side of it.
+///
+/// hasWord only guards the front, so a bare "fire" matched the head of
+/// FirewoodPile and FireFlies01 and a stack of logs was classified as a
+/// burning one - with a flame's colour floor and an ambient fire loop.
+inline bool hasStandaloneWord(const std::string& lower, std::string_view token) noexcept {
+    for (std::size_t at = lower.find(token); at != std::string::npos;
+         at = lower.find(token, at + 1)) {
+        const bool frontOk =
+            at == 0 || !std::isalpha(static_cast<unsigned char>(lower[at - 1]));
+        const std::size_t after = at + token.size();
+        const bool backOk =
+            after >= lower.size() || !std::isalpha(static_cast<unsigned char>(lower[after]));
+        if (frontOk && backOk) return true;
+    }
+    return false;
+}
+
+/// Whether the name ends on this token, allowing a trailing number or
+/// separator after it: Torch_Out, OrcBonFireOff, Brazier_Off01.
+///
+/// Nothing is required in front of it, because the names being matched run
+/// their words together - the "off" in OrcBonFireOff follows a letter. The
+/// token is only ever looked for alongside a fire or torch token, so a word
+/// that merely ends in one of these ("lookout") cannot reach here.
+inline bool endsWithToken(const std::string& lower, std::string_view token) noexcept {
+    for (std::size_t at = lower.find(token); at != std::string::npos;
+         at = lower.find(token, at + 1)) {
+        bool onlyTrailers = true;
+        for (std::size_t k = at + token.size(); k < lower.size(); ++k) {
+            const char c = lower[k];
+            if (!(std::isdigit(static_cast<unsigned char>(c)) || c == '_' ||
+                  c == '-' || c == '.' || c == ' ')) {
+                onlyTrailers = false;
+                break;
+            }
+        }
+        if (onlyTrailers) return true;
+    }
+    return false;
+}
+
+/// Whether this name is a lit fire: a campfire, a bonfire, a fire pit, or
+/// something named "fire" outright.
+///
+/// Shared by classifyM2Model and classifyAmbientEmitter, which spelled it out
+/// separately and had already drifted - one is what the renderer treats as
+/// flame, the other is what the sound system plays a fire loop over, and a
+/// model can be neither but not one without the other.
+bool isLitFireName(const std::string& lower) noexcept {
+    if (endsWithToken(lower, "off") || endsWithToken(lower, "out")) return false;
+    return hasStandaloneWord(lower, "fire") || has(lower, "campfire")
+        || has(lower, "bonfire") || has(lower, "firepit");
+}
+
 // Where in the name a token matched, so competing tokens can be ranked.
 // Model names are head-final compounds - StranglethornRuins is a ruin,
 // DustwallowTree is a tree - so the match ending furthest right is the one that
@@ -219,7 +274,23 @@ M2ClassificationResult classifyM2Model(
                     && (has(n, "candle") || has(n, "torch") || has(n, "mine"));
 
     // Fire / brazier / torch model detection (for ambient emitter + rendering)
-    const bool fireName    = hasWord(n, "fire") || hasWord(n, "campfire") || hasWord(n, "bonfire");
+    //
+    // "bonfire" and "campfire" match as plain substrings, not as delimited
+    // words. A word match wants a non-letter in front of the token, and WoW's
+    // model names run their words together: OrcBonFire, OrcPvPBonFireLarge,
+    // BlackrockOrcCampfire, KarazahnBonfire01 - 19 of the 37 fires in the data
+    // were failing this test and getting none of the treatment below, which is
+    // why the Grom'gol bonfire had no ambient fire sound and none of the flame
+    // colour and scale floors. Nothing in the game contains either compound
+    // without being a fire, so the delimiter buys nothing here; bare "fire"
+    // still needs it, or FireFlies, Fireworks and FirewoodPile all become
+    // fires.
+    //
+    // An explicitly unlit variant is not a fire. These carry the same name
+    // with a suffix, and treating one as burning gives a cold fire pit a
+    // flame's colour floor and an ambient fire loop.
+    const bool unlitVariant = endsWithToken(n, "off") || endsWithToken(n, "out");
+    const bool fireName    = isLitFireName(n);
     const bool brazierName = has(n, "brazier") || has(n, "cauldronfire");
     // A forge is a forge only when "forge" is what the name ends on. Matched as
     // a bare substring it also caught Ironforge, so all 64 doodads of the city
@@ -239,7 +310,7 @@ M2ClassificationResult classifyM2Model(
         }
         return true;
     }();
-    const bool torchName   = has(n, "torch") && !r.isKoboldFlame;
+    const bool torchName   = has(n, "torch") && !r.isKoboldFlame && !unlitVariant;
     r.isBrazierOrFire = fireName || brazierName;
     // TaurenLampPost is the small ground-level path fire used around Camp
     // Narache, despite its misleading model name. Its decorative halo must
@@ -658,8 +729,7 @@ M2BatchTexClassification classifyBatchTexture(const std::string& lowerTexKey)
 
 AmbientEmitterType classifyAmbientEmitter(const std::string& lowerName)
 {
-    const bool fireName    = hasWord(lowerName, "fire") || hasWord(lowerName, "campfire")
-                           || hasWord(lowerName, "bonfire");
+    const bool fireName    = isLitFireName(lowerName);
     const bool brazierName = has(lowerName, "brazier") || has(lowerName, "cauldronfire");
     const bool forgeName   = has(lowerName, "forge") && !has(lowerName, "forgelava");
 
