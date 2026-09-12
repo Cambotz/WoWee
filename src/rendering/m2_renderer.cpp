@@ -1399,6 +1399,20 @@ void M2Renderer::markModelAsSpellEffect(uint32_t modelId) {
     }
 }
 
+void M2Renderer::censusInstance(const M2Instance& instance) {
+    static const bool kCensus = std::getenv("WOWEE_M2_CENSUS") != nullptr;
+    if (!kCensus) return;
+    auto it = models.find(instance.modelId);
+    if (it == models.end()) return;
+    const M2ModelGPU& gpu = it->second;
+    static std::set<std::string> said;
+    if (!said.insert(gpu.name).second) return;
+    const float authored = gpu.boundMax.z - gpu.boundMin.z;
+    LOG_WARNING("M2 census instance: '", gpu.name, "' scale=", instance.scale,
+                " authoredH=", authored, " drawnH=", authored * instance.scale,
+                " top=", instance.position.z + gpu.boundMax.z * instance.scale);
+}
+
 bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     if (models.find(modelId) != models.end()) {
         // Already loaded

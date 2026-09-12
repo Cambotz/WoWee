@@ -166,6 +166,10 @@ uint32_t M2Renderer::createInstance(uint32_t modelId, const glm::vec3& position,
         instanceDedupMap_[dk] = instance.id;
     }
 
+    // WOWEE_M2_CENSUS: what the model is drawn at, beside what it was
+    // authored at. The load-time census gives the authored height; a game
+    // object's scale comes from the server and is only known here.
+    censusInstance(instance);
     instances.push_back(instance);
     size_t idx = instances.size() - 1;
     // Track special instances for fast-path iteration
@@ -271,6 +275,10 @@ uint32_t M2Renderer::createInstanceWithMatrix(uint32_t modelId, const glm::mat4&
         instanceDedupMap_[dk] = instance.id;
     }
 
+    // WOWEE_M2_CENSUS: what the model is drawn at, beside what it was
+    // authored at. The load-time census gives the authored height; a game
+    // object's scale comes from the server and is only known here.
+    censusInstance(instance);
     instances.push_back(instance);
     size_t idx = instances.size() - 1;
     if (mdl2.isSmoke) {

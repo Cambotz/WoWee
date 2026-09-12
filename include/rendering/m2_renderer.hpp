@@ -495,6 +495,9 @@ public:
     void renderM2Ribbons(VkCommandBuffer cmd, VkDescriptorSet perFrameSet);
 
     void setInstancePosition(uint32_t instanceId, const glm::vec3& position);
+    /// WOWEE_M2_CENSUS: what a model is actually drawn at, said once each.
+    void censusInstance(const M2Instance& instance);
+
     void setInstanceTransform(uint32_t instanceId, const glm::mat4& transform);
     void setInstanceAnimationFrozen(uint32_t instanceId, bool frozen);
     /// Play an animation once and stay on its last frame.
