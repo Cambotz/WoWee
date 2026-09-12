@@ -11,6 +11,9 @@
 #include "pipeline/asset_manager.hpp"
 #include "core/logger.hpp"
 
+#include <algorithm>
+#include <cstddef>
+
 namespace wowee {
 namespace rendering {
 namespace world_map {
@@ -168,7 +171,7 @@ bool CompositeRenderer::initialize(VkContext* ctx, pipeline::AssetManager* am) {
 
         VkPushConstantRange overlayPushFrag{};
         overlayPushFrag.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-        overlayPushFrag.offset = 16;
+        overlayPushFrag.offset = offsetof(OverlayPush, tintColor);
         overlayPushFrag.size = sizeof(glm::vec4);
 
         overlayPipelineLayout_ = createPipelineLayout(device, { samplerSetLayout },
@@ -490,6 +493,24 @@ void CompositeRenderer::compositePass(VkCommandBuffer cmd,
                 int tileCol = t % ov.tileCols;
                 int tileRow = t / ov.tileCols;
 
+                // An overlay is cut into 256px pieces and the last one in each
+                // direction is only as wide as the overlay has left. Drawing
+                // every piece as a full cell stretched those edges up to 256,
+                // which is why the explored region did not sit at the same
+                // scale as the map under it.
+                const int pieceW = std::min<int>(TILE_PX, ov.texWidth - tileCol * TILE_PX);
+                const int pieceH = std::min<int>(TILE_PX, ov.texHeight - tileRow * TILE_PX);
+                if (pieceW <= 0 || pieceH <= 0) continue;
+
+                // And the file holding a piece is padded out to the next power
+                // of two, so only part of it is the piece. Sixteen is the
+                // smallest the tools emit.
+                auto fileExtent = [](int pixels) {
+                    int e = 16;
+                    while (e < pixels) e *= 2;
+                    return e;
+                };
+
                 float px = static_cast<float>(ov.offsetX + tileCol * TILE_PX);
                 float py = static_cast<float>(ov.offsetY + tileRow * TILE_PX);
 
@@ -498,11 +519,16 @@ void CompositeRenderer::compositePass(VkCommandBuffer cmd,
                                               py / static_cast<float>(TILE_PX));
                 ovPush.gridCols = static_cast<float>(GRID_COLS);
                 ovPush.gridRows = static_cast<float>(GRID_ROWS);
+                ovPush.gridScale = glm::vec2(static_cast<float>(pieceW) / TILE_PX,
+                                             static_cast<float>(pieceH) / TILE_PX);
+                ovPush.uvScale = glm::vec2(static_cast<float>(pieceW) / fileExtent(pieceW),
+                                           static_cast<float>(pieceH) / fileExtent(pieceH));
                 ovPush.tintColor = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
                 vkCmdPushConstants(cmd, overlayPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
                                    0, sizeof(WorldMapTilePush), &ovPush);
                 vkCmdPushConstants(cmd, overlayPipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT,
-                                   16, sizeof(glm::vec4), &ovPush.tintColor);
+                                   offsetof(OverlayPush, tintColor), sizeof(glm::vec4),
+                                   &ovPush.tintColor);
                 vkCmdDraw(cmd, 6, 1, 0, 0);
 
                 descSlot++;
@@ -530,7 +556,8 @@ void CompositeRenderer::compositePass(VkCommandBuffer cmd,
             vkCmdPushConstants(cmd, overlayPipelineLayout_, VK_SHADER_STAGE_VERTEX_BIT,
                                0, sizeof(WorldMapTilePush), &fogPush);
             vkCmdPushConstants(cmd, overlayPipelineLayout_, VK_SHADER_STAGE_FRAGMENT_BIT,
-                               16, sizeof(glm::vec4), &fogPush.tintColor);
+                               offsetof(OverlayPush, tintColor), sizeof(glm::vec4),
+                               &fogPush.tintColor);
             vkCmdDraw(cmd, 6, 1, 0, 0);
         }
     }

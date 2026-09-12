@@ -23,18 +23,22 @@ namespace world_map {
 
 /// Push constant for world map tile composite vertex shader.
 struct WorldMapTilePush {
-    glm::vec2 gridOffset;  // 8 bytes
-    float gridCols;          // 4 bytes
-    float gridRows;          // 4 bytes
-};  // 16 bytes
+    glm::vec2 gridOffset;               // 8 bytes   quad origin, in grid cells
+    float gridCols;                     // 4 bytes
+    float gridRows;                     // 4 bytes
+    glm::vec2 gridScale{1.0f, 1.0f};    // 8 bytes   quad size, in grid cells
+    glm::vec2 uvScale{1.0f, 1.0f};      // 8 bytes   fraction of the file to sample
+};  // 32 bytes
 
 /// Push constant for the overlay/fog pipeline (vertex + fragment stages).
 struct OverlayPush {
-    glm::vec2 gridOffset;  // 8 bytes  (vertex)
-    float gridCols;          // 4 bytes  (vertex)
-    float gridRows;          // 4 bytes  (vertex)
-    glm::vec4 tintColor;   // 16 bytes (fragment)
-};  // 32 bytes
+    glm::vec2 gridOffset;               // 8 bytes  (vertex)
+    float gridCols;                     // 4 bytes  (vertex)
+    float gridRows;                     // 4 bytes  (vertex)
+    glm::vec2 gridScale{1.0f, 1.0f};    // 8 bytes  (vertex)
+    glm::vec2 uvScale{1.0f, 1.0f};      // 8 bytes  (vertex)
+    glm::vec4 tintColor;                // 16 bytes (fragment, offset 32)
+};  // 48 bytes
 
 class CompositeRenderer {
 public:
