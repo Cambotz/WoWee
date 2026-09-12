@@ -6,6 +6,7 @@
 #include "game/game_utils.hpp"
 #include "rendering/wmo_renderer.hpp"
 #include "rendering/m2_renderer.hpp"
+#include "rendering/movement_limits.hpp"
 #include "core/coordinates.hpp"
 #include "core/logger.hpp"
 #include <glm/gtc/matrix_transform.hpp>
@@ -525,16 +526,27 @@ std::optional<bool> TransportManager::isPointOverM2Footprint(
     }
     // The bounds are the renderer's, so the point has to be too.
     const glm::vec3 render = core::coords::canonicalToRender(canonicalPosition);
-    // A step of slack, so stepping aboard from the edge still counts and
-    // standing a car's width away does not.
-    constexpr float kEdge = 0.6f;
-    if (render.x < boundsMin.x - kEdge || render.x > boundsMax.x + kEdge ||
-        render.y < boundsMin.y - kEdge || render.y > boundsMax.y + kEdge) {
+
+    // The box is only a cheap first pass. It cannot be the answer on its own:
+    // it is axis-aligned around the whole car, so it covers the doorway and the
+    // ground just outside it, and a car is as tall as it is wide - which is how
+    // standing outside a lift's door at the top of the shaft still pulled the
+    // player down with it.
+    if (render.x < boundsMin.x || render.x > boundsMax.x ||
+        render.y < boundsMin.y || render.y > boundsMax.y ||
+        render.z < boundsMin.z - 2.0f || render.z > boundsMax.z + 2.0f) {
         return false;
     }
-    // And underfoot rather than a storey away: the car is as tall as it is
-    // wide, and its origin can sit either end of that.
-    return render.z >= boundsMin.z - 1.0f && render.z <= boundsMax.z + 1.0f;
+
+    // The answer is whether the car's own floor is under the feet. Outside the
+    // door there is nothing below but shaft, so the ray finds nothing and the
+    // board is refused; on the deck it lands within a step and it is allowed.
+    const auto deck = m2Renderer_->getInstanceFloorHeight(
+        it->second.wmoInstanceId, render.x, render.y,
+        render.z + rendering::movement::kMaxStepUp);
+    if (!deck) return false;
+    const float delta = render.z - *deck;
+    return delta >= -rendering::movement::kMaxStepUp && delta <= 2.0f;
 }
 
 std::optional<float> TransportManager::getTransportDeckFloorHeight(

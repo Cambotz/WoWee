@@ -534,6 +534,14 @@ public:
     /// that origin, which is why standing beside an Undercity lift shaft
     /// attaches you to the car.
     bool getInstanceWorldBounds(uint32_t instanceId, glm::vec3& outMin, glm::vec3& outMax) const;
+
+    /// The floor one named instance offers under a point, ignoring every other.
+    ///
+    /// Asked of a lift car, this is "is its deck under your feet" - which a box
+    /// around the car cannot answer, because an axis-aligned box covers the
+    /// doorway and the ground just outside it.
+    std::optional<float> getInstanceFloorHeight(uint32_t instanceId,
+                                                float glX, float glY, float glZ) const;
     /// True while the instance is still live in the renderer. Owners that cache
     /// instance IDs (game objects, transports) use this to notice an instance
     /// that was dropped underneath them - e.g. by a renderer-wide clear - and

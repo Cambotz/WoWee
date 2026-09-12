@@ -898,6 +898,55 @@ bool M2Renderer::getInstanceWorldBounds(uint32_t instanceId, glm::vec3& outMin,
     return true;
 }
 
+std::optional<float> M2Renderer::getInstanceFloorHeight(uint32_t instanceId,
+                                                       float glX, float glY,
+                                                       float glZ) const {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end() || idxIt->second >= instances.size()) {
+        return std::nullopt;
+    }
+    const auto& instance = instances[idxIt->second];
+    if (!instance.cachedModel || instance.scale <= 0.001f) return std::nullopt;
+    const M2ModelGPU& model = *instance.cachedModel;
+    if (!model.collision.valid()) return std::nullopt;
+
+    // Same cast as getFloorHeight: world-down through the instance transform,
+    // so a car placed with any pitch still sees a ray along gravity.
+    const glm::vec3 localRayOrigin = glm::vec3(
+        instance.invModelMatrix * glm::vec4(glX, glY, glZ + 5.0f, 1.0f));
+    const glm::vec3 localRayEnd = glm::vec3(
+        instance.invModelMatrix * glm::vec4(glX, glY, glZ - 10.0f, 1.0f));
+    const glm::vec3 localRayVector = localRayEnd - localRayOrigin;
+    const float localRayLength = glm::length(localRayVector);
+    if (localRayLength <= 1e-5f) return std::nullopt;
+    const glm::vec3 localRayDir = localRayVector / localRayLength;
+
+    model.collision.getFloorTrisInRange(
+        std::min(localRayOrigin.x, localRayEnd.x) - 1.0f,
+        std::min(localRayOrigin.y, localRayEnd.y) - 1.0f,
+        std::max(localRayOrigin.x, localRayEnd.x) + 1.0f,
+        std::max(localRayOrigin.y, localRayEnd.y) + 1.0f,
+        tl_m2_collisionTriScratch);
+
+    std::optional<float> best;
+    for (uint32_t ti : tl_m2_collisionTriScratch) {
+        if (ti >= model.collision.triCount) continue;
+        const auto& verts = model.collision.vertices;
+        const auto& idx = model.collision.indices;
+        const float tHit = rayTriangleIntersect(localRayOrigin, localRayDir,
+                                                verts[idx[ti * 3]],
+                                                verts[idx[ti * 3 + 1]],
+                                                verts[idx[ti * 3 + 2]]);
+        if (tHit < 0.0f || tHit > localRayLength) continue;
+        const glm::vec3 worldHit = glm::vec3(
+            instance.modelMatrix * glm::vec4(localRayOrigin + localRayDir * tHit, 1.0f));
+        // At or under the probe, and the highest such - the deck rather than
+        // whatever structure the car carries beneath it.
+        if (worldHit.z <= glZ && (!best || worldHit.z > *best)) best = worldHit.z;
+    }
+    return best;
+}
+
 std::optional<float> M2Renderer::getFloorHeight(float glX, float glY, float glZ, float* outNormalZ) const {
     QueryTimer timer(&queryTimeMs, &queryCallCount);
     std::optional<float> bestFloor;
