@@ -854,7 +854,25 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             // server drags the player back down, which is the very
             // yo-yo this pick was meant to stop. Grounded, the true
             // feet are targetPos.z; airborne, aim at the last ground.
-            const float feetRef = grounded ? targetPos.z : lastGroundZ;
+            //
+            // Except that a player cannot be standing on a floor while
+            // their feet are a long way under it, and the flag says
+            // grounded anyway. At the Undercity elevator ramp the feet
+            // were 2.81 below the landing they had been standing on -
+            // still a candidate, at -41.4273 against a last ground of
+            // -41.4245 - and 2.39 above the Trade Quarter floor five
+            // yards further down. Measured from the feet the lower one
+            // is nearer by 0.42, so the pick took it and the player
+            // dropped through the ramp.
+            //
+            // Below the last ground by more than a step is falling,
+            // whatever the flag says, so anchor where the airborne case
+            // already anchors: the ground they were last on. That floor
+            // then wins by 5.2 instead of losing by 0.42. It cannot pull
+            // anyone up onto a floor they truly left, because a floor
+            // they have walked off is not a candidate at their feet.
+            const float feetRef = movement::floorArbitrationAnchor(
+                grounded, targetPos.z, lastGroundZ);
             wmoFuture = core::ThreadPool::frameWorkers().submit(
                 [this, px, py, wmoProbeZ, feetRef]() -> FloorResult {
                     float nz = 1.0f;

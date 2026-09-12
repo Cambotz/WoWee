@@ -77,6 +77,30 @@ inline bool terrainIsOverheadRoof(bool insideInteriorWmo, float terrainZ,
     return insideInteriorWmo && terrainOutOfReach(terrainZ, feetZ, stepUpBudget);
 }
 
+/// The height a floor pick should measure "nearest" from.
+///
+/// Nearest to the feet is right while the player is standing: it is what lets a
+/// step onto a ledge win once the feet are level with it, and what stops a
+/// stray frame on the storey above latching the pick up there.
+///
+/// It is wrong the moment the feet are under the floor they are on. At the
+/// Undercity elevator ramp the feet sat 2.81 below the landing - still a
+/// candidate - and 2.39 above the hall floor five yards further down, so
+/// measured from the feet the lower one was nearer by 0.42 and the player
+/// dropped through the ramp. Below the last ground by more than a step is
+/// falling, whatever the grounded flag says, so anchor where the airborne case
+/// already anchors and the floor underfoot wins by its true margin.
+///
+/// This cannot haul anyone up onto a floor they really walked off: once they
+/// are past its edge it is not a candidate over their feet at all.
+inline bool standingOnLastGround(bool grounded, float feetZ, float lastGroundZ) {
+    return grounded && feetZ > lastGroundZ - kMaxStepUp;
+}
+
+inline float floorArbitrationAnchor(bool grounded, float feetZ, float lastGroundZ) {
+    return standingOnLastGround(grounded, feetZ, lastGroundZ) ? feetZ : lastGroundZ;
+}
+
 /// At a tunnel seam, whether the WMO floor should be taken over the terrain.
 ///
 /// Take it only when the terrain is not ground the player could be standing

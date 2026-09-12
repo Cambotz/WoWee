@@ -157,3 +157,46 @@ TEST_CASE("a seam only prefers the WMO floor when it is the way in") {
         REQUIRE(26.0326f - 24.698f > kStepUp);
     }
 }
+
+TEST_CASE("the floor pick anchors where the player actually stands", "[movement][floor]") {
+    using wowee::rendering::movement::floorArbitrationAnchor;
+    using wowee::rendering::movement::standingOnLastGround;
+
+    SECTION("standing, the feet are the anchor") {
+        // Level ground, and a step up onto a ledge: the feet are the honest
+        // answer and are what lets the ledge win once they are level with it.
+        CHECK(standingOnLastGround(true, 10.0f, 10.0f));
+        CHECK(floorArbitrationAnchor(true, 10.0f, 10.0f) == Catch::Approx(10.0f));
+        CHECK(floorArbitrationAnchor(true, 10.5f, 10.0f) == Catch::Approx(10.5f));
+        // A real step down is still standing.
+        CHECK(floorArbitrationAnchor(true, 9.6f, 10.0f) == Catch::Approx(9.6f));
+    }
+
+    SECTION("under the floor by more than a step is falling") {
+        CHECK_FALSE(standingOnLastGround(true, 9.0f, 10.0f));
+        CHECK(floorArbitrationAnchor(true, 9.0f, 10.0f) == Catch::Approx(10.0f));
+    }
+
+    SECTION("the Undercity elevator ramp") {
+        // The frame the player fell through it: feet 2.81 under the landing
+        // they were standing on, with the hall floor five yards below.
+        constexpr float feet = -44.2411f;
+        constexpr float lastGround = -41.4245f;
+        constexpr float landing = -41.4273f;
+        constexpr float hallFloor = -46.6305f;
+
+        // Measured from the feet the hall floor is nearer, which is what took
+        // the player through the ramp.
+        CHECK(std::abs(hallFloor - feet) < std::abs(landing - feet));
+
+        // Anchored where they were standing, the landing wins outright.
+        const float anchor = floorArbitrationAnchor(true, feet, lastGround);
+        CHECK(anchor == Catch::Approx(lastGround));
+        CHECK(std::abs(landing - anchor) < std::abs(hallFloor - anchor));
+    }
+
+    SECTION("airborne is unchanged") {
+        CHECK(floorArbitrationAnchor(false, 5.0f, 10.0f) == Catch::Approx(10.0f));
+        CHECK(floorArbitrationAnchor(false, 12.0f, 10.0f) == Catch::Approx(10.0f));
+    }
+}
