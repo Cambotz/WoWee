@@ -1121,8 +1121,17 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             const auto nowNoFloor = std::chrono::steady_clock::now();
             if (nowNoFloor - lastNoFloorDump > std::chrono::seconds(5)) {
                 lastNoFloorDump = nowNoFloor;
-                LOG_WARNING("No floor at all under the player (feet ", targetPos.z,
-                            ") - dumping doodad candidates");
+                // The centre pick's answer, not the final one: the recovery
+                // passes in groundFollowedCharacter run after this and often
+                // find a floor the one ray missed. Said plainly because the
+                // first wording read as "the player is over a void" and is
+                // what sent this hunt after the wrong thing.
+                LOG_WARNING("Centre floor probe found nothing (feet ", targetPos.z,
+                            ") - the recovery passes have not run yet");
+                if (wmoRenderer) {
+                    wmoRenderer->debugDumpGroupsAtPosition(
+                        targetPos.x, targetPos.y, targetPos.z);
+                }
                 m2Renderer->debugDumpFloorCandidatesAt(
                     targetPos.x, targetPos.y, targetPos.z);
             }
@@ -1296,20 +1305,46 @@ void CameraController::groundFollowedCharacter(float deltaTime, FrameInput& f,
         // Transition safety: if no reachable floor was selected, choose the higher
         // of terrain/WMO center surfaces when it is still near the player.
         // This avoids dropping into void gaps at terrain<->WMO seams.
+        // Whether there is structure here at all, which gates every recovery
+        // below it - the multi-sample pass, the wider rescue rings, all of it.
+        //
+        // It rested on a ray at the character's centre, and a centre ray is the
+        // one thing that misses the lip of a surface: at the top of the
+        // Undercity lift the landing lies a third of a yard away in +y at the
+        // height of the feet, the centre finds nothing, so this said there is
+        // no structure nearby and shut off the passes that would have found it.
+        // The player steps off the deck and dips into the gap.
+        //
+        // The hint asks the foot cross now, the same four points the pass it
+        // guards would use. It is the last thing standing between the player
+        // and a fall, so it should not fail for the reason those passes exist.
         const bool nearWmoSpace = cachedInsideWMO || centerWmoH.has_value();
         bool nearStructureSpace = nearWmoSpace || centerM2H.has_value();
         if (!nearStructureSpace && hasRealGround_) {
-            // Plank-gap hint: center probes can miss sparse bridge segments.
-            // Probe once around last known ground before allowing a full drop.
+            const auto nearLastGround = [&](std::optional<float> h) {
+                return h && std::abs(*h - lastGroundZ) <= 2.0f;
+            };
             if (wmoRenderer) {
-                auto whHint = wmoRenderer->getFloorHeight(targetPos.x, targetPos.y, lastGroundZ + 1.5f);
-                if (whHint && std::abs(*whHint - lastGroundZ) <= 2.0f) nearStructureSpace = true;
+                if (nearLastGround(highestWalkableFloor(
+                        [this](float x, float y, float z, float* nz) {
+                            return wmoRenderer->getFloorHeight(x, y, z, nz);
+                        },
+                        targetPos.x, targetPos.y, feetCross(0.35f), lastGroundZ + 1.5f,
+                        MIN_WALKABLE_NORMAL_WMO,
+                        {.minZ = lastGroundZ - 2.0f, .maxZ = lastGroundZ + 2.0f}))) {
+                    nearStructureSpace = true;
+                }
             }
             if (!nearStructureSpace && m2Renderer && !externalFollow_) {
-                float nz = 1.0f;
-                auto mhHint = m2Renderer->getFloorHeight(targetPos.x, targetPos.y, lastGroundZ + 1.5f, &nz);
-                if (mhHint && nz >= MIN_WALKABLE_NORMAL_M2 &&
-                    std::abs(*mhHint - lastGroundZ) <= 2.0f) nearStructureSpace = true;
+                if (nearLastGround(highestWalkableFloor(
+                        [this](float x, float y, float z, float* nz) {
+                            return m2Renderer->getFloorHeight(x, y, z, nz);
+                        },
+                        targetPos.x, targetPos.y, feetCross(0.35f), lastGroundZ + 1.5f,
+                        MIN_WALKABLE_NORMAL_M2,
+                        {.minZ = lastGroundZ - 2.0f, .maxZ = lastGroundZ + 2.0f}))) {
+                    nearStructureSpace = true;
+                }
             }
         }
         if (!groundH) {
