@@ -598,6 +598,33 @@ void MovementHandler::sendMovement(Opcode opcode) {
             movementInfo.flags &= ~static_cast<uint32_t>(MovementFlags::ASCENDING);
             movementInfo.flags &= ~static_cast<uint32_t>(MovementFlags::DESCENDING);
             break;
+        case Opcode::MSG_MOVE_START_SWIM:
+            // The camera controller has sent this pair on every water entry
+            // and exit all along; nothing here listened, so no movement packet
+            // this client sends has ever carried SWIMMING. The server reads
+            // pitch only when the flag is set, which is why a swimming
+            // character looked flat to everyone else, and isSwimming() - which
+            // reads this same word - answered no while the player swam.
+            movementInfo.flags |= static_cast<uint32_t>(MovementFlags::SWIMMING);
+            // Entering water ends a fall, and nothing else would: FALL_LAND is
+            // sent on touching ground and a swimmer never touches it, so a
+            // jump into a lake left FALLING set with fallTime still climbing.
+            movementInfo.flags &= ~static_cast<uint32_t>(MovementFlags::FALLING);
+            isFalling_ = false;
+            fallStartMs_ = 0;
+            movementInfo.fallTime = 0;
+            movementInfo.jumpVelocity = 0.0f;
+            movementInfo.jumpSinAngle = 0.0f;
+            movementInfo.jumpCosAngle = 0.0f;
+            movementInfo.jumpXYSpeed = 0.0f;
+            break;
+        case Opcode::MSG_MOVE_STOP_SWIM:
+            movementInfo.flags &= ~static_cast<uint32_t>(MovementFlags::SWIMMING);
+            // Out of the water level again, so the next packet that does carry
+            // a pitch - a flying mount - starts from horizontal rather than
+            // from however the swimmer was last angled.
+            movementInfo.pitch = 0.0f;
+            break;
         case Opcode::MSG_MOVE_START_DESCEND:
             // Must set DESCENDING so outgoing movement packets carry the correct
             // flag during flight descent. Only clearing ASCENDING left the flag
