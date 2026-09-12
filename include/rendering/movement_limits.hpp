@@ -64,9 +64,38 @@ inline bool isReachableStep(float deltaZ) {
 /// player could step onto cannot be the ground they are standing on, which is
 /// the whole of what the veto ever meant. Undercity's surface sits ~113m above
 /// its halls and is still refused; a hillside at the feet is kept.
+/// Whether this ground is too far above the feet to be the ground underfoot.
+///
+/// The one question behind both rules below: terrain the player could not step
+/// onto is not terrain they are standing on.
+inline bool terrainOutOfReach(float terrainZ, float feetZ, float stepUpBudget) {
+    return terrainZ > feetZ + stepUpBudget + 0.5f;
+}
+
 inline bool terrainIsOverheadRoof(bool insideInteriorWmo, float terrainZ,
                                   float feetZ, float stepUpBudget) {
-    return insideInteriorWmo && terrainZ > feetZ + stepUpBudget + 0.5f;
+    return insideInteriorWmo && terrainOutOfReach(terrainZ, feetZ, stepUpBudget);
+}
+
+/// At a tunnel seam, whether the WMO floor should be taken over the terrain.
+///
+/// Take it only when the terrain is not ground the player could be standing
+/// on. That is what a tunnel mouth looks like from inside it: the heightfield
+/// overhead is the hillside over the tunnel, and letting it win would lift the
+/// player back out rather than let them walk in.
+///
+/// The seam used to prefer the WMO floor whatever it was, and that also fires
+/// where a ramp merely passes under the heightfield beside it. The Orgrimmar
+/// valley entrance runs its ramp about 1.3 yards below the ground it meets, so
+/// a player standing on that ground - terrain right at their feet - was pulled
+/// down onto the ramp and ended up inside the hillside, walking through the
+/// terrain with the ramp overhead.
+///
+/// Measured against the feet rather than against the gap between the two
+/// surfaces: 1.3 yards is more than a step, so a gap test calls the Orgrimmar
+/// ramp a tunnel. Where the player is standing answers it and the gap does not.
+inline bool wmoFloorIsWayIn(float terrainZ, float feetZ, float stepUpBudget) {
+    return terrainOutOfReach(terrainZ, feetZ, stepUpBudget);
 }
 
 } // namespace wowee::rendering::movement

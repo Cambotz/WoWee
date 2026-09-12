@@ -1060,7 +1060,12 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             // Do not require downward velocity or an already-inside state:
             // both arrive after a level tunnel entrance has begun choosing
             // between the two surfaces.
-            bool preferWmoAtSeam = atTunnelSeam;
+            // Only where the terrain stands a full step above the WMO floor,
+            // which is what a tunnel mouth looks like. See wmoFloorIsWayIn.
+            const bool preferWmoAtSeam =
+                atTunnelSeam &&
+                (!terrainH ||
+                 movement::wmoFloorIsWayIn(*terrainH, targetPos.z, stepUpBudget));
             if (preferWmoAtSeam) {
                 groundH = wmoH;
             } else if (terrainH) {

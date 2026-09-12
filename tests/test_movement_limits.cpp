@@ -117,3 +117,43 @@ TEST_CASE("the terrain veto only refuses ground overhead") {
         REQUIRE(terrainIsOverheadRoof(true, edge + 0.01f, feet, kStepUp));
     }
 }
+
+// A tunnel seam preferred the WMO floor whatever it was, which is right at a
+// tunnel mouth and wrong where a ramp merely passes under the ground beside
+// it. At the Orgrimmar valley entrance the ramp runs about 1.3 yards below
+// the terrain it meets, and the preference pulled the player off the ground
+// they were standing on and down inside the hillside - walking through the
+// terrain with the ramp overhead.
+TEST_CASE("a seam only prefers the WMO floor when it is the way in") {
+    using namespace wowee::rendering::movement;
+    constexpr float kStepUp = kMaxStepUp;
+
+    SECTION("Orgrimmar's entrance: the terrain is at the feet, so it wins") {
+        // The floor query's own numbers at render(1380.64, -4365.3): feet on
+        // the terrain, the ramp 1.33 yards under it. Taking the ramp put the
+        // player inside the hillside.
+        REQUIRE_FALSE(wmoFloorIsWayIn(26.0326f, 26.0284f, kStepUp));
+    }
+
+    SECTION("a tunnel mouth: the hillside overhead cannot be the floor") {
+        REQUIRE(wmoFloorIsWayIn(26.0f, 20.0f, kStepUp));
+        REQUIRE(wmoFloorIsWayIn(61.66f, -51.5f, kStepUp));
+    }
+
+    SECTION("terrain below the feet is always the ground under them") {
+        REQUIRE_FALSE(wmoFloorIsWayIn(20.0f, 26.0f, kStepUp));
+    }
+
+    SECTION("the boundary is what the player could step onto") {
+        const float feet = 10.0f;
+        const float edge = feet + kStepUp + 0.5f;
+        REQUIRE_FALSE(wmoFloorIsWayIn(edge - 0.01f, feet, kStepUp));
+        REQUIRE(wmoFloorIsWayIn(edge + 0.01f, feet, kStepUp));
+    }
+
+    SECTION("a gap test would have called the Orgrimmar ramp a tunnel") {
+        // 1.33 yards is more than a step, which is why the rule asks where the
+        // player is rather than how far apart the two surfaces are.
+        REQUIRE(26.0326f - 24.698f > kStepUp);
+    }
+}
