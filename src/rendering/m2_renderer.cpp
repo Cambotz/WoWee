@@ -1523,6 +1523,22 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.isSkyBird                   = flightPathDoodad;
     gpuModel.isLightBeam                 = cls.isLightBeam;
     gpuModel.isVolumetricBeam            = cls.isVolumetricBeam;
+    // A fire whose own geometry stands taller than a house.
+    //
+    // The complaint is a bonfire several times the height of the huts around
+    // it, and nothing so far has named which model it is: its particles stay
+    // inside its bounds because its bounds are enormous, and a screenshot
+    // cannot be grepped. This says what the model is and how tall the art
+    // claims to be, which decides whether the flame is being drawn too large
+    // or is simply authored that way and never animated down.
+    if ((cls.isBrazierOrFire || cls.isTorch || cls.isKoboldFlame) &&
+        tightMax.z > 8.0f) {
+        LOG_WARNING("Tall fire model: '", gpuModel.name, "' geometry reaches ",
+                    tightMax.z, " yd, collision ", cls.isBrazierOrFire ? "brazier/fire" : "torch",
+                    ", bones=", model.bones.size(),
+                    ", particleEmitters=", model.particleEmitters.size(),
+                    ", batches=", model.batches.size());
+    }
     if (cls.isVolumetricBeam) {
         // Said once per model, because "the beams look the same" has no way
         // of telling a softening that did nothing from one that never ran.

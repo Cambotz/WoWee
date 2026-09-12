@@ -648,6 +648,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
         // the wrong speed, or drawn at the wrong size - and none of those says
         // which model it is. This does.
         float highestParticleZ = -std::numeric_limits<float>::max();
+        float widestParticle = 0.0f;
 
         for (const auto& p : inst.particles) {
             if (p.emitterIndex < 0 || p.emitterIndex >= static_cast<int>(gpu.particleEmitters.size())) continue;
@@ -740,6 +741,7 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
                 particleRuns_.push_back({.group = cachedGroup, .first = vbWritten, .count = 0});
             }
             highestParticleZ = std::max(highestParticleZ, p.position.z);
+            widestParticle = std::max(widestParticle, scale);
 
             float* vd = vbBase + static_cast<size_t>(vbWritten) * 9;
             vd[0] = p.position.x;
@@ -763,19 +765,21 @@ void M2Renderer::renderM2Particles(VkCommandBuffer cmd, VkDescriptorSet perFrame
             totalParticles++;
         }
 
-        // Said once per model, and only when the overshoot is large enough to
-        // be the thing somebody is looking at rather than a stray spark.
+        // Said once per model, on an absolute reach rather than a ratio
+        // against the model's own bounds. A bonfire's authored box is 25 to 32
+        // yards tall - it has to hold the flame's full extent - so a ratio
+        // test can never trip on the one model anybody is complaining about.
+        // Nothing that stands on the ground should be throwing particles eight
+        // yards into the air.
         if (highestParticleZ > -std::numeric_limits<float>::max()) {
             const float reach = highestParticleZ - inst.position.z;
-            const float authored = gpu.boundMax.z * std::max(inst.scale, 0.001f);
-            if (authored > 0.1f && reach > authored * 1.75f) {
+            if (reach > 8.0f) {
                 static std::set<std::string> saidTall;
                 if (saidTall.insert(gpu.name).second) {
-                    LOG_WARNING("Particles overshoot their model: '", gpu.name,
-                                "' reaches ", reach, " yd above its origin, model bound is ",
-                                authored, " yd (scale ", inst.scale, ", ",
-                                gpu.particleEmitters.size(), " emitters, ",
-                                inst.particles.size(), " live)");
+                    LOG_WARNING("Particles reach ", reach, " yd above '", gpu.name,
+                                "' (model bound ", gpu.boundMax.z, " yd, scale ", inst.scale,
+                                ", ", gpu.particleEmitters.size(), " emitters, ",
+                                inst.particles.size(), " live, largest ", widestParticle, " yd)");
                 }
             }
         }
