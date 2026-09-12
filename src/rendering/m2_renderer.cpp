@@ -1488,7 +1488,32 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.isFoliageLike               = cls.isFoliageLike;
     gpuModel.disableAnimation            = cls.disableAnimation;
     gpuModel.shadowWindFoliage           = cls.shadowWindFoliage;
-    gpuModel.isHangingCloth              = cls.isHangingCloth;
+    // A banner whose own bones move its cloth does not want the procedural
+    // sway on top of it. forsakenbanner01 at the Undercity gate is the shape:
+    // 51 of its 85 vertices sit on a root bone with no keys at all - the pole
+    // - and the other 34 hang off a four-bone chain the artist animated. The
+    // sway is weighted by how far a vertex is below the model's top, which on
+    // a planted standard throws the foot of the pole furthest and the cloth
+    // least. That is the pole swinging like the banner.
+    //
+    // A tapestry with no animation of its own still gets the sway; it is the
+    // only motion it will ever have.
+    bool clothMovesItself = false;
+    if (cls.isHangingCloth) {
+        const auto keyed = [](const pipeline::M2AnimationTrack& track) {
+            for (const auto& seq : track.sequences) {
+                if (seq.timestamps.size() > 1) return true;
+            }
+            return false;
+        };
+        for (const auto& bone : model.bones) {
+            if (keyed(bone.rotation) || keyed(bone.translation)) {
+                clothMovesItself = true;
+                break;
+            }
+        }
+    }
+    gpuModel.isHangingCloth              = cls.isHangingCloth && !clothMovesItself;
     gpuModel.isFireflyEffect             = cls.isFireflyEffect;
     gpuModel.isSmallFoliage              = cls.isSmallFoliage;
     gpuModel.isSmoke                     = cls.isSmoke;
@@ -1571,13 +1596,13 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     gpuModel.ambientEmitterType          = cls.ambientEmitterType;
     gpuModel.boundMin = tightMin;
     gpuModel.boundMax = tightMax;
-    if (cls.isHangingCloth) {
+    if (gpuModel.isHangingCloth) {
         // Named, once each, so a banner that does not move can be told from a
         // banner this never saw: cloth built into a building's own mesh is not
         // an M2 at all and nothing here can sway it.
         static core::LogBudget clothBudget(12, "Cloth models given a sway");
         if (clothBudget.take()) {
-            LOG_WARNING("Cloth sway: '", model.name, "' drop=",
+            LOG_INFO("Cloth sway: '", model.name, "' drop=",
                         tightMax.z - tightMin.z, " yards");
         }
     }
