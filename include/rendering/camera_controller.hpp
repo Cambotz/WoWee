@@ -248,6 +248,19 @@ public:
     void suppressMovementFor(float seconds) { movementSuppressTimer_ = seconds; }
     void suspendGravityFor(float seconds) { gravitySuspendTimer_ = seconds; }
 
+    /// Where the server says the player is, on entering a world.
+    ///
+    /// Nothing under them has streamed in yet, so for a moment the heightfield
+    /// is the only floor there is - and over a WMO that runs underground it
+    /// lies well above where they actually stand. Logging out in the Undercity
+    /// entrance tunnel and back in put the player on its roof. Until the
+    /// buildings arrive, no floor far above the position the server gave is
+    /// their floor.
+    void setEntryFloorAnchor(float renderZ, float seconds) {
+        entryFloorAnchorZ_ = renderZ;
+        entryFloorAnchorTimer_ = seconds;
+    }
+
     // Auto-follow: walk toward a target position each frame (WoW /follow).
     // The caller updates *targetPos every frame with the followed entity's render position.
     // Stops within FOLLOW_STOP_DIST; cancels on manual WASD input.
@@ -568,6 +581,8 @@ private:
     float movementSuppressTimer_ = 0.0f;
     // Gravity suspension (after world entry, hold Z until ground detected)
     float gravitySuspendTimer_ = 0.0f;
+    float entryFloorAnchorZ_ = 0.0f;
+    float entryFloorAnchorTimer_ = 0.0f;
 
     // State
     bool enabled = true;

@@ -1137,6 +1137,22 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             }
         }
 
+        // Just arrived, and the buildings have not.
+        //
+        // On entering a world the heightfield is there before the WMOs are, and
+        // over anything that runs underground it lies well above where the
+        // player actually is. Logging out in the Undercity entrance tunnel and
+        // back in put them on its roof, and once the tunnel loaded its roof was
+        // a perfectly good floor to keep them there. Nothing far above the
+        // position the server gave is their floor while that is still true.
+        //
+        // Generous, because the server's Z and the floor under it disagree by a
+        // little at the best of times; two yards admits that and refuses forty.
+        if (entryFloorAnchorTimer_ > 0.0f && groundH &&
+            *groundH > entryFloorAnchorZ_ + 2.0f) {
+            groundH = std::nullopt;
+        }
+
         // A storey down, with the floor still under the next step.
         //
         // One ray at the character's centre misses the lip of a surface, and
@@ -2683,6 +2699,7 @@ void CameraController::update(float deltaTime) {
 
     // Tick down gravity suspension timer (used after world entry to prevent
     // falling through WMO floors before collision is loaded)
+    if (entryFloorAnchorTimer_ > 0.0f) entryFloorAnchorTimer_ -= deltaTime;
     if (gravitySuspendTimer_ > 0.0f) {
         gravitySuspendTimer_ -= deltaTime;
     }
