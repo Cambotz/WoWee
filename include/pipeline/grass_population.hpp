@@ -71,7 +71,12 @@ struct GrassPopulationParams {
     /// along it you see through many blades and it reads as a field, looking
     /// down at it you see 86% bare earth. That is the whole of "the grass
     /// disappears depending on which way I look".
-    float spacing = 0.20f;
+    ///
+    /// Coverage runs about width/pitch, so narrowing a blade thins the field
+    /// unless the pitch follows it down. This closed up with the width below,
+    /// but only part of the way: matching it would have cost 2.7 times the
+    /// blades, and the population is already capped.
+    float spacing = 0.18f;
     /// Scales how many candidates survive, on top of terrain suitability.
     /// TerrainManager::getGroundClutterDensityScale() feeds this.
     float densityScale = 1.0f;
@@ -84,9 +89,16 @@ struct GrassPopulationParams {
     /// enough that the field covers ground. 0.024 was a realistic blade and an
     /// invisible one: one to two pixels at twenty yards, which sampling and
     /// upscaling simply ate. A blade here stands for a tuft rather than a
-    /// single leaf - with pitch above, the field now covers about a third of
-    /// the ground it stands on.
-    float baseWidth = 0.09f;
+    /// single leaf.
+    ///
+    /// 0.09 was too much of one: a hand's breadth per blade, which reads as
+    /// planks rather than grass close up. What made that width necessary was
+    /// the blade going sub-pixel in the distance, and grass.vert.glsl already
+    /// holds a floor of its own against the camera distance - so the near
+    /// field is free to be as fine as it looks right, and only the far field
+    /// is widened, where nothing can tell. Coverage lands near 25% of the
+    /// ground with the pitch above, against 37% before.
+    float baseWidth = 0.055f;
     /// Mixed into every hash. Changing it reshuffles the whole world's grass.
     uint32_t seed = 0x9e3779b9u;
     /// Radius of the innermost, full-density octave. Past it the lattice
