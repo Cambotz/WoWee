@@ -85,6 +85,14 @@ void M2Renderer::setInstanceAnimationFrozen(uint32_t instanceId, bool frozen) {
     }
 }
 
+std::optional<uint32_t> M2Renderer::soleSequenceId(uint32_t instanceId) const {
+    auto idxIt = instanceIndexById.find(instanceId);
+    if (idxIt == instanceIndexById.end()) return std::nullopt;
+    const auto& inst = instances[idxIt->second];
+    if (!inst.cachedModel || inst.cachedModel->sequences.size() != 1) return std::nullopt;
+    return inst.cachedModel->sequences[0].id;
+}
+
 void M2Renderer::setInstanceAnimationHeld(uint32_t instanceId, uint32_t animationId,
                                           bool skipToEnd) {
     auto idxIt = instanceIndexById.find(instanceId);

@@ -542,6 +542,13 @@ public:
     /// doorway and the ground just outside it.
     std::optional<float> getInstanceFloorHeight(uint32_t instanceId,
                                                 float glX, float glY, float glZ) const;
+
+    /// The id of an instance's only animation, where it has exactly one.
+    ///
+    /// A door with no OPEN or CLOSE sequence of its own carries one animation
+    /// and that animation is the opening. Undercity's lift doors are the case:
+    /// one bone, one sequence, id 0, 3333ms.
+    [[nodiscard]] std::optional<uint32_t> soleSequenceId(uint32_t instanceId) const;
     /// True while the instance is still live in the renderer. Owners that cache
     /// instance IDs (game objects, transports) use this to notice an instance
     /// that was dropped underneath them - e.g. by a renderer-wide clear - and

@@ -2037,12 +2037,60 @@ void EntitySpawner::applyGameObjectState(uint64_t guid, uint8_t goState) {
     // Straight to the end when the state arrived before the model: the swing
     // belongs to the moment a door opens, not to the moment it is first seen.
     const bool skipToEnd = gameObjectPendingState_.erase(guid) > 0;
+
+    // Whether an open pose should also stop blocking.
+    //
+    // An M2's collision is a static list of triangles and does not follow the
+    // bones, so a door that swings open keeps its collision in the shut
+    // position and the doorway stays as solid as it ever was. That is what
+    // "the lift door did not open" was from the player's side: the log has
+    // them blocked by UNDEADELEVATORDOOR with nothing else in the way. Only
+    // for the types that are actually a way through - a chest with its lid up
+    // is still a chest to walk into.
+    uint32_t goType = 0xFFFFFFFFu;
+    if (gameHandler_) {
+        if (auto entity = gameHandler_->getEntityManager().getEntity(guid)) {
+            if (entity->getType() == game::ObjectType::GAMEOBJECT) {
+                const uint32_t entry =
+                    std::static_pointer_cast<game::GameObject>(entity)->getEntry();
+                if (const auto* info = gameHandler_->getCachedGameObjectInfo(entry)) {
+                    goType = info->type;
+                }
+            }
+        }
+    }
+    if (goType == 0u || goType == 35u) {   // DOOR, TRAPDOOR
+        m2->setSkipCollision(instanceId, goState == 0);
+        // Said for the first few, because a door that never opens and a door
+        // the server never tells us to open look identical from in front of
+        // it. A lift door is meant to cycle at each level; if these lines
+        // never appear while the car arrives, nothing is driving them and the
+        // client would have to derive it from the car's own route phase.
+        static int saidDoor = 0;
+        if (saidDoor < 16) {
+            ++saidDoor;
+            LOG_WARNING("Door state: guid=0x", std::hex, guid, std::dec,
+                        " type=", goType, " state=", static_cast<int>(goState),
+                        (goState == 0 ? " (open)" : " (shut)"));
+        }
+    }
+
     if (m2->hasAnimation(instanceId, anim)) {
         m2->setInstanceAnimationHeld(instanceId, anim, skipToEnd);
         return;
     }
-    // No sequence for it: the closed pose is the bind pose, and an open door
-    // with nothing to play is better left running than stuck shut.
+    // No OPEN or CLOSE sequence of its own, but one animation that is the
+    // opening: Undercity's lift doors are one bone and one sequence, id 0,
+    // 3333ms. Held at its end the door stands open. Simply letting it run -
+    // which is what this did - swung it open and shut on a loop forever,
+    // and freezing it put it back to shut, so the door never opened at all.
+    if (goState == 0) {
+        if (const auto only = m2->soleSequenceId(instanceId)) {
+            m2->setInstanceAnimationHeld(instanceId, *only, skipToEnd);
+            return;
+        }
+    }
+    // The closed pose is the bind pose.
     m2->setInstanceAnimationFrozen(instanceId, goState != 0);
 }
 
