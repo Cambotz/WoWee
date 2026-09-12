@@ -32,6 +32,8 @@
 #include <sstream>
 #include <cstring>
 
+#include <set>
+
 namespace wowee {
 namespace core {
 
@@ -2110,29 +2112,20 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
     const float serverScale = scale;
     scale *= dispScale * creatureModelScale(modelId);
 
-    // Whether that display term is the client's to apply at all.
-    //
-    // A server folds CreatureDisplayInfo.CreatureModelScale into the unit's
-    // own scale field when its creature template leaves the scale unset -
-    // TrinityCore's CheckCreatureTemplate does exactly that - and then the
-    // multiply above applies it a second time: a 0.45 bat draws at 0.20.
-    // Where the template names a scale, the field arrives independent of the
-    // display and the multiply is right. Nothing distinguishes the two from
-    // one spawn, so count them and say which this server does.
+    // Measured: this server sends 1.0 for every creature whose display asks
+    // for a size of its own, so it does not fold CreatureDisplayInfo's scale
+    // into the unit field and the multiply above is the client's to make.
+    // What each display actually resolves to, once per display, because the
+    // three terms are in three files and only their product is visible.
     {
-        static int folded = 0, independent = 0, said = 0;
-        if (!said && dispScale != 1.0f && serverScale > 0.0f) {
-            if (std::abs(serverScale - dispScale) < 0.001f) ++folded;
-            else if (std::abs(serverScale - 1.0f) < 0.001f) ++independent;
-            if (folded + independent >= 40) {
-                said = 1;
-                LOG_WARNING("Creature scale: of 40 spawns whose display asks for a size "
-                            "other than 1.0, ", folded, " arrived with the server's scale "
-                            "already equal to it and ", independent, " arrived at 1.0. "
-                            "The first group is being scaled twice - a display scale of "
-                            "0.45 drawing at 0.20 - and the display term must not be "
-                            "applied to them.");
-            }
+        static std::set<uint32_t> saidDisplay;
+        if (saidDisplay.size() < 60 && saidDisplay.insert(displayId).second) {
+            auto pathIt = modelIdToPath_.find(modelId);
+            LOG_WARNING("Creature display ", displayId, " draws ",
+                        (pathIt != modelIdToPath_.end() ? pathIt->second : std::string("?")),
+                        " at ", scale, " (server ", serverScale,
+                        " x display ", dispScale,
+                        " x model ", creatureModelScale(modelId), ")");
         }
     }
 
