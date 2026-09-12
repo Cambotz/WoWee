@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """Bring skyboxes out of a CASC installation and into MD20 this client reads.
 
-    tools/casc_skybox_import.py <legion-install> <output-dir> [--all] [--name SUBSTR]
+    tools/casc_skybox_import.py <legion-install> <output-dir> \
+        --catalogue=m2names.txt [--name=SUBSTR]
+
+The catalogue is the model list a sweep of the install produces: one line of
+"fileDataId<TAB>version<TAB>name" per M2. CASC has no filenames, but an M2
+carries its own, so that sweep is how a skybox is found at all.
 
 A skybox is a dome with a few painted layers on it, and the ones this client
 ships have not changed since Wrath - Cataclysm's copies are the same models
@@ -76,8 +81,13 @@ def write(out_dir, rel_path, blob):
     return path
 
 
-def convert(storage, file_id, name, out_dir):
-    """One skybox, its skins and its textures. Returns a short status."""
+def convert(storage, file_id, name, out_dir, fetched):
+    """One skybox, its skins and its textures. Returns a short status.
+
+    `fetched` carries the texture paths already written. Skies share their
+    star fields and galaxies heavily - galaxy_01 alone is referenced by dozens
+    of domes - and each one is a full decode of a file several megabytes wide.
+    """
     blob = storage.read_fileid(file_id)
     if not blob:
         return "missing"
@@ -107,7 +117,11 @@ def convert(storage, file_id, name, out_dir):
 
     missing = 0
     for tex in texture_paths(body):
+        key = tex.lower()
+        if key in fetched:
+            continue
         data = storage.read_path(tex)
+        fetched.add(key)
         if data:
             write(out_dir, tex, data)
         else:
@@ -122,19 +136,22 @@ def main():
         raise SystemExit(__doc__)
     install, out_dir = args[0], args[1]
     want = None
+    catalogue = None
     for flag in flags:
         if flag.startswith("--name="):
             want = flag.split("=", 1)[1].lower()
+        elif flag.startswith("--catalogue="):
+            catalogue = flag.split("=", 1)[1]
 
     storage = ce.CascStorage(install)
     print("index %d, encoding %d, root %d" %
           (len(storage.index.entries), len(storage.encoding), len(storage.root)))
 
-    catalogue = os.path.join(os.path.dirname(out_dir) or ".", "m2names.txt")
-    if not os.path.exists(catalogue):
-        raise SystemExit("no model catalogue at " + catalogue)
+    if not catalogue or not os.path.exists(catalogue):
+        raise SystemExit("pass --catalogue=<model list>; see the module docstring")
 
     done = {}
+    fetched = set()
     for line in open(catalogue):
         file_id, _version, name = line.rstrip("\n").split("\t")
         low = name.lower()
@@ -142,7 +159,8 @@ def main():
             continue
         if want and want not in low:
             continue
-        done[name] = convert(storage, int(file_id), name, out_dir)
+        done[name] = convert(storage, int(file_id), name, out_dir, fetched)
+        print("  %-44s %s" % (name, done[name]), flush=True)
 
     ok = sum(1 for v in done.values() if v.startswith("ok"))
     print("%d skyboxes, %d written" % (len(done), ok))
