@@ -725,7 +725,21 @@ glm::vec3 CameraController::moveFollowedCharacter(float /*deltaTime*/, FrameInpu
         // them should be fallen through. Entering the world is faster than
         // streaming the tile under it on a slow device, so without this the
         // character falls from the spawn point until the server kills it.
-        if (groundNotStreamedYet(targetPos.x, targetPos.y)) {
+        if (seatedInChair_) {
+            // In a chair, and the chair's height is the server's to decide.
+            //
+            // Gravity ran anyway: the character fell off the seat toward the
+            // floor, the server put them back, and they fell again. In the
+            // Undercity barber shop that is a bob of about a yard - the seat
+            // is at -42.07, the floor under it at -43.02, and the server holds
+            // the character at -42.73 between them. Reported as the view
+            // bobbing up and down in the chair; it is the character bobbing,
+            // and the camera only following.
+            //
+            // Grounding already stands down for a seat. Falling had to as
+            // well, or standing the one down just leaves the other to do it.
+            verticalVelocity = 0.0f;
+        } else if (groundNotStreamedYet(targetPos.x, targetPos.y)) {
             verticalVelocity = 0.0f;
         } else if (gravityDisabled_) {
             // Float in place: bleed off any downward velocity, allow upward to decay slowly
