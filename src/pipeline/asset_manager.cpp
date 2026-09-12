@@ -381,6 +381,15 @@ std::string AssetManager::resolveSidecarPath(const std::string& normalizedPath,
 /// that cannot sample BC at all - Mali and Adreno carry ASTC and ETC2 instead -
 /// this declines, and the PNG or the original BLP answers instead.
 BLPImage AssetManager::tryLoadDdsOverride(const std::string& normalizedPath) const {
+    // WOWEE_NO_DDS=1 takes the shipped BLP instead, for telling an upscale
+    // apart from the thing it is being blamed for. Something that looks wrong
+    // and has a sidecar is two questions at once, and there was no way to ask
+    // them separately without moving files out of the installation by hand.
+    static const bool kDisabled = [] {
+        const char* v = std::getenv("WOWEE_NO_DDS");
+        return v && *v && *v != '0';
+    }();
+    if (kDisabled) return BLPImage();
     if (!blockCompressionSupported()) return BLPImage();
     const std::string ddsPath = resolveSidecarPath(normalizedPath, ".dds");
     if (ddsPath.empty()) return BLPImage();
