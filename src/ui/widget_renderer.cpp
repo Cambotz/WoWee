@@ -1779,7 +1779,8 @@ void WidgetRenderer::reportWidgetDiagnostics(WidgetTree& tree,
                 // scans above them - off screen, no size, duplicate, same
                 // text, overlapping - report unconditionally either way.
                 const bool troubled =
-                    !bar.empty() || !slice.empty() ||
+                    bar.find("NOBARTEXTURE") != std::string::npos ||
+                    bar.find("BARTEXNOTRESIDENT") != std::string::npos ||
                     w->rectW <= 0.0f || w->rectH <= 0.0f || offscreen ||
                     (w->visible && w->kind == WidgetKind::Texture &&
                      w->externalTexture == 0 && !w->texturePath.empty() &&
