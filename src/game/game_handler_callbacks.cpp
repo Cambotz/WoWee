@@ -3729,6 +3729,21 @@ std::string GameHandler::formatSpellDescription(uint32_t selfSpellId,
                 if (!dur.empty()) { out += dur; resolved = true; }
                 break;
             }
+            case 'z': {
+                // Where the hearthstone sends you. Spell.dbc says "Returns you
+                // to $z.", and with the token dropped the tooltip read
+                // "Returns you to ." - which is the one fact the line exists
+                // to carry. The bind zone comes from SMSG_BINDPOINTUPDATE; the
+                // continent is a poor second but beats a blank.
+                std::string home = getAreaName(getHomeBindZoneId());
+                if (home.empty()) {
+                    uint32_t bindMap = 0;
+                    glm::vec3 bindPos(0.0f);
+                    if (getHomeBind(bindMap, bindPos)) home = getMapName(bindMap);
+                }
+                if (!home.empty()) { out += home; resolved = true; }
+                break;
+            }
             default: break;  // $h proc chance, $t period, $a radius, ... - not resolvable here
         }
 
@@ -3749,6 +3764,14 @@ std::string GameHandler::formatSpellDescription(uint32_t selfSpellId,
     for (char c : out) {
         bool isSpace = (c == ' ');
         if (isSpace && prevSpace) continue;
+        // A token that could not be resolved leaves the space in front of it
+        // sitting against the punctuation that followed it - "Returns you to ."
+        // Drop that space too, so an unresolved token reads as a gap in the
+        // sentence rather than as a typo.
+        if (!cleaned.empty() && prevSpace &&
+            (c == '.' || c == ',' || c == ';' || c == '!' || c == '?' || c == ')')) {
+            cleaned.pop_back();
+        }
         cleaned += c;
         prevSpace = isSpace;
     }
