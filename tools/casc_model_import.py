@@ -149,7 +149,14 @@ def convert(storage, file_id, name, out_dir, fetched, dest=None):
             if skin:
                 write(out_dir, "%s\\%s%02d.skin" % (written_dir, stem, lod), skin)
 
-    missing = 0
+    # A texture that did not come across is named, not counted.
+    #
+    # This returned "ok, 2 textures missing" and the caller printed it beside a
+    # hundred other lines, so three models went into an install referring to
+    # World\Expansion05 textures that were never converted - a gryphon roost, a
+    # wyvern roost and a horde banner, found later by the client logging the
+    # same four paths every run. A count cannot be chased; a path can.
+    missing = []
     for tex in named:
         key = tex.lower()
         if key in fetched:
@@ -159,8 +166,12 @@ def convert(storage, file_id, name, out_dir, fetched, dest=None):
         if data:
             write(out_dir, tex, data)
         else:
-            missing += 1
-    return "ok" if not missing else "ok, %d textures missing" % missing
+            missing.append(tex)
+    if missing:
+        for tex in missing:
+            sys.stderr.write("  texture not in this install: %s  (%s)\n" % (tex, name))
+        return "ok, %d textures MISSING" % len(missing)
+    return "ok"
 
 
 def index_local(root):
