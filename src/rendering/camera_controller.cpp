@@ -2053,7 +2053,16 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
         // unpleasant, and no amount of smoothing fixes it, because the target
         // it is smoothing toward is the wrong one. Bringing the target in
         // behind the camera is what lets the view settle.
-        const float bite = userTargetDistance - smoothedCollisionDist_;
+        // Not while something else owns the distance.
+        //
+        // The barber's chair sets it to 2.4 and holds the camera on the
+        // character's face, where the sweep meets the chair and the character
+        // constantly. Pulling in there and handing it back a second later is a
+        // slow breathe in and out at close range, which from the chair reads as
+        // the view bobbing - reported as exactly that. A scripted view is not a
+        // player deciding how far back to stand.
+        const float bite = barberView_ ? 0.0f
+                                       : userTargetDistance - smoothedCollisionDist_;
         if (bite > 0.1f) {
             collisionClearSeconds_ = 0.0f;
             // Toward what the sweep is asking for and no further, over about a

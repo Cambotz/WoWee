@@ -170,6 +170,12 @@ public:
     void setBarberShopView(bool on) {
         if (on == barberView_) return;
         barberView_ = on;
+        // Whatever the collision sweep had taken off the zoom goes with it.
+        // This view sets its own distance and restores the player's on the way
+        // out, and a debt carried across either edge is given back on top of a
+        // number it was never taken from.
+        collisionZoomDebt_ = 0.0f;
+        collisionClearSeconds_ = 0.0f;
         if (on) {
             savedBarberYaw_ = yaw;
             savedBarberPitch_ = pitch;
