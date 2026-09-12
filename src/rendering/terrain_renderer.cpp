@@ -16,6 +16,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <cstdlib>
+#include <unordered_set>
 #include <limits>
 #include <cstring>
 
@@ -323,7 +324,6 @@ void TerrainRenderer::shutdown() {
     textureCacheCounter_ = 0;
     failedTextureCache_.clear();
     loggedTextureLoadFails_.clear();
-    textureBudgetRejectWarnings_ = 0;
 
     if (whiteTexture) { whiteTexture->destroy(device, allocator); whiteTexture.reset(); }
     if (opaqueAlphaTexture) { opaqueAlphaTexture->destroy(device, allocator); opaqueAlphaTexture.reset(); }
@@ -358,6 +358,7 @@ bool TerrainRenderer::loadTerrain(const pipeline::TerrainMesh& mesh,
     }
     LOG_DEBUG("Loading terrain mesh: ", mesh.validChunkCount, " chunks");
 
+    evictProtectFrom_ = textureCacheCounter_ + 1;
     vkCtx->beginUploadBatch();
 
     for (int y = 0; y < 16; y++) {
@@ -414,6 +415,10 @@ bool TerrainRenderer::loadTerrainIncremental(const pipeline::TerrainMesh& mesh,
                                               int& chunkIndex, int maxChunksPerCall) {
     // Batch all GPU uploads (VBs, IBs, textures) into a single command buffer
     // submission with one fence wait, instead of one per buffer/texture.
+    // Nothing this call is handed can be evicted under it: the chunk being
+    // built is not in `chunks` yet, so the in-use scan cannot see its textures.
+    evictProtectFrom_ = textureCacheCounter_ + 1;
+
     vkCtx->beginUploadBatch();
 
     int uploaded = 0;
@@ -593,6 +598,72 @@ TerrainChunkGPU TerrainRenderer::uploadChunk(const pipeline::ChunkMesh& chunk) {
     return gpuChunk;
 }
 
+bool TerrainRenderer::evictTexturesFor(size_t needBytes) {
+    if (textureCacheBytes_ + needBytes <= textureCacheBudgetBytes_) return true;
+    if (!vkCtx) return false;
+
+    // What the live chunks are holding. These are raw pointers into the cache
+    // and each chunk's material descriptor set names the image directly, so
+    // freeing one out from under a chunk is a use-after-free on the GPU.
+    std::unordered_set<const VkTexture*> inUse;
+    inUse.reserve(chunks.size() * 4);
+    for (const auto& c : chunks) {
+        if (c.baseTexture) inUse.insert(c.baseTexture);
+        for (VkTexture* t : c.layerTextures) if (t) inUse.insert(t);
+        for (VkTexture* t : c.alphaTextures) if (t) inUse.insert(t);
+    }
+
+    std::vector<std::pair<uint64_t, std::string>> candidates;
+    candidates.reserve(textureCache.size());
+    for (const auto& [key, entry] : textureCache) {
+        if (entry.lastUse >= evictProtectFrom_) continue;
+        if (inUse.count(entry.texture.get()) != 0) continue;
+        candidates.emplace_back(entry.lastUse, key);
+    }
+    std::sort(candidates.begin(), candidates.end(),
+              [](const auto& a, const auto& b) { return a.first < b.first; });
+
+    std::vector<VkTexture*> retired;
+    size_t freedBytes = 0;
+    for (const auto& [lastUse, key] : candidates) {
+        if (textureCacheBytes_ + needBytes <= textureCacheBudgetBytes_) break;
+        auto it = textureCache.find(key);
+        if (it == textureCache.end()) continue;
+        textureCacheBytes_ -= it->second.approxBytes;
+        freedBytes += it->second.approxBytes;
+        retired.push_back(it->second.texture.release());
+        textureCache.erase(it);
+    }
+
+    if (!retired.empty()) {
+        VkDevice device = vkCtx->getDevice();
+        VmaAllocator allocator = vkCtx->getAllocator();
+        vkCtx->deferAfterAllFrameFences([device, allocator, retired]() {
+            for (VkTexture* tex : retired) {
+                tex->destroy(device, allocator);
+                delete tex;
+            }
+        });
+        // The first one at warning, because until now this never happened: the
+        // cache only grew, and the ground going white on a distant continent
+        // was the first anyone heard of it. After that it is routine.
+        static bool saidFirstEviction = false;
+        if (!saidFirstEviction) {
+            saidFirstEviction = true;
+            LOG_WARNING("Terrain texture cache reached its ",
+                        textureCacheBudgetBytes_ / (1024 * 1024),
+                        " MB budget and is now evicting - freed ", retired.size(),
+                        " textures, ", freedBytes / (1024 * 1024), " MB");
+        }
+        LOG_DEBUG("Terrain texture cache: evicted ", retired.size(), " textures (",
+                  freedBytes / (1024 * 1024), " MB), now ",
+                  textureCacheBytes_ / (1024 * 1024), " MB of ",
+                  textureCacheBudgetBytes_ / (1024 * 1024), " MB");
+    }
+
+    return textureCacheBytes_ + needBytes <= textureCacheBudgetBytes_;
+}
+
 VkTexture* TerrainRenderer::loadTexture(const std::string& path) {
     auto normalizeKey = [](std::string key) {
         std::replace(key.begin(), key.end(), '/', '\\');
@@ -620,13 +691,18 @@ VkTexture* TerrainRenderer::loadTexture(const std::string& path) {
     }
 
     const size_t approxBytes = blp.approxUploadBytes();
-    if (textureCacheBytes_ + approxBytes > textureCacheBudgetBytes_) {
-        if (textureBudgetRejectWarnings_ < 3) {
+    if (!evictTexturesFor(approxBytes)) {
+        // Everything in the cache is under a live chunk, so there is nothing
+        // to give back. White ground is what this looks like, and it used to
+        // be permanent: the cache only ever grew, so the first tile to fill it
+        // condemned every tile after it, and the complaint stopped after three
+        // lines. Said once per texture now, because it is no longer a state
+        // the client cannot leave.
+        if (loggedTextureLoadFails_.insert("budget:" + key).second) {
             LOG_WARNING("Terrain texture cache full (", textureCacheBytes_ / (1024 * 1024),
                         " MB / ", textureCacheBudgetBytes_ / (1024 * 1024),
-                        " MB), rejecting texture: ", path);
+                        " MB) and nothing in it is evictable - white ground for: ", path);
         }
-        ++textureBudgetRejectWarnings_;
         return whiteTexture.get();
     }
 
@@ -658,12 +734,18 @@ void TerrainRenderer::uploadPreloadedTextures(
         return key;
     };
     // Batch all texture uploads into a single command buffer submission
+    evictProtectFrom_ = textureCacheCounter_ + 1;
     vkCtx->beginUploadBatch();
 
     for (const auto& [path, blp] : textures) {
         std::string key = normalizeKey(path);
         if (textureCache.find(key) != textureCache.end()) continue;
         if (!blp.isValid()) continue;
+
+        // This path added to the cache without consulting the budget at all,
+        // so the preload for one tile could carry it past the limit and the
+        // next loadTexture would find no room.
+        if (!evictTexturesFor(blp.approxUploadBytes())) continue;
 
         auto tex = std::make_unique<VkTexture>();
         if (!tex->uploadBLP(*vkCtx, blp)) continue;
@@ -700,6 +782,16 @@ VkTexture* TerrainRenderer::createAlphaTexture(const std::vector<uint8_t>& alpha
                         VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 
     VkTexture* raw = tex.get();
+    // One per chunk layer, under a key nothing ever looks up again, so these
+    // are dead the moment their chunk is unloaded - and nothing freed them.
+    // ownedAlphaTextures was meant to, and was never filled. Eviction is what
+    // collects them now, which is why they are counted against the budget
+    // rather than added to it in silence.
+    //
+    // Not refused when the cache is full, unlike a tileset texture: 4KB is
+    // never what filled it, and a chunk without its alpha map draws its top
+    // layer over everything below.
+    evictTexturesFor(64 * 64);
     static uint64_t alphaCounter = 0;
     std::string key = "__alpha_" + std::to_string(++alphaCounter);
     TextureCacheEntry e;
@@ -1053,6 +1145,9 @@ void TerrainRenderer::clear() {
     }
     chunks.clear();
     renderedChunks = 0;
+    // No chunk is holding anything now, so nothing needs protecting from the
+    // next upload's point of view either.
+    evictProtectFrom_ = 0;
 }
 
 void TerrainRenderer::destroyChunkGPU(TerrainChunkGPU& chunk) {
@@ -1072,11 +1167,11 @@ void TerrainRenderer::destroyChunkGPU(TerrainChunkGPU& chunk) {
     VkDescriptorPool pool = materialDescPool;
     VkDescriptorSet materialSet = chunk.materialSet;
 
-    std::vector<VkTexture*> alphaTextures;
-    alphaTextures.reserve(chunk.ownedAlphaTextures.size());
-    for (auto& tex : chunk.ownedAlphaTextures) {
-        alphaTextures.push_back(tex.release());
-    }
+    // The per-chunk alpha maps are not freed here. They live in the texture
+    // cache like everything else - createAlphaTexture puts them there - and
+    // the eviction pass collects them once no chunk points at them. The vector
+    // that used to be released here was never filled by anything, so this loop
+    // had been freeing nothing for as long as it existed.
 
     chunk.vertexBuffer = VK_NULL_HANDLE;
     chunk.vertexAlloc = VK_NULL_HANDLE;
@@ -1085,10 +1180,12 @@ void TerrainRenderer::destroyChunkGPU(TerrainChunkGPU& chunk) {
     chunk.paramsUBO = VK_NULL_HANDLE;
     chunk.paramsAlloc = VK_NULL_HANDLE;
     chunk.materialSet = VK_NULL_HANDLE;
-    chunk.ownedAlphaTextures.clear();
+    chunk.baseTexture = nullptr;
+    for (VkTexture*& t : chunk.layerTextures) t = nullptr;
+    for (VkTexture*& t : chunk.alphaTextures) t = nullptr;
 
     vkCtx->deferAfterAllFrameFences([device, allocator, vertexBuffer, vertexAlloc, indexBuffer, indexAlloc,
-                                     paramsUBO, paramsAlloc, pool, materialSet, alphaTextures]() {
+                                     paramsUBO, paramsAlloc, pool, materialSet]() {
         if (vertexBuffer) {
             AllocatedBuffer ab{}; ab.buffer = vertexBuffer; ab.allocation = vertexAlloc;
             destroyBuffer(allocator, ab);
@@ -1104,11 +1201,6 @@ void TerrainRenderer::destroyChunkGPU(TerrainChunkGPU& chunk) {
         if (materialSet && pool) {
             VkDescriptorSet set = materialSet;
             vkFreeDescriptorSets(device, pool, 1, &set);
-        }
-        for (VkTexture* tex : alphaTextures) {
-            if (!tex) continue;
-            tex->destroy(device, allocator);
-            delete tex;
         }
     });
 }

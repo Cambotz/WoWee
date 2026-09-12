@@ -51,9 +51,6 @@ struct TerrainChunkGPU {
     VkTexture* alphaTextures[3] = {nullptr, nullptr, nullptr};
     int layerCount = 0;
 
-    // Per-chunk alpha textures (owned by this chunk, destroyed on removal)
-    std::vector<std::unique_ptr<VkTexture>> ownedAlphaTextures;
-
     // World position for culling
     float worldX = 0.0f;
     float worldY = 0.0f;
@@ -231,7 +228,22 @@ private:
     size_t textureCacheBudgetBytes_ = 4096ull * 1024 * 1024;
     std::unordered_set<std::string> failedTextureCache_;
     std::unordered_set<std::string> loggedTextureLoadFails_;
-    uint32_t textureBudgetRejectWarnings_ = 0;
+    /// Cache entries handed out at or after this counter are never evicted.
+    ///
+    /// A chunk under construction is not in `chunks` yet, so the scan for what
+    /// is in use cannot see the textures it has already been given. Raised to
+    /// the counter at the start of every upload call, which puts everything
+    /// this tile has taken out of reach until the chunk holding it lands.
+    uint64_t evictProtectFrom_ = 0;
+
+    /// Free least-recently-used cached textures until `needBytes` fits.
+    ///
+    /// Returns whether there is now room. Only textures no live chunk points
+    /// at are freed, and they go through the frame fences rather than being
+    /// destroyed on the spot: a chunk's material descriptor set names the
+    /// image, so one still being drawn from must outlive the frame that
+    /// referenced it.
+    bool evictTexturesFor(size_t needBytes);
 
     // Fallback textures
     std::unique_ptr<VkTexture> whiteTexture;
