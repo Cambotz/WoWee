@@ -52,6 +52,23 @@ TEST_CASE("the sway modes are unchanged by that", "[m2][sway]") {
         CHECK(sway.plantHeight == Catch::Approx(6.0f));
         CHECK(sway.amp == Catch::Approx(0.3f));         // a twentieth of the drop
     }
+    SECTION("cloth on a planted pole is held at the foot instead") {
+        // Same wind, same amplitude, the weight turned end for end: the shader
+        // reads the mode and nothing else changes. A standard whose foot is in
+        // the ground must not swing there, which mode 3 made it do hardest of
+        // anywhere on the model.
+        const auto sway = m2SwayFor(kNotSky, true, kNotFoliage, kNotDetail, 0.0f, 6.0f,
+                                    /*standingCloth=*/true);
+        CHECK(sway.mode == 4);
+        CHECK(sway.refHeight == Catch::Approx(6.0f));
+        CHECK(sway.plantHeight == Catch::Approx(6.0f));
+        CHECK(sway.amp == Catch::Approx(0.3f));
+    }
+    SECTION("standing only means anything for cloth") {
+        const auto sway = m2SwayFor(kNotSky, kNotCloth, true, kNotDetail, 0.0f, 20.0f,
+                                    /*standingCloth=*/true);
+        CHECK(sway.mode == 1);
+    }
     SECTION("a tree still throws what it threw") {
         const auto sway = m2SwayFor(kNotSky, kNotCloth, true, kNotDetail, 0.0f, 20.0f);
         CHECK(sway.mode == 1);

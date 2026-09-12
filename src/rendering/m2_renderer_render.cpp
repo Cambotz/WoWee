@@ -1261,7 +1261,8 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
     // that were there: a 20-yard tree still throws 0.35 model units at the tip.
     auto fillSway = [](M2PushConstants& pc, const M2ModelGPU& mdl, bool sky) {
         const M2Sway sway = m2SwayFor(sky, mdl.isHangingCloth, mdl.shadowWindFoliage,
-                                      mdl.isGroundDetail, mdl.boundMin.z, mdl.boundMax.z);
+                                      mdl.isGroundDetail, mdl.boundMin.z, mdl.boundMax.z,
+                                      mdl.isStandingCloth);
         pc.isFoliage = sway.mode;
         pc.swayRefHeight = sway.refHeight;
         pc.swayAmp = sway.amp;
@@ -2282,7 +2283,8 @@ void M2Renderer::renderShadow(VkCommandBuffer cmd, const glm::mat4& lightSpaceMa
             // model's own bounds and its kind, and so do the buffers.
             const M2Sway sway = m2SwayFor(false, model.isHangingCloth,
                                           model.shadowWindFoliage, model.isGroundDetail,
-                                          model.boundMin.z, model.boundMax.z);
+                                          model.boundMin.z, model.boundMax.z,
+                                          model.isStandingCloth);
             const glm::vec2 modelSwayZW(sway.refHeight, sway.amp);
             VkDeviceSize offset = 0;
             vkCmdBindVertexBuffers(cmd, 0, 1, &model.vertexBuffer, &offset);

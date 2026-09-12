@@ -174,7 +174,8 @@ struct M2ModelGPU {
     bool isInstancePortal = false; // Instance portal model (spin + glow)
     bool disableAnimation = false; // Keep foliage/tree doodads visually stable
     bool shadowWindFoliage = false; // Apply wind sway in shadow pass for foliage/tree cards
-    bool isHangingCloth = false;    // Banner/flag/tapestry: sways from its top edge
+    bool isHangingCloth = false;    // Banner/flag/tapestry: sways from the end it is held by
+    bool isStandingCloth = false;   // ...and that end is the foot of a planted pole
     bool isFoliageLike = false;     // Model name matches foliage/tree/bush/grass etc (precomputed)
     bool isElvenLike = false;       // Model name matches elf/elven/quel (precomputed)
     bool isLanternLike = false;     // Model name matches lantern/lamp/light (precomputed)

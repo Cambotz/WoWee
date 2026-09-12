@@ -36,6 +36,8 @@
 #include <thread>
 #include <set>
 
+#include <string_view>
+
 namespace wowee {
 namespace rendering {
 
@@ -1498,8 +1500,56 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     //
     // A tapestry with no animation of its own still gets the sway; it is the
     // only motion it will ever have.
-    bool clothMovesItself = false;
+    // A banner with no cloth anywhere in its texture list is a post.
+    //
+    // flagpole01, which carries the blue standards at the Undercity gate, is
+    // one bone, no animation, and a single texture called POLE1 - ten yards of
+    // timber that the name test claimed because "flagpole" contains "flag".
+    // Nothing about its geometry says otherwise either: it is uniform top to
+    // bottom, so the foot-width test below reads it as a hanging sheet.
+    //
+    // What does say so is what it is painted with. Over every cloth-named
+    // model the client ships, four have a texture list that names only
+    // structure and no cloth at all - this pole, a signpost, a wooden banner
+    // stand and a stone banner post - and every genuine banner names its own
+    // cloth. There are no near misses to trade off.
+    bool allStructure = false;
     if (cls.isHangingCloth) {
+        static constexpr std::string_view kStructure[] = {
+            "pole", "post", "wood", "timber", "plank", "iron", "metal",
+            "stone", "rim", "chain", "rope",
+        };
+        static constexpr std::string_view kCloth[] = {
+            "banner", "flag", "tapestry", "pennant", "cloth", "silk",
+            "fabric", "drape",
+        };
+        bool anyNamed = false, everyOneStructure = true, anyCloth = false;
+        for (const auto& tex : model.textures) {
+            if (tex.filename.empty()) continue;
+            anyNamed = true;
+            std::string file = tex.filename;
+            if (const size_t slash = file.find_last_of("\\/"); slash != std::string::npos) {
+                file = file.substr(slash + 1);
+            }
+            for (char& c : file) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            const auto names = [&file](const auto& list) {
+                for (std::string_view token : list) {
+                    if (file.find(token) != std::string_view::npos) return true;
+                }
+                return false;
+            };
+            if (!names(kStructure)) everyOneStructure = false;
+            if (names(kCloth)) anyCloth = true;
+        }
+        allStructure = anyNamed && everyOneStructure && !anyCloth;
+        if (allStructure) {
+            LOG_INFO("Not cloth: '", model.name,
+                     "' is named for a banner but painted only as structure");
+        }
+    }
+
+    bool clothMovesItself = false;
+    if (cls.isHangingCloth && !allStructure) {
         const auto keyed = [](const pipeline::M2AnimationTrack& track) {
             for (const auto& seq : track.sequences) {
                 if (seq.timestamps.size() > 1) return true;
@@ -1513,7 +1563,40 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             }
         }
     }
-    gpuModel.isHangingCloth              = cls.isHangingCloth && !clothMovesItself;
+    gpuModel.isHangingCloth              =
+        cls.isHangingCloth && !clothMovesItself && !allStructure;
+
+    // Held at the foot, not the head.
+    //
+    // A tapestry nailed to a bar and a standard on a planted pole both reach
+    // z=0 and neither bound says which is which, so the geometry does: down at
+    // the ground a standard has only the cross-section of its pole, while a
+    // hanging cloth still has its full hem. Measured over the shipped models
+    // the two do not overlap - forsakenbanner01 is 0.10 of its width down
+    // there and diremaul_banner_post 0.04, against 0.35 and up for everything
+    // that hangs - so a quarter separates them with room on both sides.
+    if (gpuModel.isHangingCloth) {
+        const float span = tightMax.z - tightMin.z;
+        if (span > 0.01f) {
+            const float footTop = tightMin.z + span * 0.15f;
+            float footW = 0.0f;
+            bool anyFoot = false;
+            glm::vec2 footMin(std::numeric_limits<float>::max());
+            glm::vec2 footMax(-std::numeric_limits<float>::max());
+            for (const auto& v : model.vertices) {
+                if (!std::isfinite(v.position.z) || v.position.z > footTop) continue;
+                if (!std::isfinite(v.position.x) || !std::isfinite(v.position.y)) continue;
+                footMin = glm::min(footMin, glm::vec2(v.position));
+                footMax = glm::max(footMax, glm::vec2(v.position));
+                anyFoot = true;
+            }
+            const float fullW = std::max(tightMax.x - tightMin.x, tightMax.y - tightMin.y);
+            if (anyFoot && fullW > 0.01f) {
+                footW = std::max(footMax.x - footMin.x, footMax.y - footMin.y);
+                gpuModel.isStandingCloth = (footW / fullW) < 0.25f;
+            }
+        }
+    }
     gpuModel.isFireflyEffect             = cls.isFireflyEffect;
     gpuModel.isSmallFoliage              = cls.isSmallFoliage;
     gpuModel.isSmoke                     = cls.isSmoke;

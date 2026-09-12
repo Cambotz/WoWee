@@ -129,24 +129,30 @@ void main() {
         pos.y += trunkSwayY + branchSwayY + leafFlutterY;
     }
 
-    // Cloth hung from its top edge: a banner, a flag, a tapestry.
+    // Cloth: a banner, a flag, a tapestry. Mode 3 hangs, mode 4 stands.
     //
-    // The opposite taper to a plant's. A tree is held at the root and swings
-    // at the tip; a banner is nailed to its bar and moves at the hem, so the
-    // weight is the drop below the top rather than the height above the base -
-    // which also leaves the pole or the bar in the same model still, its
-    // vertices being at the top where the weight is zero.
+    // Which end is held is the whole difference. A tapestry is nailed to its
+    // bar and moves at the hem, so the weight is the drop below the top. A
+    // standard is a pole planted in the ground with the cloth near its head,
+    // so the weight is the height above the base - and getting that backwards
+    // is what swung the foot of the Undercity gate's banner pole hardest of
+    // anything on the model. Neither can be told from the other by bounds:
+    // both reach z=0. The client separates them by how wide the geometry is
+    // down at the ground, a spar against a full hem, and says which this is.
     //
     // Two rates: a slow sway of the whole cloth and a smaller ripple across it,
     // so it breathes rather than swinging like a sign. The amplitude is a
     // twentieth of the cloth's own drop, set on the client side.
-    if (push.isFoliage == 3) {
+    if (push.isFoliage == 3 || push.isFoliage == 4) {
         float windTime = fogParams.z;
         vec3 worldRef = model[3].xyz;
         float span = max(push.plantHeight, 0.01);
-        float drop = clamp((push.swayRefHeight - pos.z) / span, 0.0, 1.0);
-        drop *= drop;
-        float amp = push.swayAmp * drop;
+        float clothBase = push.swayRefHeight - span;
+        float held = (push.isFoliage == 4)
+                   ? clamp((pos.z - clothBase) / span, 0.0, 1.0)
+                   : clamp((push.swayRefHeight - pos.z) / span, 0.0, 1.0);
+        held *= held;
+        float amp = push.swayAmp * held;
 
         // Per banner rather than per vertex, so two on the same wall are not
         // in step - the phase comes from where the instance stands.
@@ -188,7 +194,8 @@ void main() {
     // between them is on the plant's own height rather than on which of the two
     // sway modes it happens to use. A shoulder-high bush and a waist-high one
     // should not behave differently because a bounding box crossed a threshold.
-    if (push.isFoliage > 0 && push.isFoliage != 3 && push.plantHeight > 0.0) {
+    if (push.isFoliage > 0 && push.isFoliage != 3 && push.isFoliage != 4 &&
+        push.plantHeight > 0.0) {
         vec3 base = model[3].xyz;                      // instance origin, on the ground
         float zScale = length(model[2].xyz);
         float plantHeight = push.plantHeight * zScale;
