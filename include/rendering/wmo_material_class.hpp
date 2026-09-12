@@ -71,6 +71,12 @@ inline bool wmoTextureIsPaintedWall(const std::string& texturePath) {
         // MOMT flags 0x0, blend 0, and the BLP has no alpha channel: the whole
         // texture is stone, and the windows in it are holes.
         "tower_window_01.blp",
+        // The masonry of the Tirisfal zeppelin tower at Brill. It is the base a
+        // window sits on rather than the window, it lives under
+        // DUNGEONS\TEXTURES\TRIM, and its one batch in lorderonzeppelin runs
+        // the whole height of the tower from z 0 to 55.7 - so the foundation
+        // came out glazed. MOMT flags 0x0, blend 0, no alpha channel.
+        "bm_zeppelin_windowbase01.blp",
     };
     std::string lower = texturePath;
     for (char& c : lower) {
