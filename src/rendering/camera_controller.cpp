@@ -1128,6 +1128,34 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             }
         }
 
+        // A storey down, with the floor still under the next step.
+        //
+        // One ray at the character's centre misses the lip of a surface, and
+        // the answer it comes back with is not "no floor" but whatever lies at
+        // the bottom of the room - at the top of the Undercity lift that is the
+        // shaft floor, ninety-six yards down. groundFollowedCharacter samples a
+        // foot cross afterwards and recovers, which is why this reads as almost
+        // falling rather than falling, but the frame in between is a dip the
+        // player sees.
+        //
+        // So before handing back a drop of more than a few yards, ask the four
+        // points around the feet. Only on that frame, so the hot path still
+        // casts one ray. A drop nothing around the feet can account for is a
+        // real one and is passed through untouched - walking off a ledge still
+        // works.
+        if (groundH && grounded && wmoRenderer &&
+            *groundH < lastGroundZ - 4.0f && targetPos.z > lastGroundZ - 4.0f) {
+            const float lipProbeZ = std::max(targetPos.z, lastGroundZ) + stepUpBudget + 0.6f;
+            auto lip = highestWalkableFloor(
+                [this](float x, float y, float z, float* nz) {
+                    return wmoRenderer->getFloorHeight(x, y, z, nz);
+                },
+                targetPos.x, targetPos.y, feetCross(0.35f), lipProbeZ,
+                MIN_WALKABLE_NORMAL_WMO,
+                {.minZ = lastGroundZ - 3.5f, .maxZ = targetPos.z + stepUpBudget});
+            if (lip) groundH = lip;
+        }
+
         // The local player's own floor pick, named when it jumps.
         //
         // The movingEntityFloor log covers creatures and other
