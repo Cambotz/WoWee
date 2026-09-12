@@ -169,7 +169,8 @@ file by content key, encoding maps a content key to an encoding key, the `.idx`
 buckets map an encoding key to an offset inside an archive, and every entry is
 BLTE - a container of independently compressed chunks.
 
-Two steps. Sweep the install for its models once, then convert from that list:
+Two steps. Sweep the install for its models once, then take what is worth
+taking:
 
 ```sh
 python3 tools/casc_extract.py "/path/to/World of Warcraft - Legion" \
@@ -177,9 +178,19 @@ python3 tools/casc_extract.py "/path/to/World of Warcraft - Legion" \
 
 python3 tools/casc_model_import.py "/path/to/World of Warcraft - Legion" \
     /somewhere/legion-pack/expansions/wotlk \
-    --catalogue=m2names.txt --list=wanted.txt
+    --catalogue=m2names.txt --local=<your 3.3.5 install> \
+    --prefix=world/azeroth/elwynn --better
 ```
 
+That is "every model in Elwynn worth replacing": `--prefix` takes a subtree,
+`--better` keeps only what the later client draws with more geometry, and the
+local installation supplies both the comparison and the place each file goes -
+CASC knows a FileDataID and not a path, so without it a pack cannot be written
+at all. `--name=SUBSTR` selects by model name instead, and dropping `--better`
+takes everything under the prefix whether it improved or not.
+
+On Elwynn that is six models: four tree canopies at 141 vertices to 635, the
+lion statue at 205 to 919, a shovel, and the campfire refused for its emitters.
 The output lands in the layout a pack wants, so it installs like any other -
 see [Doing it](#doing-it) - and nothing is written into your game data.
 
@@ -253,6 +264,51 @@ Take the whole of a thing rather than part of it - see
 [What to expect](#what-to-expect) - and check a family before taking it: a
 model can be richer and still be the same shape, and one that is the same
 vertex count is certainly not worth moving.
+
+### What a later client cannot supply
+
+Most of the *art* is there. Almost none of what a client needs to run is.
+Sampling 400 real paths from each top-level directory of a 3.3.5a installation
+and asking a Legion one for them:
+
+| | files | in Legion |
+|---|---|---|
+| `spells`, `environments`, `xtextures` | 4785 | 100% |
+| `item` | 43855 | 99.5% |
+| `tileset` | 2366 | 99.2% |
+| `dungeons` | 4328 | 98.5% |
+| `character` | 11907 | 97.8% |
+| `world` | 48862 | 97.2% |
+| `interface` | 14672 | 97.0% |
+| `creature` | 11594 | 96.8% |
+| `textures` | 36162 | 34.8% |
+| `shaders` | 572 | 18.5% |
+| `sound` | 21065 | 5.2% |
+| `dbfilesclient` | 245 | **0%** |
+
+Three of those are hard stops.
+
+**No DBC at all.** Not one of the 245 tables this client reads exists as a
+`.dbc`; 126 exist as `.db2`, a different container with Legion's own schemas
+and Legion's own ids, and the other 119 do not exist in any form. Nothing
+starts without `Map`, `AreaTable`, `ChrRaces` and `CreatureDisplayInfo`, and
+converted ids would not be the ids a 3.3.5 server sends anyway.
+
+**The terrain is there by path and is not the same terrain.** Cataclysm split
+the ADT: Legion's `azeroth_31_49.adt` holds `MVER MHDR MH2O MCNK` and nothing
+else, while `MTEX`, `MMDX`, `MWMO`, `MDDF` and `MODF` moved into sibling
+`_tex0` and `_obj0`/`_obj1` files. `src/pipeline/adt_loader.cpp` reads the
+monolithic form, so it would find no textures, no doodads and no buildings.
+Underneath that, Azeroth and Kalimdor are post-Cataclysm geography that will
+not match a 3.3.5 server's collision or its quest positions - and Outland and
+Northrend differ too, from the format split alone.
+
+**Sound is effectively gone.** 22 of 300 sampled files are present, and the
+survivors are ambience `.mp3`; the `.wav` files - creature sounds, weapon
+impacts, NPC voice - were re-encoded and re-pathed.
+
+So a later installation is an art source, not a client. The boundary is worth
+stating plainly because the art coverage is high enough to suggest otherwise.
 
 ### What the light tables say
 
