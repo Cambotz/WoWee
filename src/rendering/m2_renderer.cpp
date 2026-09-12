@@ -2286,7 +2286,11 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                 std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
                                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                 if (lowerName.find(kBatchDiag) != std::string::npos) {
-                    LOG_INFO("M2 BATCH '", model.name, "' #", gpuModel.batches.size(),
+                    // At warning, because the log carries nothing below it.
+                    // Setting WOWEE_M2_BATCH_DIAG is asking for these lines,
+                    // and they were being written where nobody could read
+                    // them - which is the same as not writing them.
+                    LOG_WARNING("M2 BATCH '", model.name, "' #", gpuModel.batches.size(),
                              ": tex='", batchTexKeyLower,
                              "' blend=", static_cast<int>(bgpu.blendMode),
                              " matFlags=0x", std::hex, bgpu.materialFlags, std::dec,
