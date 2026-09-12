@@ -1,4 +1,6 @@
 #include "game/group_defines.hpp"
+
+#include <set>
 #include "ui/game_screen.hpp"
 #include "ui/settings_schema.hpp"
 #include "ui/framexml_takeover.hpp"
@@ -872,6 +874,20 @@ void GameScreen::renderMinimapQuestGivers(const MinimapFrame& frame, const Quest
         // Status 9 is a turn-in the server deliberately keeps off the map,
         // which is the only thing separating it from 10.
         const auto mark = game::questGiverMarker(status);
+        // Said once per status value, because a mark that appears over an
+        // NPC's head and not on the minimap looks like a lost blip and is in
+        // fact this rule. Which of 9 and 10 a core sends for a completed
+        // quest differs between them, and only the log can say which arrives.
+        if (mark.symbol && !mark.onMinimap) {
+            static std::set<int> saidOffMap;
+            if (saidOffMap.insert(static_cast<int>(status)).second) {
+                LOG_WARNING("Quest giver status ", static_cast<int>(status),
+                            " draws its ", mark.symbol,
+                            " over the NPC but not on the minimap - that is what"
+                            " the status means. Anything missing from the minimap"
+                            " with a mark over its head is arriving as this.");
+            }
+        }
         if (!mark.symbol || !mark.onMinimap) continue;
         const ImU32 dotColor = mark.dim ? IM_COL32(160, 160, 160, 255)
                                         : IM_COL32(255, 210, 0, 255);
