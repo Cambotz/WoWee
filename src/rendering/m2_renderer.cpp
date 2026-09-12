@@ -34,6 +34,7 @@
 #include <limits>
 #include <future>
 #include <thread>
+#include <set>
 
 namespace wowee {
 namespace rendering {
