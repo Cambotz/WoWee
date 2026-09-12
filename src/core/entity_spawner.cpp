@@ -2047,8 +2047,10 @@ void EntitySpawner::applyCreatureDisplayTextures(uint32_t displayId, uint32_t mo
     }
 }
 
-float EntitySpawner::creatureModelScale(uint32_t modelId) const {
-    auto it = modelIdToScale_.find(modelId);
+float EntitySpawner::creatureModelScale(uint32_t displayId) const {
+    auto disp = displayDataMap_.find(displayId);
+    if (disp == displayDataMap_.end()) return 1.0f;
+    auto it = modelIdToScale_.find(disp->second.modelId);
     return it != modelIdToScale_.end() ? it->second : 1.0f;
 }
 
@@ -2110,7 +2112,7 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
     // model at 0.6 and at 1.5 both drawing at 1.0.
     const float dispScale = creatureDisplayScale(displayId);
     const float serverScale = scale;
-    scale *= dispScale * creatureModelScale(modelId);
+    scale *= dispScale * creatureModelScale(displayId);
 
     // Measured: this server sends 1.0 for every creature whose display asks
     // for a size of its own, so it does not fold CreatureDisplayInfo's scale
@@ -2120,12 +2122,28 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
     {
         static std::set<uint32_t> saidDisplay;
         if (saidDisplay.size() < 60 && saidDisplay.insert(displayId).second) {
-            auto pathIt = modelIdToPath_.find(modelId);
-            LOG_WARNING("Creature display ", displayId, " draws ",
-                        (pathIt != modelIdToPath_.end() ? pathIt->second : std::string("?")),
+            std::string path = "?";
+            uint32_t entry = 0;
+            std::string name;
+            if (auto disp = displayDataMap_.find(displayId); disp != displayDataMap_.end()) {
+                if (auto pi = modelIdToPath_.find(disp->second.modelId); pi != modelIdToPath_.end()) {
+                    path = pi->second;
+                }
+            }
+            if (gameHandler_) {
+                if (auto e = gameHandler_->getEntityManager().getEntity(guid)) {
+                    if (e->getType() == game::ObjectType::UNIT) {
+                        auto u = std::static_pointer_cast<game::Unit>(e);
+                        entry = u->getEntry();
+                        name = u->getName();
+                    }
+                }
+            }
+            LOG_WARNING("Creature display ", displayId, " (", (name.empty() ? "?" : name),
+                        ", entry ", entry, ") draws ", path,
                         " at ", scale, " (server ", serverScale,
                         " x display ", dispScale,
-                        " x model ", creatureModelScale(modelId), ")");
+                        " x model ", creatureModelScale(displayId), ")");
         }
     }
 

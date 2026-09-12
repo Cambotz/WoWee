@@ -326,7 +326,13 @@ private:
     /// CreatureModelData.ModelScale for a model id, the second half of the
     /// same product. Kept beside the display data rather than in it because it
     /// belongs to the model and several displays share one.
-    float creatureModelScale(uint32_t modelId) const;
+    /// CreatureModelData.ModelScale for the model a display names.
+    ///
+    /// Keyed by the display, not by a model id: the renderer's model handles
+    /// are a counter of its own and share no numbering with the DBC, so
+    /// asking this with one silently answered 1.0 for every creature there
+    /// has ever been. 306 displays want 1.25 and two want 2.0.
+    float creatureModelScale(uint32_t displayId) const;
 
     /// CreatureDisplayInfo.CreatureModelScale for a display id, or 1.0 where
     /// the display is unknown - an unknown display is already drawn at the
