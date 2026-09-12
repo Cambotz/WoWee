@@ -3544,6 +3544,34 @@ void WMORenderer::debugDumpGroupsAtPosition(float glX, float glY, float glZ) con
         }
     }
 
+    // Is there a floor at the feet a step to either side?
+    //
+    // Every dump so far shows the pick taking the nearest surface at or below
+    // the probe with nothing nearer losing, so the selection is not the
+    // problem: there is simply no floor at the feet. Two things look identical
+    // from here - a gap in the mesh the player is straddling, and a real ledge
+    // they walked off - and a floor found a third of a yard away at the height
+    // they were standing separates them. If the neighbours have it and the
+    // centre does not, the mesh is missing a floor; if none of them do, the
+    // player stepped off something real.
+    {
+        const float probeZ = glZ;
+        constexpr float kStep = 0.35f;
+        const std::pair<float, float> offsets[] = {
+            {0.0f, 0.0f}, {kStep, 0.0f}, {-kStep, 0.0f}, {0.0f, kStep}, {0.0f, -kStep},
+        };
+        const char* names[] = {"centre", "+x", "-x", "+y", "-y"};
+        std::string line;
+        for (size_t i = 0; i < 5; ++i) {
+            const auto h = getFloorHeight(glX + offsets[i].first,
+                                          glY + offsets[i].second, probeZ);
+            line += names[i];
+            line += h ? ("=" + std::to_string(*h)) : std::string("=none");
+            line += "  ";
+        }
+        LOG_WARNING("    floor a step aside: ", line);
+    }
+
     LOG_WARNING("=== Total: ", totalInstancesChecked, " instances, ",
                 totalGroupsOverlapping, " overlapping groups, ",
                 totalFloorHits, " floor hits ===");
