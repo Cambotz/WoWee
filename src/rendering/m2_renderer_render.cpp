@@ -709,6 +709,44 @@ void M2Renderer::prepareRender(uint32_t frameIndex, const Camera& camera) {
             continue;
         }
 
+        // A bone that has left the model behind.
+        //
+        // The vertex shader skins by these matrices, so one that translates far
+        // outside the model's own bounds drags every vertex weighted to it out
+        // with it. What that looks like on screen is not a bone problem: it is
+        // a long flat triangle with the skin smeared across it, which reads as
+        // a missing texture or a stray card. The Elemental Slave's white sheets
+        // were reported three times as missing textures, and the texture paths,
+        // the display skins, the particle emitters and the ribbons were all
+        // measured and found correct before the geometry was suspected.
+        //
+        // Judged against the model's own bounding radius, so a large creature
+        // is not accused for being large, and said once per model.
+        if (instance.cachedModel != nullptr) {
+            const M2ModelGPU& m = *instance.cachedModel;
+            const glm::vec3 extent = m.boundMax - m.boundMin;
+            const float radius = 0.5f * glm::length(extent);
+            // Examined once per model, not once per frame: this walks every
+            // bone, and there are models with three hundred of them drawn
+            // dozens at a time.
+            static std::unordered_set<uint32_t> boneRangeChecked;
+            if (radius > 0.01f && boneRangeChecked.size() < 64 &&
+                boneRangeChecked.insert(instance.modelId).second) {
+                const float limit = radius * 4.0f;
+                for (size_t bi = 0; bi < instance.boneMatrices.size(); ++bi) {
+                    const glm::vec3 t(instance.boneMatrices[bi][3]);
+                    if (glm::length(t) <= limit) continue;
+                    LOG_WARNING("M2 '", m.name, "' bone ", bi, " of ",
+                                instance.boneMatrices.size(),
+                                " sits at (", t.x, ", ", t.y, ", ", t.z,
+                                "), ", glm::length(t), " from the origin of a model whose"
+                                " bounding radius is ", radius,
+                                " - anything weighted to it is drawn stretched");
+                    break;
+                }
+            }
+        }
+
         const uint32_t boneCount = static_cast<uint32_t>(instance.boneMatrices.size());
         if (boneCount > MEGA_BONE_MATRIX_CAPACITY - nextOffset) {
             instance.megaBoneOffset = 0;  // Overflow - use identity
