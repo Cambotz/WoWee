@@ -74,18 +74,31 @@ def md21_body(blob):
 
 
 def texture_paths(body):
+    """The texture paths a model names, and how many slots of its own name none.
+
+    A slot's type says who is meant to fill it. Type 0 is the model naming its
+    own file. Types 11 to 13 are a creature's skin, which the client composes
+    from CreatureDisplayInfo at runtime and which is empty here by design - a
+    rock elemental's body texture is chosen by the display, not by the model.
+
+    So an empty name means opposite things in the two cases, and the second
+    number is the one that matters: a type 0 slot that names no file is a model
+    that promised a texture and did not name it, which the client draws flat
+    white.
+    """
     count = struct.unpack_from("<I", body, TEXTURES_COUNT)[0]
     offset = struct.unpack_from("<I", body, TEXTURES_OFFSET)[0]
     out = []
+    unnamed_own = 0
     for i in range(count):
         entry = offset + i * 16
-        _type, _flags, length, at = struct.unpack_from("<4I", body, entry)
-        if not length:
-            continue
-        name = body[at:at + length].split(b"\0")[0].decode("latin-1")
+        kind, _flags, length, at = struct.unpack_from("<4I", body, entry)
+        name = body[at:at + length].split(b"\0")[0].decode("latin-1") if length else ""
         if name:
             out.append(name)
-    return out
+        elif kind == 0:
+            unnamed_own += 1
+    return out, unnamed_own
 
 
 def write(out_dir, rel_path, blob):
@@ -96,12 +109,18 @@ def write(out_dir, rel_path, blob):
     return path
 
 
-def convert(storage, file_id, name, out_dir, fetched, dest=None):
+def convert(storage, file_id, name, out_dir, fetched, failed, dest=None):
     """One skybox, its skins and its textures. Returns a short status.
 
-    `fetched` carries the texture paths already written. Skies share their
-    star fields and galaxies heavily - galaxy_01 alone is referenced by dozens
-    of domes - and each one is a full decode of a file several megabytes wide.
+    `fetched` carries the texture paths already written and `failed` those
+    already looked for and not found. Skies share their star fields and
+    galaxies heavily - galaxy_01 alone is referenced by dozens of domes - and
+    each one is a full decode of a file several megabytes wide, so the answer
+    is remembered either way.
+
+    The two sets used to be one, which recorded every path attempted whether
+    or not it arrived. The second model to name a texture that had already
+    failed skipped the fetch, found nothing missing and was written anyway.
     """
     blob = storage.read_fileid(file_id)
     if not blob:
@@ -116,15 +135,62 @@ def convert(storage, file_id, name, out_dir, fetched, dest=None):
         # common case; one that does needs more than a version stamp.
         return "has emitters"
 
-    # Both refusals come before anything is written. A model left half-written
+    # Every refusal comes before anything is written. A model left half-written
     # is worse than one not written at all: it is on disk, it looks complete,
     # and it renders white where the texture it wanted never arrived.
-    named = texture_paths(body)
-    declared = struct.unpack_from("<I", body, TEXTURES_COUNT)[0]
-    if len(named) < declared:
-        # A creature or a piece of armour, composing its skin from ids this
-        # has no listfile to resolve.
-        return "%d textures by id" % (declared - len(named))
+    #
+    # The test used to be that every declared slot carried a name, which asks
+    # the wrong thing of a creature: its skin slots are empty by design and
+    # the client fills them from CreatureDisplayInfo. Read that way, no
+    # creature could ever be imported - and the ones that can be were, before
+    # this test existed, along with five that could not.
+    #
+    # What those five have in common is a slot of type 0 with no name, which
+    # is a model naming its own texture by FileDataID through a TXID chunk
+    # this does not read. The client has no way to fill such a slot and draws
+    # white. ElementalEarth is the case: three of its seven slots, and the two
+    # its additive dust shells sample, so they fell back to the creature's own
+    # rock skin and drew as white sheets over it.
+    named, unnamed_own = texture_paths(body)
+    if unnamed_own:
+        by_id = " (TXID)" if "TXID" in chunks else ""
+        return "%d texture slots name no file%s" % (unnamed_own, by_id)
+
+    # Every texture is resolved before anything at all is written.
+    #
+    # This ran the other way round: the model went to disk, then its skins,
+    # then the textures were fetched and whatever had not arrived was reported
+    # with the model already in the install. That is the half-written model the
+    # refusals above exist to prevent, and it is how five creatures reached an
+    # install with texture slots nothing fills - an elemental whose additive
+    # dust shells fell back to sampling its own rock skin and drew as white
+    # sheets, and a larva and a compy with no named texture at all.
+    #
+    # A texture that did not come across is named, not counted. This returned
+    # "ok, 2 textures missing" and the caller printed it beside a hundred other
+    # lines, so three models went into an install referring to
+    # World\Expansion05 textures that were never converted - a gryphon roost, a
+    # wyvern roost and a horde banner, found later by the client logging the
+    # same four paths every run. A count cannot be chased; a path can.
+    pending = []
+    missing = []
+    for tex in named:
+        key = tex.lower()
+        if key in fetched:
+            continue
+        if key in failed:
+            missing.append(tex)
+            continue
+        data = storage.read_path(tex)
+        if data:
+            pending.append((tex, data))
+        else:
+            failed.add(key)
+            missing.append(tex)
+    if missing:
+        for tex in missing:
+            sys.stderr.write("  texture not in this install: %s  (%s)\n" % (tex, name))
+        return "%d textures MISSING, not written" % len(missing)
 
     patched = bytearray(body)
     struct.pack_into("<I", patched, 4, WOTLK_VERSION)
@@ -149,28 +215,9 @@ def convert(storage, file_id, name, out_dir, fetched, dest=None):
             if skin:
                 write(out_dir, "%s\\%s%02d.skin" % (written_dir, stem, lod), skin)
 
-    # A texture that did not come across is named, not counted.
-    #
-    # This returned "ok, 2 textures missing" and the caller printed it beside a
-    # hundred other lines, so three models went into an install referring to
-    # World\Expansion05 textures that were never converted - a gryphon roost, a
-    # wyvern roost and a horde banner, found later by the client logging the
-    # same four paths every run. A count cannot be chased; a path can.
-    missing = []
-    for tex in named:
-        key = tex.lower()
-        if key in fetched:
-            continue
-        data = storage.read_path(tex)
-        fetched.add(key)
-        if data:
-            write(out_dir, tex, data)
-        else:
-            missing.append(tex)
-    if missing:
-        for tex in missing:
-            sys.stderr.write("  texture not in this install: %s  (%s)\n" % (tex, name))
-        return "ok, %d textures MISSING" % len(missing)
+    for tex, data in pending:
+        write(out_dir, tex, data)
+        fetched.add(tex.lower())
     return "ok"
 
 
@@ -263,6 +310,7 @@ def main():
 
     done = {}
     fetched = set()
+    failed = set()
     skipped_unknown = 0
     for line in open(catalogue):
         file_id, _version, name = line.rstrip("\n").split("\t")
@@ -287,7 +335,7 @@ def main():
                 continue
             if verts < 20 or theirs <= verts * ratio:
                 continue
-        done[name] = convert(storage, int(file_id), name, out_dir, fetched,
+        done[name] = convert(storage, int(file_id), name, out_dir, fetched, failed,
                              rel.replace(os.sep, "\\"))
         print("  %-44s %s" % (name, done[name]), flush=True)
 
