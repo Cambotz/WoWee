@@ -1505,10 +1505,29 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                                    [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
                     diagThisModel = lowerName.find(kDrawDiag) != std::string::npos;
                 }
+                // WOWEE_M2_ONLY_BATCH=<n> draws just that batch of the named
+                // model and hides the rest.
+                //
+                // Everything checkable has now been checked on these trees and
+                // every answer came back correct: the trunk mesh is continuous
+                // from root to tip, its submesh level matches, its texture
+                // loads, its mips preserve coverage, and the draw diagnostic
+                // says every batch reaches the frame. A section still looks
+                // missing. Seeing the trunk by itself is the difference
+                // between the trunk being wrong and the canopy eating it, and
+                // no amount of reading the files can tell those apart.
+                static const int kOnlyBatch = [] {
+                    const char* v = std::getenv("WOWEE_M2_ONLY_BATCH");
+                    return (v && *v) ? std::atoi(v) : -1;
+                }();
                 for (size_t bi = 0; bi < model.batches.size(); bi++) {
                     const auto& batch = model.batches[bi];
                     const char* skipped = nullptr;
-                    if (batch.indexCount == 0) skipped = "no indices";
+                    if (kOnlyBatch >= 0 && diagThisModel &&
+                        bi != static_cast<size_t>(kOnlyBatch)) {
+                        skipped = "WOWEE_M2_ONLY_BATCH";
+                    }
+                    else if (batch.indexCount == 0) skipped = "no indices";
                     else if (!model.isGroundDetail && batch.submeshLevel != lod)
                         skipped = "submeshLevel is not this LOD";
                     else if (batch.batchOpacity < 0.01f) skipped = "opacity is zero";
