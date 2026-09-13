@@ -1836,6 +1836,28 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                 if (isInvisibleTrap) {
                     LOG_INFO("  InvisibleTrap texture[", ti, "]: EMPTY (using white fallback)");
                 }
+                // A slot with no filename is one the model expects someone
+                // else to fill: a creature skin from CreatureDisplayInfo
+                // (types 11-13), a character component, an item texture. When
+                // nothing fills it the batch draws the white fallback, flat
+                // and unlit, and the only sign is on screen - which is what
+                // "glow cards rendered as white 2D meshes" turned out to be
+                // every previous time it was reported.
+                //
+                // Not an error: plenty of these are filled a moment later by
+                // setModelTexture or setTextureSlotOverride, and the renderer
+                // cannot see that from here. It is worth naming anyway,
+                // because when it is not filled nothing else says so and the
+                // model has to be guessed at from a screenshot.
+                if (tex.type != 0) {
+                    static core::LogBudget unfilledSlotBudget(
+                        24, "M2 texture slots left for a caller to fill");
+                    if (unfilledSlotBudget.take()) {
+                        LOG_WARNING("M2 '", model.name, "' texture[", ti,
+                                    "] is type ", static_cast<int>(tex.type),
+                                    " with no filename - white until something fills it");
+                    }
+                }
                 allTextures.push_back(whiteTexture_.get());
                 textureLoadFailed.push_back(false);  // Empty filename = intentional white (type!=0)
                 textureKeysLower.emplace_back();
