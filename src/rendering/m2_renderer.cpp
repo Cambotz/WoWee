@@ -2118,6 +2118,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                 auto pit = texturePropsByPtr_.find(tex);
                 if (pit != texturePropsByPtr_.end()) {
                     bgpu.hasAlpha = pit->second.hasAlpha;
+                    bgpu.alphaIsSilhouette = pit->second.alphaIsSilhouette;
                     bgpu.colorKeyBlack = pit->second.colorKeyBlack;
                     // Forge fire is drawn on cards with a black backing that has
                     // to be keyed out, and some of them use effect textures
@@ -2297,6 +2298,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                              " alphaTestWillBe=",
                              m2BatchNeedsAlphaTest(bgpu.blendMode, bgpu.hasAlpha) ? 1 : 0,
                              " hasAlpha=", bgpu.hasAlpha ? "Y" : "N",
+                             " alphaIsSilhouette=", bgpu.alphaIsSilhouette ? "Y" : "N",
                              " colorKey=", bgpu.colorKeyBlack ? "Y" : "N",
                              " glowCardLike=", bgpu.glowCardLike ? "Y" : "N",
                              " preserveGlowMesh=", bgpu.preserveGlowMesh ? "Y" : "N",
@@ -2360,6 +2362,7 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
             auto pit = texturePropsByPtr_.find(bgpu.texture);
             if (pit != texturePropsByPtr_.end()) {
                 bgpu.hasAlpha = pit->second.hasAlpha;
+                bgpu.alphaIsSilhouette = pit->second.alphaIsSilhouette;
                 bgpu.colorKeyBlack = pit->second.colorKeyBlack;
             }
         }

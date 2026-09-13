@@ -1020,6 +1020,23 @@ target_link_libraries(test_blp_alpha_scan PRIVATE catch2_main)
 add_test(NAME blp_alpha_scan COMMAND test_blp_alpha_scan)
 register_test_target(test_blp_alpha_scan)
 
+# ── test_blp_alpha_silhouette ────────────────────────────────
+# A batch marked opaque does not read its texture's alpha, and M2 atlases carry
+# alpha belonging to other layers. Keying on it put a hole in the middle of
+# every Silverpine trunk, so the scan that tells a real silhouette from a
+# leftover has to hold on both populations.
+add_executable(test_blp_alpha_silhouette
+    test_blp_alpha_silhouette.cpp
+    ${TEST_COMMON_SOURCES}
+    ${CMAKE_SOURCE_DIR}/src/pipeline/blp_loader.cpp
+)
+target_include_directories(test_blp_alpha_silhouette PRIVATE ${TEST_INCLUDE_DIRS})
+target_include_directories(test_blp_alpha_silhouette SYSTEM PRIVATE ${TEST_SYSTEM_INCLUDE_DIRS})
+target_compile_definitions(test_blp_alpha_silhouette PRIVATE WOWEE_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+target_link_libraries(test_blp_alpha_silhouette PRIVATE catch2_main)
+add_test(NAME blp_alpha_silhouette COMMAND test_blp_alpha_silhouette)
+register_test_target(test_blp_alpha_silhouette)
+
 # ── test_frustum ─────────────────────────────────────────────
 wowee_add_test(test_frustum
     SOURCES test_frustum.cpp

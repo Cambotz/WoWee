@@ -60,6 +60,30 @@ struct BLPImage {
     /// that is currently running.
     [[nodiscard]] bool hasTransparency() const;
 
+    /// Whether this texture's alpha is a silhouette that has to be honoured.
+    ///
+    /// Asked by a batch whose material says opaque. Blend mode 0 means the
+    /// alpha channel is not used, and an M2 texture is often an atlas whose
+    /// alpha is left over from another layer or another model - so honouring
+    /// it punches holes in surfaces the artist painted solid. Silverpine's
+    /// trees are the case that showed it: their trunk is one opaque batch
+    /// over a two-panel atlas, and the panel it samples carries a stale alpha
+    /// hole across the middle. Keyed on, the trunk loses its midsection and
+    /// the canopy is left floating above the stump.
+    ///
+    /// The two cases are told apart by what lies under the transparent texels:
+    ///
+    /// - DXT1 has no answer to give. Its transparency is punch-through, and a
+    ///   punched texel carries no colour at all, so the alpha is the only
+    ///   silhouette there is and must be kept.
+    /// - DXT3, DXT5 and uncompressed carry a full colour plane beneath a
+    ///   separate alpha. A card authored on a black backing leaves that
+    ///   backing under the mask; an atlas painted edge to edge leaves the art.
+    ///   Measuring the mean luminance underneath separates them by a wide
+    ///   margin - Alterac's thorn cards sit near 6 of 255, while Silverpine
+    ///   bark, Zangarmarsh caps and Nagrand trunks all land above 79.
+    [[nodiscard]] bool alphaIsSilhouette() const;
+
     /// What this will occupy once uploaded, which the texture caches spend
     /// their budget against. Block-compressed is its own levels; decoded is
     /// the base plus the third a generated mip chain adds.

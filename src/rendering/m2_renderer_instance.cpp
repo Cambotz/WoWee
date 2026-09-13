@@ -799,6 +799,10 @@ VkTexture* M2Renderer::loadTexture(const std::string& path, uint32_t texFlags) {
     // This was the only thing forcing M2 textures to be decoded.
     const bool hasAlpha = blp.hasTransparency();
 
+    // And whether that alpha is a silhouette or an atlas leftover, which is
+    // what an opaque batch has to know before anything keys on it.
+    const bool alphaIsSilhouette = blp.alphaIsSilhouette();
+
     // Create Vulkan texture
     auto tex = std::make_unique<VkTexture>();
     tex->uploadBLP(*vkCtx_, blp);
@@ -831,14 +835,14 @@ VkTexture* M2Renderer::loadTexture(const std::string& path, uint32_t texFlags) {
     TextureCacheEntry e;
     e.texture = std::move(tex);
     e.approxBytes = approxBytes;
-    e.hasAlpha = hasAlpha;
-    e.colorKeyBlack = colorKeyBlackHint;
     e.lastUse = ++textureCacheCounter_;
     textureCacheBytes_ += e.approxBytes;
     textureCache[key] = std::move(e);
     failedTextureCache_.erase(key);
     failedTextureRetryAt_.erase(key);
-    texturePropsByPtr_[texPtr] = {.hasAlpha = hasAlpha, .colorKeyBlack = colorKeyBlackHint};
+    texturePropsByPtr_[texPtr] = {.hasAlpha = hasAlpha,
+                                  .alphaIsSilhouette = alphaIsSilhouette,
+                                  .colorKeyBlack = colorKeyBlackHint};
     LOG_DEBUG("M2: Loaded texture: ", path, " (", blp.width, "x", blp.height, ")");
 
     return texPtr;

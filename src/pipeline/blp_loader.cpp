@@ -88,6 +88,96 @@ bool BLPImage::hasTransparency() const {
     return false;
 }
 
+namespace {
+
+/// Rec. 601 luma, which is what "how dark is this" means to an eye.
+inline uint32_t luma8(uint8_t r, uint8_t g, uint8_t b) {
+    return (299u * r + 587u * g + 114u * b) / 1000u;
+}
+
+/// Alpha at or below this is the transparent part of a silhouette.
+constexpr uint8_t kClearAlpha = 32;
+/// Mean luma of the backing below which it is a backing and not artwork.
+constexpr uint32_t kBackingLuma = 20;
+/// Too few transparent texels to conclude anything from.
+constexpr uint64_t kMinClearTexels = 64;
+
+}  // namespace
+
+bool BLPImage::alphaIsSilhouette() const {
+    if (!hasTransparency()) return false;
+
+    uint64_t clearTexels = 0;
+    uint64_t lumaSum = 0;
+
+    if (!isBlockCompressed()) {
+        for (size_t i = 0; i + 3 < data.size(); i += 4) {
+            if (data[i + 3] > kClearAlpha) continue;
+            ++clearTexels;
+            lumaSum += luma8(data[i], data[i + 1], data[i + 2]);
+        }
+    } else if (compression == BLPCompression::DXT1) {
+        // Punch-through: the transparent texel has no colour stored under it
+        // at all, so there is nothing to measure and nothing to fall back on.
+        // The alpha is the whole silhouette.
+        return true;
+    } else if (compression == BLPCompression::DXT3 || compression == BLPCompression::DXT5) {
+        const std::vector<uint8_t>& blocks = mipmaps[0];
+        for (size_t at = 0; at + 16 <= blocks.size(); at += 16) {
+            uint8_t alpha[16] = {};
+            if (compression == BLPCompression::DXT3) {
+                for (int b = 0; b < 8; ++b) {
+                    alpha[b * 2] = static_cast<uint8_t>((blocks[at + b] & 0x0Fu) * 17u);
+                    alpha[b * 2 + 1] = static_cast<uint8_t>((blocks[at + b] >> 4) * 17u);
+                }
+            } else {
+                const uint8_t a0 = blocks[at];
+                const uint8_t a1 = blocks[at + 1];
+                uint8_t palette[8] = {a0, a1};
+                if (a0 > a1) {
+                    for (int i = 0; i < 6; ++i) {
+                        palette[2 + i] = static_cast<uint8_t>(((6 - i) * a0 + (1 + i) * a1) / 7);
+                    }
+                } else {
+                    for (int i = 0; i < 4; ++i) {
+                        palette[2 + i] = static_cast<uint8_t>(((4 - i) * a0 + (1 + i) * a1) / 5);
+                    }
+                    palette[6] = 0;
+                    palette[7] = 255;
+                }
+                for (int half = 0; half < 2; ++half) {
+                    const uint32_t bits = static_cast<uint32_t>(blocks[at + 2 + half * 3]) |
+                                          (static_cast<uint32_t>(blocks[at + 3 + half * 3]) << 8) |
+                                          (static_cast<uint32_t>(blocks[at + 4 + half * 3]) << 16);
+                    for (int i = 0; i < 8; ++i) {
+                        alpha[half * 8 + i] = palette[(bits >> (i * 3)) & 0x7u];
+                    }
+                }
+            }
+
+            // The colour half follows the eight alpha bytes, and never reads
+            // its endpoint ordering as a mode flag: only DXT1 does that.
+            const DxtColorBlock colors = decodeDxtColorBlock(&blocks[at + 8], false);
+            for (int py = 0; py < 4; ++py) {
+                for (int px = 0; px < 4; ++px) {
+                    const int texel = py * 4 + px;
+                    if (alpha[texel] > kClearAlpha) continue;
+                    ++clearTexels;
+                    const uint8_t* rgb = colors.rgb[colors.indexAt(px, py)];
+                    lumaSum += luma8(rgb[0], rgb[1], rgb[2]);
+                }
+            }
+        }
+    } else {
+        return true;
+    }
+
+    // Transparency this sparse is noise in the encoding, not a silhouette -
+    // and dividing by it would make the verdict turn on a handful of texels.
+    if (clearTexels < kMinClearTexels) return false;
+    return (lumaSum / clearTexels) < kBackingLuma;
+}
+
 std::vector<uint8_t> BLPLoader::decodeBaseLevel(const BLPImage& image) {
     if (!image.isBlockCompressed() || image.mipmaps.empty()) return {};
     if (image.width <= 0 || image.height <= 0) return {};

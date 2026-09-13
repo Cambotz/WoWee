@@ -53,9 +53,15 @@ inline bool m2BlendIsAdditive(uint8_t blendMode) {
 /// the batch on the cutout pipeline, where alpha-to-coverage decides how much
 /// of each sample the batch covers. Tirisfal's canopy trees are two batches,
 /// and their trunk is exactly this: TirrisFallCanopyTree01_Trunk is DXT1 with
-/// no punch-through block anywhere in it, drawn alpha-keyed. The one tree of
-/// the seven whose trunk is plain opaque - canopytree07 - is the one that
-/// renders right.
+/// no punch-through block anywhere in it, drawn alpha-keyed.
+///
+/// Canopytree07, the one of the seven whose trunk is plain opaque, was read
+/// here as the one that rendered right. It was not. Its trunk samples
+/// SilverPineTree01TrunkSkin, which does carry alpha, and the foliage rule in
+/// m2_renderer_render.cpp forced it onto the cutout pipeline whatever this
+/// function said - so it had the same hole through its middle that every
+/// Silverpine tree had. Opaque was not reaching the pipeline at all until that
+/// rule learned to ask BLPImage::alphaIsSilhouette.
 ///
 /// Safe to lean on, because hasAlpha is measured rather than guessed:
 /// BLPImage::hasTransparency walks level 0 and, for DXT1, counts a block only
