@@ -2508,11 +2508,12 @@ void WMORenderer::getVisibleGroupsViaPortals(const ModelData& model,
 }
 
 void WMORenderer::WMOInstance::updateModelMatrix() {
-    // The placement rotation the caller stored as (-C, -A, B) in radians.
+    // The placement rotation the caller stored as (C, A, B + 180) in radians.
     // Buildings and doodads compose this identically, in placement_transform.hpp,
-    // which records what it took to settle the order: composing it in both
-    // places is how they came to disagree, and how a building on flat ground
-    // could look right while a bridge across a ravine did not.
+    // which records how the order was solved against the bounding boxes MODF
+    // carries: composing it in both places is how they came to disagree, and
+    // how a building on flat ground could look right while a bridge across a
+    // ravine did not.
     modelMatrix = placementModelMatrix(position, rotation, scale);
 
     // Cache inverse for collision detection

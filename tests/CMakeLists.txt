@@ -2092,9 +2092,10 @@ wowee_add_test(test_footstep_paths
             ${TEST_COMMON_SOURCES})
 
 # ── test_placement_transform ─────────────────────────────────
-# The model matrix a doodad or a building placement becomes. The two renderers
-# composed the rotation in different orders, and nothing on flat ground can
-# tell those apart.
+# The model matrix a doodad or a building placement becomes. Nothing on flat
+# ground can tell the six composition orders apart, so this checks four real
+# placements that carry pitch or roll against the world-space bounding boxes
+# their own MODF records hold.
 wowee_add_test(test_placement_transform
     SOURCES test_placement_transform.cpp
             ${TEST_COMMON_SOURCES})

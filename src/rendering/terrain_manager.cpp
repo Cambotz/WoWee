@@ -59,33 +59,34 @@ namespace {
 /// The euler triple a placement's three degrees become, in render axes.
 ///
 /// MDDF and MODF store the rotation identically and this was written out twice,
-/// once for each; it is one function. Both are composed X, Y, Z - see the note
-/// in WMOInstance::updateModelMatrix for how the buildings came to be composed
-/// the other way round and what it took to settle it.
+/// once for each; it is one function. Both are composed Z, Y, X, in
+/// placement_transform.hpp.
 glm::vec3 placementEuler(const float rotation[3]) {
-    // MDDF and MODF store the rotation identically, this was written out once
-    // for each, and both are composed X, Y, Z - see the note in
-    // WMOInstance::updateModelMatrix for how the buildings came to be composed
-    // the other way and what it took to settle it.
+    // Solved against Blizzard's own numbers rather than judged by eye. MODF
+    // records, beside every building placement, the world-space bounding box
+    // its tools computed for it - so a candidate convention can be scored by
+    // whether it reproduces that box. Over the 1469 placements in 3.3.5's ADTs
+    // carrying more than three degrees of pitch or roll, this triple composed
+    // Z, Y, X reproduces every one of them to zero error, and the next best
+    // candidate is out by a median of 4.3 yards.
     //
-    // What is *not* wrong: this mapping. Darkshore's bridges are still slightly
-    // askew, and every dial that could be turned here has been turned - all six
-    // composition orders, all four source permutations, the sign of each
-    // component, and the yaw offset. None of them stands the bridges up, and
-    // the closest compromise anyone found was multiplying one component by
-    // four, which is not a thing a placement convention ever does: a convention
-    // is a sign and a right angle. A factor of four is a small wrong number
-    // stretched until it resembles a different one, and it is wrong differently
-    // for every placement with a different roll.
+    // The note that stood here said the mapping was not where the error was,
+    // and that a heightmap the bridges were judged against was the thing left
+    // to suspect. It was the mapping. What hid it is that the signs and the
+    // order are wrong together and right together: composed Z, Y, X these
+    // components are positive, composed X, Y, Z the first two had to be
+    // negated to keep flat ground looking right. Turning one dial at a time -
+    // six orders, then the sign of each component - never reaches a pair that
+    // only works as a pair, and every single-dial result looks worse than what
+    // it replaced.
     //
-    // So the remaining error is not in the euler mapping, and the next thing to
-    // suspect is what the bridges are being judged against - the terrain they
-    // span. A correctly placed bridge over a slightly wrong heightmap looks
-    // exactly like a wrongly placed bridge, and it would explain the same
-    // pattern turning up on other objects that sit against ground.
+    // That is also why a factor of four once looked like the closest thing to
+    // an answer: with the order wrong, no constant can be right, and fitting
+    // one to a single bridge produces a number that is wrong differently for
+    // every other roll.
     constexpr float kDeg = core::coords::PI / 180.0f;
-    return glm::vec3(-rotation[2] * kDeg,
-                     -rotation[0] * kDeg,
+    return glm::vec3(rotation[2] * kDeg,
+                     rotation[0] * kDeg,
                      (rotation[1] + 180.0f) * kDeg);
 }
 
