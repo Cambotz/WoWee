@@ -28,9 +28,38 @@ from typing import Any
 
 import asset_profiles
 
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
-from tkinter.scrolledtext import ScrolledText
+try:
+    import tkinter as tk
+    from tkinter import filedialog, messagebox, ttk
+    from tkinter.scrolledtext import ScrolledText
+except ImportError:  # pragma: no cover - depends on how Python was built
+    # Tkinter is not part of Python; it is a separate package an interpreter
+    # either was built against or was not. `python3` is whichever one the PATH
+    # reaches first, and on macOS that is usually a Homebrew build without it
+    # while /usr/bin/python3 has it - so this failed on machines that had a
+    # perfectly good interpreter for it a directory away, and read as the
+    # program not existing at all. tools/asset_gui.sh picks one that works.
+    import shutil as _shutil
+    import subprocess as _subprocess
+    print("This window needs Tkinter, and this Python does not have it.\n")
+    for _candidate in ("/usr/bin/python3", "python3.13", "python3.12", "python3.11"):
+        _found = _shutil.which(_candidate) or (_candidate if Path(_candidate).exists() else None)
+        if not _found:
+            continue
+        try:
+            _subprocess.run([_found, "-c", "import tkinter"], check=True,
+                            capture_output=True, timeout=20)
+        except Exception:
+            continue
+        print(f"  {_found} can. Run it with:\n")
+        print(f"    {_found} {Path(__file__).resolve()}\n")
+        print("  or just:  tools/asset_gui.sh")
+        raise SystemExit(1)
+    print("  macOS:          brew install python-tk")
+    print("  Debian/Ubuntu:  sudo apt install python3-tk")
+    print("  Fedora:         sudo dnf install python3-tkinter\n")
+    print("Or skip the window:  ./extract_assets.sh /path/to/WoW/Data")
+    raise SystemExit(1)
 
 try:
     from PIL import Image, ImageTk
