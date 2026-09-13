@@ -1771,6 +1771,31 @@ bool CharacterRenderer::loadModel(const pipeline::M2Model& model, uint32_t id) {
         model.vertices.size(), model.particleEmitters.size());
     gpuModel.isSkyBird = classification.isSkyBird;
 
+    // Every model this renderer takes on, named once.
+    //
+    // The same line M2Renderer::loadModel carries, and it has to be in both:
+    // creatures and players are drawn here, not there, so a diagnostic that
+    // only named M2Renderer's models reported four hundred doodads and not one
+    // creature. Three rounds of the Elemental Slave's white sheets were spent
+    // reading M2Renderer's particle, glow and bone code before it was noticed
+    // that the creature never goes through any of it.
+    //
+    // The emitter count is worth having here for its own reason: this renderer
+    // reads it to classify and then draws none of them, so a creature whose
+    // effects are missing entirely says so on this line.
+    {
+        static core::LogBudget characterLoadBudget(300, "character models named at load");
+        if (characterLoadBudget.take()) {
+            LOG_WARNING("Character M2 load: '",
+                        model.name.empty() ? "<unnamed>" : model.name,
+                        "' id=", id,
+                        " verts=", model.vertices.size(),
+                        " emitters=", model.particleEmitters.size(),
+                        " (not drawn)",
+                        " ribbons=", model.ribbonEmitters.size());
+        }
+    }
+
     // Batch all GPU uploads (VB, IB, textures) into a single command buffer
     // submission with one fence wait, instead of one fence wait per upload.
     vkCtx_->beginUploadBatch();
