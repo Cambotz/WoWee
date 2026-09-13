@@ -1,4 +1,5 @@
 #include "rendering/sky_system.hpp"
+#include "rendering/sun_direction.hpp"
 #include "rendering/skybox.hpp"
 #include "rendering/celestial.hpp"
 #include "rendering/starfield.hpp"
@@ -171,21 +172,14 @@ void SkySystem::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet,
         glm::vec3 sunPos = getSunPosition(params);
         lensFlare_->render(cmd, camera, sunPos, params.timeOfDay,
                            params.fogDensity, params.cloudDensity,
-                           params.weatherIntensity);
+                           params.weatherIntensity, params.sunOcclusion);
     }
 }
 
 glm::vec3 SkySystem::getSunPosition(const SkyParams& params) const {
-    float dirLenSq = glm::dot(params.directionalDir, params.directionalDir);
-    glm::vec3 dir = (dirLenSq > 1e-8f) ? params.directionalDir * glm::inversesqrt(dirLenSq) : glm::vec3(0.0f);
-    if (dirLenSq < 1e-8f) {
-        dir = glm::vec3(0.0f, 0.0f, -1.0f);
-    }
-    glm::vec3 sunDir = -dir;
-    if (sunDir.z < 0.0f) {
-        sunDir = dir;
-    }
-    return sunDir * 800.0f;
+    // Below the horizon it stays below - see sun_direction.hpp for what the
+    // mirror that used to be here cost.
+    return sunDirectionFromLightDir(params.directionalDir) * 800.0f;
 }
 
 void SkySystem::setMoonPhaseCycling(bool enabled) {

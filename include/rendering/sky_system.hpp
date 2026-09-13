@@ -35,6 +35,12 @@ struct SkyParams {
     float fogDensity = 0.0f;        // 0-1
     float horizonGlow = 0.3f;       // 0-1
     float weatherIntensity = 0.0f;  // 0-1 (rain/snow intensity, attenuates lens flare)
+    // How much of the line from the eye to the sun is blocked, 0 clear to 1
+    // solid. The lens flare had no such input: it asked only whether the sun
+    // was in front of the camera and on screen, so a hillside, a building or a
+    // ceiling between the two changed nothing and the flare hung over the
+    // terrain that was covering it.
+    float sunOcclusion = 0.0f;
 
     // Time
     float timeOfDay = 12.0f;    // 0-24 hours

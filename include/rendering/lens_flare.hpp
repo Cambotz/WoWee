@@ -55,10 +55,14 @@ public:
      * @param fogDensity Fog density 0-1 (attenuates flare)
      * @param cloudDensity Cloud density 0-1 (attenuates flare)
      * @param weatherIntensity Weather intensity 0-1 (rain/snow attenuates flare)
+     * @param sunOcclusion How much of the line to the sun is blocked, 0-1.
+     *        A flare is light scattering inside the lens, so it needs light to
+     *        arrive: with a hillside or a roof in the way there is none, and
+     *        this used to draw one anyway.
      */
     void render(VkCommandBuffer cmd, const Camera& camera, const glm::vec3& sunPosition,
                 float timeOfDay, float fogDensity = 0.0f, float cloudDensity = 0.0f,
-                float weatherIntensity = 0.0f);
+                float weatherIntensity = 0.0f, float sunOcclusion = 0.0f);
 
     /**
      * @brief Enable or disable lens flare rendering

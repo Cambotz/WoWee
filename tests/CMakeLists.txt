@@ -2091,6 +2091,14 @@ wowee_add_test(test_footstep_paths
     SOURCES test_footstep_paths.cpp
             ${TEST_COMMON_SOURCES})
 
+# ── test_sun_direction ───────────────────────────────────────
+# The sky mirrored a sun below the horizon back up into it, and the lens flare
+# is the only thing that asks where the sun is - so the mirror invented one for
+# it to draw around at night.
+wowee_add_test(test_sun_direction
+    SOURCES test_sun_direction.cpp
+            ${TEST_COMMON_SOURCES})
+
 # ── test_placement_transform ─────────────────────────────────
 # The model matrix a doodad or a building placement becomes. Nothing on flat
 # ground can tell the six composition orders apart, so this checks four real

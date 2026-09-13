@@ -1,0 +1,47 @@
+// Where the sun is, and in particular where it is not.
+//
+// SkySystem::getSunPosition mirrored a sun below the horizon back up into the
+// sky - `sunDir = dir` instead of `-dir` - and the lens flare is the only
+// thing that ever asks it. So the mirror did nothing but invent a sun for the
+// flare to draw around, at a position no sun was at, and the flare's own
+// height attenuation read the mirrored height as a sun climbing the sky and
+// let it through at full strength.
+//
+// Reported as a lens flare with no sun in sight.
+#include <catch_amalgamated.hpp>
+
+#include "rendering/sun_direction.hpp"
+
+using wowee::rendering::sunDirectionFromLightDir;
+
+TEST_CASE("the sun is opposite the direction its light travels", "[sky][sun]") {
+    // Light going down means a sun overhead.
+    const glm::vec3 up = sunDirectionFromLightDir(glm::vec3(0.0f, 0.0f, -1.0f));
+    CHECK(up.z == Catch::Approx(1.0f));
+
+    // And the answer is a unit vector whatever length it is handed.
+    const glm::vec3 scaled = sunDirectionFromLightDir(glm::vec3(0.0f, 0.0f, -57.0f));
+    CHECK(glm::length(scaled) == Catch::Approx(1.0f));
+    CHECK(scaled.z == Catch::Approx(1.0f));
+}
+
+TEST_CASE("a sun below the horizon stays below it", "[sky][sun]") {
+    // Light travelling upward is light from under the ground. The sun is down
+    // there with it, and this is the assertion the mirror would fail.
+    const glm::vec3 night = sunDirectionFromLightDir(glm::vec3(0.0f, 0.0f, 1.0f));
+    CHECK(night.z == Catch::Approx(-1.0f));
+    CHECK(night.z < 0.0f);
+
+    // Just under the horizon, which is where the mirror did the most damage:
+    // a flare at full strength opposite a sun that had already set.
+    const glm::vec3 dusk = sunDirectionFromLightDir(glm::vec3(0.6f, 0.0f, 0.08f));
+    CHECK(dusk.z < 0.0f);
+}
+
+TEST_CASE("no sun given reads as straight up", "[sky][sun]") {
+    // Everything downstream gates on height, and straight up is the value that
+    // leaves those gates to decide rather than producing a sideways sun.
+    const glm::vec3 none = sunDirectionFromLightDir(glm::vec3(0.0f));
+    CHECK(none.z == Catch::Approx(1.0f));
+    CHECK(glm::length(none) == Catch::Approx(1.0f));
+}

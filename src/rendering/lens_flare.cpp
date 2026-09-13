@@ -228,8 +228,17 @@ float LensFlare::calculateSunVisibility(const Camera& camera, const glm::vec3& s
 
 void LensFlare::render(VkCommandBuffer cmd, const Camera& camera, const glm::vec3& sunPosition,
                        float timeOfDay, float fogDensity, float cloudDensity,
-                       float weatherIntensity) {
+                       float weatherIntensity, float sunOcclusion) {
     if (!enabled || pipeline == VK_NULL_HANDLE) {
+        return;
+    }
+
+    // Nothing reaching the lens, nothing to scatter in it. Everything below
+    // asks where the sun is on screen and how thick the air is; none of it
+    // asks whether the sun can be seen from here, so a flare hung over the
+    // hillside that was covering it and over the ceiling of a building.
+    const float unblocked = 1.0f - glm::clamp(sunOcclusion, 0.0f, 1.0f);
+    if (unblocked < 0.01f) {
         return;
     }
 
@@ -259,7 +268,7 @@ void LensFlare::render(VkCommandBuffer cmd, const Camera& camera, const glm::vec
     float heightFactor = glm::smoothstep(-0.05f, 0.25f, sunHeight);
 
     // Atmospheric attenuation - fog, clouds, and weather reduce lens flare
-    float atmosphericFactor = heightFactor;
+    float atmosphericFactor = heightFactor * unblocked;
     atmosphericFactor *= (1.0f - glm::clamp(fogDensity * 0.8f, 0.0f, 0.9f));       // Heavy fog nearly kills flare
     atmosphericFactor *= (1.0f - glm::clamp(cloudDensity * 0.6f, 0.0f, 0.7f));     // Clouds attenuate
     atmosphericFactor *= (1.0f - glm::clamp(weatherIntensity * 0.9f, 0.0f, 0.95f)); // Rain/snow heavily attenuates

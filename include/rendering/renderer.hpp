@@ -239,6 +239,15 @@ private:
     std::unique_ptr<Camera> camera;
     std::unique_ptr<CameraController> cameraController;
     std::unique_ptr<TerrainRenderer> terrainRenderer;
+    /// How much of the line from the eye to the sun is blocked, smoothed.
+    ///
+    /// Sampled once a frame in update() and eased, because the raw answer is a
+    /// yes or a no and a hill edge crossing it would snap the flare on and off.
+    float sunOcclusion_ = 0.0f;
+
+    /// That line, asked of the terrain, the buildings and where the camera is.
+    [[nodiscard]] float sampleSunOcclusion() const;
+
     std::unique_ptr<TerrainManager> terrainManager;
     std::unique_ptr<PerformanceHUD> performanceHUD;
     std::unique_ptr<WaterRenderer> waterRenderer;

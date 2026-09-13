@@ -1,4 +1,5 @@
 #include "rendering/renderer.hpp"
+#include "rendering/sun_direction.hpp"
 
 #include <fstream>
 #include <iterator>
@@ -1569,10 +1570,63 @@ uint32_t Renderer::getCurrentZoneId() const {
     return tileZoneId;
 }
 
+float Renderer::sampleSunOcclusion() const {
+    if (!camera) return 1.0f;
+    const glm::vec3 eye = camera->getPosition();
+
+    // The same direction the flare itself is drawn around, from the same rule.
+    const glm::vec3 sunDir = lightingManager
+        ? sunDirectionFromLightDir(lightingManager->getLightingParams().directionalDir)
+        : glm::vec3(0.0f, 0.0f, -1.0f);
+    // Below the horizon there is nothing to be occluded by, and nothing to
+    // flare either - the time-of-day gate in LensFlare covers the same ground.
+    if (sunDir.z <= 0.0f) return 1.0f;
+
+    // Indoors the sun is behind a roof by definition, and a roof is the one
+    // occluder the terrain march below cannot see.
+    if (wmoRenderer && wmoRenderer->isInsideWMO(eye.x, eye.y, eye.z)) return 1.0f;
+
+    // How far to look. Far enough to clear the hill the camera is standing
+    // under, and no further: past a few hundred yards a ridge on the horizon
+    // is the sky's business, not the flare's.
+    constexpr float kReach = 600.0f;
+
+    if (wmoRenderer && wmoRenderer->raycastBoundingBoxes(eye, sunDir, kReach) < kReach) {
+        return 1.0f;
+    }
+
+    // The terrain, marched rather than intersected: the heightmap is what
+    // terrain collision is here, so asking it how high the ground is under each
+    // sample answers the same question an intersection would.
+    //
+    // Geometric steps, because the sample that decides this is almost always
+    // near the eye - the lip of the slope being stood under, or the hillside
+    // the camera has been pushed into - while a sample five hundred yards out
+    // only has to be finer than a mountain. Nineteen of them cover the range.
+    if (terrainManager) {
+        for (float t = 1.0f; t < kReach; t *= 1.4f) {
+            const glm::vec3 p = eye + sunDir * t;
+            const std::optional<float> ground = terrainManager->getHeightAt(p.x, p.y);
+            if (ground && *ground > p.z) return 1.0f;
+        }
+    }
+    return 0.0f;
+}
+
 void Renderer::update(float deltaTime) {
     ZoneScopedN("Renderer::update");
     globalTime += deltaTime;
     runDeferredWorldInitStep(deltaTime);
+
+    // Ease toward it rather than taking it. The sample is a yes or a no, and
+    // walking a hill edge across the line to the sun would otherwise snap the
+    // flare on and off; a quarter second of travel reads as the sun going
+    // behind something.
+    {
+        const float target = sampleSunOcclusion();
+        const float rate = 1.0f - std::exp(-deltaTime / 0.25f);
+        sunOcclusion_ += (target - sunOcclusion_) * glm::clamp(rate, 0.0f, 1.0f);
+    }
 
     auto updateStart = std::chrono::steady_clock::now();
     lastDeltaTime_ = deltaTime;
@@ -2666,12 +2720,13 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
             VkCommandBuffer cmd = beginSecondary(SEC_SKY);
             setSecondaryViewportScissor(cmd);
             if (skySystem && camera && !skipSky) {
-                const rendering::SkyParams skyParams = rendering::skyParamsFromLighting(
+                rendering::SkyParams skyParams = rendering::skyParamsFromLighting(
                     timeOfDay,
                     gameHandler ? gameHandler->getGameTime() : -1.0f,
                     gameHandler ? gameHandler->getWeatherIntensity() : 0.0f,
                     lightingManager ? &lightingManager->getLightingParams() : nullptr,
                     useOriginalSkybox);
+                skyParams.sunOcclusion = sunOcclusion_;
                 skySystem->render(cmd, perFrameSet, *camera, skyParams);
                 if (useOriginalSkybox) {
                     skyboxModelRenderer_->render(cmd, perFrameSet, *camera);
@@ -2869,12 +2924,13 @@ void Renderer::renderWorld(game::World* world, game::GameHandler* gameHandler) {
 
         // Sky after the ground, for the reason given on the parallel path.
         if (skySystem && camera && !skipSky) {
-            const rendering::SkyParams skyParams = rendering::skyParamsFromLighting(
+            rendering::SkyParams skyParams = rendering::skyParamsFromLighting(
                 timeOfDay,
                 gameHandler ? gameHandler->getGameTime() : -1.0f,
                 gameHandler ? gameHandler->getWeatherIntensity() : 0.0f,
                 lightingManager ? &lightingManager->getLightingParams() : nullptr,
                 useOriginalSkybox);
+            skyParams.sunOcclusion = sunOcclusion_;
             skySystem->render(currentCmd, perFrameSet, *camera, skyParams);
             if (useOriginalSkybox) {
                 skyboxModelRenderer_->prepareRender(frameIdx, *camera);
@@ -3991,6 +4047,9 @@ void Renderer::renderReflectionPass() {
                 skyParams.horizonGlow = lp.horizonGlow;
             }
             // weatherIntensity left at default 0 for reflection pass (no game handler in scope)
+            // A flare is an artefact of the lens, so it belongs to the camera
+            // and not to what the water is showing it.
+            skyParams.sunOcclusion = 1.0f;
             skySystem->render(currentCmd, reflDescSet, *camera, skyParams);
         }
         if (terrainRenderer && terrainEnabled) {
