@@ -16,6 +16,7 @@ import queue
 import shutil
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -24,6 +25,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+
+import asset_profiles
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -200,6 +203,49 @@ class PipelineManager:
         self.save_state()
         return info
 
+    def export_pack(self, source_dir: Path, dest_zip: Path, name: str,
+                    progress=None) -> dict[str, Any]:
+        """Write a directory of assets out as a pack anyone can install.
+
+        The same shape install_pack_from_zip reads: a pack.json describing what
+        this is, beside the game-relative tree it carries. Zip rather than
+        anything tighter because the other half of the round trip already
+        speaks zip, and because a pack is a thing people send each other -
+        it opens on Windows without installing a tool for it.
+
+        Deflate at level 6. The tree is mostly BLP and M2, both already
+        compressed, so the levels above 6 spend minutes to win single-figure
+        percentages.
+        """
+        files: list[Path] = [p for p in sorted(source_dir.rglob("*")) if p.is_file()]
+        total = len(files)
+        manifest = {
+            "pack_format": 1,
+            "name": name,
+            "created": self.now_str(),
+            "source": str(source_dir),
+            "file_count": total,
+        }
+        dest_zip.parent.mkdir(parents=True, exist_ok=True)
+        written = 0
+        raw = 0
+        with zipfile.ZipFile(dest_zip, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
+            zf.writestr("pack.json", json.dumps(manifest, indent=2))
+            for path in files:
+                rel = path.relative_to(source_dir)
+                zf.write(path, str(Path("Data") / rel))
+                raw += path.stat().st_size
+                written += 1
+                if progress and (written % 200 == 0 or written == total):
+                    progress(written, total)
+        packed = dest_zip.stat().st_size
+        return {
+            "files": written,
+            "raw_bytes": raw,
+            "packed_bytes": packed,
+            "path": str(dest_zip),
+        }
+
     def uninstall_pack(self, pack_id: str) -> None:
         self.state.packs = [p for p in self.state.packs if p.pack_id != pack_id]
         self.state.active_pack_ids = [pid for pid in self.state.active_pack_ids if pid != pack_id]
@@ -313,8 +359,23 @@ class PipelineManager:
         return None
 
     def build_extract_command(self) -> list[str]:
-        mpq_dir = self.state.wow_data_dir.strip()
-        output_dir = self.state.output_data_dir.strip()
+        return self.extract_command_for(
+            self.state.wow_data_dir.strip(),
+            self.state.expansion,
+            self.state.output_data_dir.strip(),
+        )
+
+    def extract_command_for(self, mpq_dir: str, expansion: str, output_dir: str) -> list[str]:
+        """The command that extracts one game into one place.
+
+        Parameterised because a profile can call for two extractions - the game
+        being built, and a later client it is borrowing art from - and the
+        second should not have to overwrite the first's settings to say so.
+
+        One asymmetry worth knowing about: the shell script writes to its own
+        Data directory and takes no output argument, so when it is the fallback
+        the output_dir asked for here is not honoured. The binary takes it.
+        """
         if not mpq_dir or not output_dir:
             raise ValueError("Both WoW Data directory and output directory are required.")
 
@@ -326,14 +387,14 @@ class PipelineManager:
 
         if extractor[0].endswith("extract_assets.sh") or extractor[-1].endswith("extract_assets.sh"):
             cmd = [*extractor, mpq_dir]
-            if self.state.expansion and self.state.expansion != "auto":
-                cmd.append(self.state.expansion)
+            if expansion and expansion != "auto":
+                cmd.append(expansion)
             return cmd
 
         cmd = [*extractor, "--mpq-dir", mpq_dir, "--output", output_dir,
                "--expansion-subdir"]
-        if self.state.expansion and self.state.expansion != "auto":
-            cmd.extend(["--expansion", self.state.expansion])
+        if expansion and expansion != "auto":
+            cmd.extend(["--expansion", expansion])
         if self.state.locale and self.state.locale != "auto":
             cmd.extend(["--locale", self.state.locale])
         if self.state.skip_dbc:
@@ -384,6 +445,10 @@ class AssetPipelineGUI:
         self.root = root
         self.manager = PipelineManager()
 
+        # Set by the Get Started tab so the completion hook knows what was
+        # built and can name the pack after it.
+        self._pending_profile: asset_profiles.Profile | None = None
+
         self.log_queue: queue.Queue[str] = queue.Queue()
         self.proc_thread: threading.Thread | None = None
         self.proc_process: subprocess.Popen | None = None
@@ -409,23 +474,471 @@ class AssetPipelineGUI:
         self.notebook = ttk.Notebook(top)
         self.notebook.pack(fill="both", expand=True)
 
+        self.setup_tab = ttk.Frame(self.notebook, padding=10)
         self.cfg_tab = ttk.Frame(self.notebook, padding=10)
         self.packs_tab = ttk.Frame(self.notebook, padding=10)
         self.browser_tab = ttk.Frame(self.notebook, padding=4)
         self.state_tab = ttk.Frame(self.notebook, padding=10)
         self.logs_tab = ttk.Frame(self.notebook, padding=10)
 
-        self.notebook.add(self.cfg_tab, text="Configuration")
+        # Setup first, and Configuration behind it. Configuration asks which
+        # locale, how many threads and whether to verify CRCs - questions with
+        # a right answer that somebody arriving with a game folder cannot be
+        # expected to have. Setup asks what they want the game to look like.
+        self.notebook.add(self.setup_tab, text="Get Started")
+        self.notebook.add(self.cfg_tab, text="Advanced")
         self.notebook.add(self.packs_tab, text="Texture Packs")
         self.notebook.add(self.browser_tab, text="Asset Browser")
         self.notebook.add(self.state_tab, text="Current State")
         self.notebook.add(self.logs_tab, text="Logs")
 
+        self._build_setup_tab()
         self._build_config_tab()
         self._build_packs_tab()
         self._build_browser_tab()
         self._build_state_tab()
         self._build_logs_tab()
+
+    # ---------------------------------------------------------------
+    # Get Started
+    # ---------------------------------------------------------------
+
+    def _build_setup_tab(self) -> None:
+        """Three questions, in the order somebody actually has answers for.
+
+        Where is the game, what do you want it to look like, and go. Everything
+        the Advanced tab asks - locale, thread count, CRC verification, whether
+        to write DBCs as CSV - has a right answer that the person arriving with
+        a game folder has no way to know, and a default that is right for them.
+        """
+        frame = self.setup_tab
+        frame.columnconfigure(0, weight=1)
+
+        intro = (
+            "Point this at a World of Warcraft folder you own, choose how you want "
+            "the game to look, and press Build. Nothing is written into the game "
+            "install - the assets are copied out into their own tree, and anything "
+            "added on top can be switched off again."
+        )
+        ttk.Label(frame, text=intro, wraplength=760, justify="left",
+                  foreground="#333").grid(row=0, column=0, sticky="ew", pady=(0, 12))
+
+        # --- 1. the game ---
+        one = ttk.LabelFrame(frame, text=" 1.  Where is the game? ", padding=10)
+        one.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        one.columnconfigure(1, weight=1)
+
+        ttk.Label(one, text="Game folder").grid(row=0, column=0, sticky="w")
+        self.var_setup_game = tk.StringVar(value=self.manager.state.wow_data_dir)
+        ttk.Entry(one, textvariable=self.var_setup_game).grid(
+            row=0, column=1, sticky="ew", padx=8)
+        ttk.Button(one, text="Browse...", command=self._setup_pick_game).grid(row=0, column=2)
+
+        self.setup_detect_var = tk.StringVar(value="")
+        ttk.Label(one, textvariable=self.setup_detect_var, foreground="#0a5",
+                  wraplength=740, justify="left").grid(
+            row=1, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+        ttk.Label(one, text="A later client, to borrow art from (optional)").grid(
+            row=2, column=0, sticky="w", pady=(10, 0))
+        self.var_setup_second = tk.StringVar(value="")
+        ttk.Entry(one, textvariable=self.var_setup_second).grid(
+            row=2, column=1, sticky="ew", padx=8, pady=(10, 0))
+        ttk.Button(one, text="Browse...", command=self._setup_pick_second).grid(
+            row=2, column=2, pady=(10, 0))
+
+        # --- 2. the profile ---
+        two = ttk.LabelFrame(frame, text=" 2.  What do you want? ", padding=10)
+        two.grid(row=2, column=0, sticky="nsew", pady=(0, 10))
+        two.columnconfigure(0, weight=1)
+        frame.rowconfigure(2, weight=1)
+
+        self.var_profile = tk.StringVar(value="wotlk")
+        self.setup_profile_rows: dict[str, tuple[ttk.Radiobutton, ttk.Label]] = {}
+        for row, profile in enumerate(asset_profiles.PROFILES):
+            radio = ttk.Radiobutton(two, text=profile.name, value=profile.profile_id,
+                                    variable=self.var_profile,
+                                    command=self._setup_profile_changed)
+            radio.grid(row=row * 2, column=0, sticky="w")
+            note = ttk.Label(two, text=profile.summary, foreground="#555",
+                             wraplength=720, justify="left")
+            note.grid(row=row * 2 + 1, column=0, sticky="w", padx=(22, 0), pady=(0, 6))
+            self.setup_profile_rows[profile.profile_id] = (radio, note)
+
+        # --- 3. go ---
+        three = ttk.Frame(frame)
+        three.grid(row=3, column=0, sticky="ew")
+        self.setup_plan_var = tk.StringVar(value="")
+        ttk.Label(three, textvariable=self.setup_plan_var, wraplength=760,
+                  justify="left", foreground="#333").pack(anchor="w", pady=(0, 8))
+
+        buttons = ttk.Frame(three)
+        buttons.pack(anchor="w")
+        self.setup_build_btn = ttk.Button(buttons, text="Build my assets",
+                                          command=self._setup_build)
+        self.setup_build_btn.pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Save what I have as a pack...",
+                   command=self._setup_export).pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="Install a pack someone sent me...",
+                   command=self._setup_import).pack(side="left")
+
+        self._setup_refresh_availability()
+
+    def _setup_pick_game(self) -> None:
+        chosen = filedialog.askdirectory(title="Your World of Warcraft folder")
+        if chosen:
+            self.var_setup_game.set(chosen)
+            self._setup_refresh_availability()
+
+    def _setup_pick_second(self) -> None:
+        chosen = filedialog.askdirectory(title="A later World of Warcraft installation")
+        if chosen:
+            self.var_setup_second.set(chosen)
+            self._setup_refresh_availability()
+
+    @staticmethod
+    def _looks_like_casc(path: Path) -> bool:
+        """Warlords onward keeps its files in Data/data with .idx indices."""
+        return (path / "Data" / "data").is_dir() or (path / "Data" / "indices").is_dir()
+
+    @staticmethod
+    def _looks_like_mpq(path: Path) -> bool:
+        for candidate in (path, path / "Data"):
+            if not candidate.is_dir():
+                continue
+            for entry in candidate.iterdir():
+                if entry.suffix.lower() == ".mpq":
+                    return True
+        return False
+
+    def _setup_detect(self) -> tuple[set[str], str]:
+        """What the chosen folders are, said in words rather than in flags."""
+        have: set[str] = set()
+        notes: list[str] = []
+
+        game = self.var_setup_game.get().strip()
+        if game:
+            path = Path(game)
+            if not path.is_dir():
+                notes.append("That folder does not exist.")
+            elif self._looks_like_mpq(path):
+                have.add("mpq")
+                notes.append("Found a game here - its archives are readable.")
+            elif self._looks_like_casc(path):
+                have.add("casc")
+                notes.append(
+                    "This is Warlords or later. Those can supply models but not a whole "
+                    "game: none of their data tables are in a form this client reads. "
+                    "Put an older client in the box above and this one below.")
+            else:
+                notes.append(
+                    "No game archives in there. Choose the folder that has Data/ in it, "
+                    "or the Data folder itself.")
+
+        second = self.var_setup_second.get().strip()
+        if second:
+            path = Path(second)
+            if not path.is_dir():
+                notes.append("The second folder does not exist.")
+            elif self._looks_like_casc(path):
+                have.add("casc")
+                notes.append("Second client: Legion-era, models can be borrowed from it.")
+            elif self._looks_like_mpq(path):
+                have.add("mpq2")
+                notes.append("Second client: an older one, art can be borrowed from it.")
+            else:
+                notes.append("Nothing recognisable in the second folder.")
+
+        return have, "  ".join(notes)
+
+    def _setup_refresh_availability(self) -> None:
+        have, note = self._setup_detect()
+        self.setup_detect_var.set(note)
+        avail = asset_profiles.availability(have)
+        for profile in asset_profiles.PROFILES:
+            ok, why = avail[profile.profile_id]
+            radio, label = self.setup_profile_rows[profile.profile_id]
+            radio.configure(state="normal" if ok else "disabled")
+            label.configure(text=profile.summary if ok else f"{profile.summary}   ({why})",
+                            foreground="#555" if ok else "#999")
+        self._setup_profile_changed()
+
+    def _setup_profile_changed(self) -> None:
+        """Say what pressing the button will do, before it is pressed."""
+        profile = asset_profiles.by_id(self.var_profile.get())
+        if profile is None:
+            self.setup_plan_var.set("")
+            return
+        lines = [f"{profile.detail}", "", "This will:"]
+        for n, step in enumerate(profile.steps, 1):
+            lines.append(f"   {n}. {step.summary}")
+        lines.append("")
+        lines.append(f"Roughly {profile.minutes} minutes, and you can stop it at any point.")
+        self.setup_plan_var.set("\n".join(lines))
+
+    # ---------------------------------------------------------------
+    # Running a profile
+    # ---------------------------------------------------------------
+
+    def _profile_stages(self, profile, game: str, second: str) -> list[dict[str, Any]]:
+        """The commands a profile becomes, in order.
+
+        Each stage carries whether failing it should stop the rest. Extraction
+        is fatal - nothing downstream means anything without it. Everything
+        after is an enrichment: the assets are complete and playable without
+        it, and a pass that fails should say so and leave the rest standing
+        rather than throw away twenty minutes of extraction.
+        """
+        # The configured root, not effective_output_dir() - that one already
+        # resolves to the expansion inside it, and nesting a second
+        # expansions/<name> under it pointed every later stage at a directory
+        # that does not exist.
+        root = Path(self.manager.state.output_data_dir)
+        exp_dir = root / "expansions" / profile.expansion
+        stages: list[dict[str, Any]] = []
+
+        for step in profile.steps:
+            if step.kind == "extract":
+                stages.append({
+                    "label": step.summary,
+                    "argv": self.manager.extract_command_for(
+                        game, profile.expansion, str(root)),
+                    "fatal": True,
+                })
+
+            elif step.kind == "upscale":
+                stages.append({
+                    "label": step.summary,
+                    "argv": [sys.executable, str(ROOT_DIR / "tools" / "upscale_textures.py"),
+                             "--data-dir", str(root), "--scale", "4"],
+                    "fatal": False,
+                })
+
+            elif step.kind == "import_models" and step.source == "casc":
+                # The catalogue is the expensive half and is the same for every
+                # prefix, so it is swept once and reused. CASC holds no
+                # filenames, only ids and hashes of paths, so without this list
+                # nothing in there is addressable by name at all.
+                catalogue = PIPELINE_DIR / f"casc-models-{Path(second).name}.txt"
+                if not catalogue.exists():
+                    stages.append({
+                        "label": "Read the later client's model list (a few minutes, once)",
+                        "argv": [sys.executable, str(ROOT_DIR / "tools" / "casc_extract.py"),
+                                 second, "--sweep"],
+                        "stdout_to": str(catalogue),
+                        "fatal": False,
+                    })
+                for prefix in step.args.get("prefixes", ()):
+                    stages.append({
+                        "label": f"{step.summary} - {prefix}",
+                        "argv": [sys.executable, str(ROOT_DIR / "tools" / "casc_model_import.py"),
+                                 second, str(exp_dir / "override"),
+                                 f"--catalogue={catalogue}", f"--local={exp_dir}",
+                                 f"--prefix={prefix}", "--better"],
+                        "fatal": False,
+                    })
+
+            elif step.kind == "import_models" and step.source == "mpq2":
+                # A later MPQ client: extracted to its own scratch tree, then
+                # built into a pack rather than merged straight in, so it can
+                # be switched off like anything else.
+                borrowed_exp = step.args.get("expansion", "cata")
+                scratch = root / "expansions" / borrowed_exp
+                stages.append({
+                    "label": f"{step.summary} - read the later client",
+                    "argv": self.manager.extract_command_for(second, borrowed_exp, str(root)),
+                    "fatal": False,
+                })
+                stages.append({
+                    "label": f"{step.summary} - build it into a pack",
+                    "argv": [sys.executable, str(ROOT_DIR / "tools" / "asset_pack_from_client.py"),
+                             "--from", str(scratch), "--against", str(exp_dir),
+                             "--include", step.args.get("include", "world"),
+                             "--name", f"{step.args.get('expansion','other')}-trees"],
+                    "fatal": False,
+                })
+
+        return stages
+
+    def _run_stages(self, stages: list[dict[str, Any]], done_message: str) -> None:
+        """Run a profile's stages in order, streaming to the log."""
+        if self.proc_running:
+            messagebox.showinfo("Busy", "Something is already running.")
+            return
+        self.cancel_btn.configure(state="normal")
+
+        def worker() -> None:
+            self.proc_running = True
+            failed: list[str] = []
+            try:
+                for n, stage in enumerate(stages, 1):
+                    label = f"[{n}/{len(stages)}] {stage['label']}"
+                    self.log_queue.put("")
+                    self.log_queue.put(f"=== {label}")
+                    self.log_queue.put(f"    {' '.join(stage['argv'])}")
+                    self.root.after(0, lambda l=label: self.status_var.set(l))
+
+                    sink = None
+                    try:
+                        if stage.get("stdout_to"):
+                            Path(stage["stdout_to"]).parent.mkdir(parents=True, exist_ok=True)
+                            sink = open(stage["stdout_to"], "w", encoding="utf-8")
+                        process = subprocess.Popen(
+                            stage["argv"], cwd=str(ROOT_DIR),
+                            stdout=(sink or subprocess.PIPE),
+                            stderr=subprocess.STDOUT, text=True, bufsize=1)
+                        self.proc_process = process
+                        if not sink and process.stdout is not None:
+                            for line in process.stdout:
+                                self.log_queue.put(line.rstrip())
+                        rc = process.wait()
+                    finally:
+                        if sink:
+                            sink.close()
+                        self.proc_process = None
+
+                    if rc != 0:
+                        failed.append(stage["label"])
+                        self.log_queue.put(f"    exited with status {rc}")
+                        if stage.get("fatal"):
+                            self.log_queue.put("    this one is required - stopping here")
+                            break
+                        self.log_queue.put("    carrying on; the assets are usable without it")
+            except Exception as exc:  # pylint: disable=broad-except
+                self.log_queue.put(f"Failed: {exc}")
+                failed.append(str(exc))
+            finally:
+                self.proc_running = False
+                ok = not failed
+                self.manager.state.last_extract_at = self.manager.now_str()
+                self.manager.state.last_extract_ok = ok
+                self.manager.save_state()
+                self.root.after(0, self.refresh_state_view)
+                self.root.after(0, lambda: self.cancel_btn.configure(state="disabled"))
+                self.root.after(0, lambda: self.status_var.set(
+                    done_message if ok else f"Finished, {len(failed)} step(s) did not complete"))
+                if failed:
+                    detail = "\n".join(f"  - {f}" for f in failed)
+                    self.root.after(0, lambda: messagebox.showwarning(
+                        "Some steps did not finish",
+                        f"These did not complete:\n\n{detail}\n\n"
+                        "Anything that did finish is kept. The Logs tab has the detail."))
+                self.root.after(0, self._setup_offer_save)
+
+        self.proc_thread = threading.Thread(target=worker, daemon=True)
+        self.proc_thread.start()
+
+    def _setup_build(self) -> None:
+        """Run the chosen profile, then offer to keep a copy of the result."""
+        profile = asset_profiles.by_id(self.var_profile.get())
+        if profile is None:
+            return
+        game = self.var_setup_game.get().strip()
+        if not game:
+            messagebox.showerror("No game folder", "Choose the folder your game is in first.")
+            return
+
+        have, _ = self._setup_detect()
+        ok, why = asset_profiles.availability(have)[profile.profile_id]
+        if not ok:
+            messagebox.showerror("Not possible yet", why)
+            return
+
+        steps = "\n".join(f"   {n}. {s.summary}" for n, s in enumerate(profile.steps, 1))
+        if not messagebox.askokcancel(
+                profile.name,
+                f"{profile.detail}\n\nThis will:\n{steps}\n\n"
+                f"About {profile.minutes} minutes. Nothing is written into your game "
+                f"install.\n\nStart?"):
+            return
+
+        # The profile drives the settings the Advanced tab exposes, so the two
+        # cannot disagree about what is being built.
+        self.manager.state.wow_data_dir = game
+        self.manager.state.expansion = profile.expansion
+        self.var_wow_data.set(game)
+        self.var_expansion.set(profile.expansion)
+        self.manager.save_state()
+
+        self._pending_profile = profile
+        self.notebook.select(self.logs_tab)
+        stages = self._profile_stages(profile, game, self.var_setup_second.get().strip())
+        self._run_stages(stages, f"{profile.name} is ready")
+
+    def _setup_offer_save(self) -> None:
+        """After a build, ask once whether to keep a copy. Asked, not assumed."""
+        profile = self._pending_profile
+        self._pending_profile = None
+        if profile is None or not self.manager.state.last_extract_ok:
+            return
+        if not messagebox.askyesno(
+                "Keep a copy?",
+                "The assets are built.\n\n"
+                "Would you like to save them as a single compressed file? It can be "
+                "installed again later without the original game, and shared with "
+                "someone else who wants the same set.\n\n"
+                "You can always do this later with \"Save what I have as a pack\"."):
+            return
+        self._setup_export(default_name=profile.profile_id)
+
+    def _setup_export(self, default_name: str = "") -> None:
+        """Write the built assets out as one file."""
+        source = self.manager.effective_output_dir()
+        if not source.is_dir():
+            messagebox.showerror("Nothing to save",
+                                 "There are no built assets yet. Build some first.")
+            return
+
+        stamp = datetime.now().strftime("%Y%m%d")
+        suggested = f"wowee-{default_name or 'assets'}-{stamp}.zip"
+        dest = filedialog.asksaveasfilename(
+            title="Save assets as a pack", defaultextension=".zip",
+            initialfile=suggested, filetypes=[("Asset pack", "*.zip")])
+        if not dest:
+            return
+
+        def worker() -> None:
+            self.log_queue.put(f"Packing {source} -> {dest}")
+
+            def progress(done: int, total: int) -> None:
+                self.root.after(0, lambda: self.status_var.set(
+                    f"Packing... {done:,} of {total:,} files"))
+
+            try:
+                result = self.manager.export_pack(source, Path(dest),
+                                                  default_name or "assets", progress)
+            except Exception as exc:  # pylint: disable=broad-except
+                self.log_queue.put(f"Pack failed: {exc}")
+                self.root.after(0, lambda: messagebox.showerror("Pack failed", str(exc)))
+                return
+            raw = result["raw_bytes"] / (1024 ** 3)
+            packed = result["packed_bytes"] / (1024 ** 3)
+            saved = (1 - packed / raw) * 100 if raw else 0
+            msg = (f"Saved {result['files']:,} files\n\n"
+                   f"{raw:.1f} GB of assets in a {packed:.1f} GB file ({saved:.0f}% smaller)\n\n"
+                   f"{dest}")
+            self.log_queue.put(msg.replace("\n\n", " - "))
+            self.root.after(0, lambda: self.status_var.set("Pack saved"))
+            self.root.after(0, lambda: messagebox.showinfo("Saved", msg))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _setup_import(self) -> None:
+        chosen = filedialog.askopenfilename(
+            title="Install an asset pack", filetypes=[("Asset pack", "*.zip")])
+        if not chosen:
+            return
+        try:
+            info = self.manager.install_pack_from_zip(Path(chosen))
+        except Exception as exc:  # pylint: disable=broad-except
+            messagebox.showerror("Could not install", str(exc))
+            return
+        self.refresh_pack_list()
+        messagebox.showinfo(
+            "Installed",
+            f"{info.name} is installed with {info.file_count:,} files.\n\n"
+            "It is switched off until you enable it under Texture Packs, and "
+            "switching it off again puts everything back.")
 
     def _build_config_tab(self) -> None:
         self.var_wow_data = tk.StringVar()
@@ -2349,6 +2862,7 @@ class AssetPipelineGUI:
                 self.root.after(
                     0, lambda: self.status_var.set("Extraction complete" if ok else "Extraction failed")
                 )
+                self.root.after(0, self._setup_offer_save)
 
         self.proc_thread = threading.Thread(target=worker, daemon=True)
         self.proc_thread.start()

@@ -22,8 +22,15 @@ if [ ! -d "$DATA_DIR" ]; then
     exit 1
 fi
 
-if [ ! -f "$DATA_DIR/manifest.json" ]; then
-    echo "Error: No manifest.json in $DATA_DIR - doesn't look like an extracted asset directory" >&2
+# What an extracted tree looks like, which is not what this used to check for.
+# It wanted manifest.json at the top, and extraction has never written one
+# there: the manifest is per-expansion, under expansions/<name>/manifest.json.
+# So this refused every real extraction it was ever pointed at, and the only
+# way to keep a copy was to tar the directory by hand.
+if [ ! -d "$DATA_DIR/expansions" ] && [ ! -f "$DATA_DIR/manifest.json" ]; then
+    echo "Error: $DATA_DIR has no expansions/ directory and no manifest.json -" >&2
+    echo "       that does not look like an extracted asset tree." >&2
+    echo "       Point this at the Data directory extraction wrote." >&2
     exit 1
 fi
 
