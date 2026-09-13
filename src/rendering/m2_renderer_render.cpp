@@ -37,6 +37,9 @@
 #include <future>
 #include <thread>
 
+#include <set>
+#include <utility>
+
 namespace wowee {
 namespace rendering {
 
@@ -1479,13 +1482,50 @@ void M2Renderer::render(VkCommandBuffer cmd, VkDescriptorSet perFrameSet, const 
                 uint32_t groupSize = static_cast<uint32_t>(lodEnd - lodIdx);
                 uint32_t groupSSBOOffset = baseSSBOOffset + static_cast<uint32_t>(lodIdx);
 
+                // What each batch of a named model does at draw time, once.
+                //
+                // WOWEE_M2_BATCH_DIAG says what a batch IS, at load. It could
+                // not say whether the batch was drawn, and a tree reported as
+                // missing a section of trunk is exactly that question: four
+                // readings of the model data in a row said every batch was
+                // present and correct, which it is, so the answer has to come
+                // from the frame rather than from the file.
+                static const std::string kDrawDiag = [] {
+                    const char* v = std::getenv("WOWEE_M2_BATCH_DIAG");
+                    std::string t = v ? v : "";
+                    std::transform(t.begin(), t.end(), t.begin(), [](unsigned char c) {
+                        return static_cast<char>(std::tolower(c));
+                    });
+                    return t;
+                }();
+                bool diagThisModel = false;
+                if (!kDrawDiag.empty()) {
+                    std::string lowerName = model.name;
+                    std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
+                                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                    diagThisModel = lowerName.find(kDrawDiag) != std::string::npos;
+                }
                 for (size_t bi = 0; bi < model.batches.size(); bi++) {
                     const auto& batch = model.batches[bi];
-                    if (batch.indexCount == 0) continue;
-                    if (!model.isGroundDetail && batch.submeshLevel != lod) continue;
-                    if (batch.batchOpacity < 0.01f) continue;
-                    if (!skyBatchAllowed(skyMode_, bi)) continue;
-                    if (suppressBakedStars_ && batch.starLayer) continue;
+                    const char* skipped = nullptr;
+                    if (batch.indexCount == 0) skipped = "no indices";
+                    else if (!model.isGroundDetail && batch.submeshLevel != lod)
+                        skipped = "submeshLevel is not this LOD";
+                    else if (batch.batchOpacity < 0.01f) skipped = "opacity is zero";
+                    else if (!skyBatchAllowed(skyMode_, bi)) skipped = "sky batch rule";
+                    else if (suppressBakedStars_ && batch.starLayer) skipped = "baked star layer";
+                    if (diagThisModel) {
+                        static std::set<std::pair<const void*, size_t>> saidDraw;
+                        if (saidDraw.size() < 64 && saidDraw.insert({&model, bi}).second) {
+                            LOG_WARNING("M2 DRAW '", model.name, "' batch ", bi,
+                                        " lod=", lod, " submeshLevel=", batch.submeshLevel,
+                                        " idx=", batch.indexCount,
+                                        " opacity=", batch.batchOpacity,
+                                        (skipped ? "  SKIPPED: " : "  drawn"),
+                                        (skipped ? skipped : ""));
+                        }
+                    }
+                    if (skipped) continue;
                     const bool batchUnlit = (batch.materialFlags & 0x01) != 0;
                     M2GlowCardBatch glowCard;
                     glowCard.glowSize = batch.glowSize;
