@@ -32,15 +32,6 @@ else
     BINARY="${BUILD_DIR}/bin/asset_extract"
 fi
 
-# --- Validate arguments ---
-if [ ${#POSITIONAL[@]} -lt 1 ]; then
-    echo "Usage: $0 /path/to/WoW/Data [classic|turtle|tbc|wotlk] [--upscale[=N]]"
-    echo ""
-    echo "Point this at your WoW client's Data directory."
-    echo "The expansion is auto-detected if not specified."
-    exit 1
-fi
-
 # --- Options, in any position; what is left is positional ---
 UPSCALE_SCALE=""
 POSITIONAL=()
@@ -51,7 +42,25 @@ for arg in "$@"; do
         *)            POSITIONAL+=("$arg") ;;
     esac
 done
-set -- "${POSITIONAL[@]}"
+# Empty arrays and `set -u` disagree in bash 3.2, which is the bash macOS
+# ships and the one `#!/bin/bash` picks there. Expanding an empty array is an
+# unbound variable to it, so the array is only expanded when it has something
+# in it - which is exactly the no-arguments case the usage text is for.
+set -- ${POSITIONAL[@]+"${POSITIONAL[@]}"}
+
+# --- Validate arguments ---
+#
+# After the options are parsed, not before. This read ${#POSITIONAL[@]} above
+# the loop that declares it, so `set -u` stopped the script on its own usage
+# check: every run of it, with arguments or without, ended at
+# "POSITIONAL: unbound variable" and nothing was ever extracted.
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 /path/to/WoW/Data [classic|turtle|tbc|wotlk] [--upscale[=N]]"
+    echo ""
+    echo "Point this at your WoW client's Data directory."
+    echo "The expansion is auto-detected if not specified."
+    exit 1
+fi
 
 MPQ_DIR="$1"
 EXPANSION="${2:-auto}"
