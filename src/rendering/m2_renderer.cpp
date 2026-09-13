@@ -1442,9 +1442,19 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     // Cheap enough to leave on - once per model, and a session loads a few
     // hundred - and it is the list every "what is that thing" question starts
     // from.
+    // Two budgets, because one is eaten by the other. A zone's terrain streams
+    // in hundreds of doodads within a second or two of arriving, and on the
+    // first run of this the four hundred were spent before the creature that
+    // prompted it had even spawned. Doodads are placed from ADTs and can be
+    // enumerated offline; what cannot is anything spawned at runtime, so that
+    // gets the larger share and its own allowance.
     {
-        static core::LogBudget modelLoadBudget(400, "M2 models named at load");
-        if (modelLoadBudget.take()) {
+        const bool placedDoodad = model.name.rfind("WORLD\\", 0) == 0 ||
+                                  model.name.rfind("world\\", 0) == 0;
+        static core::LogBudget doodadLoadBudget(120, "placed doodad models named at load");
+        static core::LogBudget spawnedLoadBudget(600, "spawned models named at load");
+        core::LogBudget& budget = placedDoodad ? doodadLoadBudget : spawnedLoadBudget;
+        if (budget.take()) {
             LOG_WARNING("M2 load: '", model.name.empty() ? "<unnamed>" : model.name,
                         "' id=", modelId,
                         " verts=", model.vertices.size(),
