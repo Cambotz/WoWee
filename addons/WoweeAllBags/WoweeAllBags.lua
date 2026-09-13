@@ -254,6 +254,31 @@ local function newWindow(spec)
         b.icon = b:CreateTexture(nil, "BACKGROUND")
         b.icon:SetAllPoints(b)
 
+        -- The empty slot itself. Without it a slot holding nothing drew
+        -- nothing: the icon hidden, the rarity ring hidden, the count blank,
+        -- and a button with no art of its own left behind. The squares were
+        -- still there and still took a dropped item - they just could not be
+        -- seen, so the window looked like it listed only what was in the bags.
+        --
+        -- The same three textures ItemButtonTemplate gives every slot in the
+        -- real bags, at the same proportions: UI-Quickslot2 is a 64 pixel
+        -- frame drawn around a 37 pixel slot, centred one pixel low, so it
+        -- reads as a socket rather than a border tight to the icon.
+        b:SetNormalTexture("Interface\\Buttons\\UI-Quickslot2")
+        local normal = b:GetNormalTexture()
+        if normal then
+            normal:ClearAllPoints()
+            normal:SetWidth(SLOT * 64 / 37)
+            normal:SetHeight(SLOT * 64 / 37)
+            normal:SetPoint("CENTER", b, "CENTER", 0, -1)
+        end
+        b:SetPushedTexture("Interface\\Buttons\\UI-Quickslot-Depress")
+        b:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square")
+        local highlight = b:GetHighlightTexture()
+        if highlight and highlight.SetBlendMode then
+            highlight:SetBlendMode("ADD")
+        end
+
         -- The rarity ring. Drawn over the icon and under the count, coloured
         -- from GetItemQualityColor so it says the same thing the item's name
         -- does in a tooltip. Hidden for common and poor, which is what the real
