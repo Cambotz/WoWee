@@ -2214,7 +2214,14 @@ void EntitySpawner::spawnOnlineCreature(uint64_t guid, uint32_t displayId, float
                     }
                 }
             }
-            LOG_INFO("Creature display ", displayId, " (", (name.empty() ? "?" : name),
+            // At warning, because the log carries nothing below it, and
+            // this line is what every creature question needs first. Four
+            // separate reports this session - a bat's size, a goblin's
+            // portrait, an elemental's skin, an elemental's geometry - each
+            // began by working out which model a creature name draws, and
+            // the client already knew and was saying it where nobody looked.
+            // Sixty displays, once each.
+            LOG_WARNING("Creature display ", displayId, " (", (name.empty() ? "?" : name),
                         ", entry ", entry, ") draws ", path,
                         " at ", scale, " (server ", serverScale,
                         " x display ", dispScale,
