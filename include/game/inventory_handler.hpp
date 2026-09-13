@@ -696,6 +696,14 @@ private:
 
     void reconcileBuybackSlots();
 
+    /// Tell the merchant window its buyback list changed.
+    ///
+    /// The buyback tab redraws from GetNumBuybackItems and GetBuybackItemInfo
+    /// when MERCHANT_UPDATE arrives, and on no other event - so every edit to
+    /// buybackItems_ has to say so or the tab keeps showing the list as it was
+    /// when the window opened.
+    void notifyBuybackChanged();
+
     // ---- Mail state ----
     SocketSession socketSession_;
     PendingEquip pendingEquip_;

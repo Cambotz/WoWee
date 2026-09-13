@@ -279,7 +279,9 @@ static int lua_SpellCanTargetItem(lua_State* L) {
 // with real numbers costs nothing beyond saying so.
 
 /// GetBuybackItemInfo(index) → name, texture, price, quantity, numAvailable,
-/// isUsable. The buyback list is most-recent-first, as WoW numbers it.
+/// isUsable. Oldest first, as WoW numbers it: the most recent sale is at
+/// GetNumBuybackItems(), which is the index merchantframe.lua reads for the
+/// "buy back the last thing you sold" slot on the merchant tab.
 static int lua_GetBuybackItemInfo(lua_State* L) {
     auto* gh = getGameHandler(L);
     const int index = static_cast<int>(luaL_checknumber(L, 1));

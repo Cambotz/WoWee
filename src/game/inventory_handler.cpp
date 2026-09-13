@@ -544,7 +544,10 @@ void InventoryHandler::registerOpcodes(DispatchTable& table) {
                     [itemGuid](const BuybackItem& item) {
                         return item.itemGuid == itemGuid;
                     });
-                if (rejected != buybackItems_.end()) buybackItems_.erase(rejected);
+                if (rejected != buybackItems_.end()) {
+                    buybackItems_.erase(rejected);
+                    notifyBuybackChanged();
+                }
                 static const char* sellErrors[] = {
                     "OK", "Can't find item", "Can't sell item",
                     "Can't find vendor", "You don't own that item",
@@ -745,7 +748,10 @@ void InventoryHandler::registerOpcodes(DispatchTable& table) {
                         [this](const BuybackItem& item) {
                             return item.wireSlot == pendingBuybackWireSlot_;
                         });
-                    if (stale != buybackItems_.end()) buybackItems_.erase(stale);
+                    if (stale != buybackItems_.end()) {
+                        buybackItems_.erase(stale);
+                        notifyBuybackChanged();
+                    }
                     pendingBuybackSlot_ = -1;
                     pendingBuybackWireSlot_ = 0;
                     if (currentVendorItems_.vendorGuid != 0 && owner_.getSocket() && owner_.getState() == WorldState::IN_WORLD) {
@@ -1471,7 +1477,24 @@ void InventoryHandler::clearBuybackState() {
     pendingBuybackWireSlot_ = 0;
 }
 
+void InventoryHandler::notifyBuybackChanged() {
+    // Only while the window is up. The ring lives on the player and outlives
+    // any one vendor, so it changes at times nothing is drawing it.
+    if (!vendorWindowOpen_) return;
+    if (owner_.addonEventCallbackRef()) {
+        owner_.addonEventCallbackRef()("MERCHANT_UPDATE", {});
+    }
+}
+
 void InventoryHandler::reconcileBuybackSlots() {
+    // What the list looked like before, so this can say whether it changed.
+    // The server owns the ring, and this is where a sale becomes a real
+    // buyback row and where a purchase takes one away - both of which the
+    // window has to be told about, and neither of which it was.
+    std::vector<std::pair<uint64_t, uint32_t>> before;
+    before.reserve(buybackItems_.size());
+    for (const auto& item : buybackItems_) before.emplace_back(item.itemGuid, item.wireSlot);
+
     for (auto it = buybackItems_.begin(); it != buybackItems_.end();) {
         const auto slot = std::find(buybackSlotGuids_.begin(),
                                     buybackSlotGuids_.end(), it->itemGuid);
@@ -1508,6 +1531,11 @@ void InventoryHandler::reconcileBuybackSlots() {
             }
         }
     }
+
+    std::vector<std::pair<uint64_t, uint32_t>> after;
+    after.reserve(buybackItems_.size());
+    for (const auto& item : buybackItems_) after.emplace_back(item.itemGuid, item.wireSlot);
+    if (after != before) notifyBuybackChanged();
 }
 
 void InventoryHandler::buyItem(uint64_t vendorGuid, uint32_t itemId, uint32_t slot, uint32_t count) {
@@ -1569,6 +1597,9 @@ void InventoryHandler::sellItemBySlot(int backpackIndex) {
         sold.count = count;
         pendingSellToBuyback_[itemGuid] = sold;
         buybackItems_.push_back(sold);
+        // Shown straight away rather than when the server's ring update lands:
+        // the row is what tells the player the sale went through.
+        notifyBuybackChanged();
         sellItem(currentVendorItems_.vendorGuid, itemGuid, count);
     } else if (itemGuid == 0) {
         owner_.raiseUiError("Cannot sell: item not found in inventory.");
@@ -1615,6 +1646,9 @@ void InventoryHandler::sellItemInBag(int bagIndex, int slotIndex) {
         sold.count = count;
         pendingSellToBuyback_[itemGuid] = sold;
         buybackItems_.push_back(sold);
+        // Shown straight away rather than when the server's ring update lands:
+        // the row is what tells the player the sale went through.
+        notifyBuybackChanged();
         sellItem(currentVendorItems_.vendorGuid, itemGuid, count);
     } else if (itemGuid == 0) {
         owner_.raiseUiError("Cannot sell: item not found.");
