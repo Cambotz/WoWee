@@ -438,6 +438,19 @@ if(Python3_Interpreter_FOUND)
                      ${CMAKE_BINARY_DIR})
 endif()
 
+# ── upscale_mip_colour ──────────────────────────────────────────
+# Pillow's resize weights colour by alpha, so an RGBA resize returns black
+# wherever a sheet is transparent. That silently emptied every mip level below
+# the base of 727 upscaled sidecars; it showed up only once an opaque M2 batch
+# stopped keying its alpha away, as black holes through Silverpine's trunks at
+# any distance. One line wide and invisible until someone walks a chain by
+# hand. Instant.
+if(Python3_Interpreter_FOUND)
+    add_test(NAME upscale_mip_colour
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_SOURCE_DIR}/tools/upscale_mip_check.py)
+endif()
+
 # ── android_data_profiles ───────────────────────────────────────
 # The profiles in tools/android decide what an 18 GB extraction is cut down to
 # for a phone. A pattern that stops matching drops files silently and only says

@@ -234,6 +234,24 @@ def restore_coverage(arr: np.ndarray, target: float, cutoff: float) -> np.ndarra
     return out
 
 
+def halve_straight(arr: np.ndarray) -> np.ndarray:
+    """Halve an RGBA array without premultiplying the colour.
+
+    Pillow's resize on an RGBA image weights colour by alpha, so a texel that
+    is fully transparent contributes nothing and comes out black. That is the
+    right thing for a texture whose transparent texels hold junk, and the wrong
+    thing for one whose transparent texels were dilated on purpose. Splitting
+    the channels and filtering each on its own keeps the colour that was put
+    there.
+    """
+    height, width = arr.shape[:2]
+    size = (max(1, width // 2), max(1, height // 2))
+    rgb = Image.fromarray(arr[..., :3], "RGB").resize(size, Image.BOX)
+    alpha = Image.fromarray(arr[..., 3], "L").resize(size, Image.BOX)
+    return np.dstack([np.asarray(rgb, dtype=np.uint8),
+                      np.asarray(alpha, dtype=np.uint8)])
+
+
 def build_mip_chain(arr: np.ndarray, cutoff: float):
     """Every mip level down to 1x1, with the cutout's coverage held.
 
@@ -246,17 +264,24 @@ def build_mip_chain(arr: np.ndarray, cutoff: float):
     Colour is filtered straight rather than premultiplied, which is safe here
     and only here: the transparent texels were dilated to hold the colour of
     the leaf beside them, so what bleeds inward is the leaf.
+
+    Straight is what halve_straight does, and it has to be done by hand.
+    Resizing an RGBA image through Pillow premultiplies - colour under a
+    transparent texel comes back zeroed - so the chain this used to build threw
+    away everything dilate_rgb had just put there, at every level below the
+    base. It cost nothing while the only textures with alpha were cutouts,
+    because nothing samples a texel it has keyed away. It cost Silverpine's
+    trunks their midsection once an opaque batch stopped keying: level 0 held
+    the bark, and every level under it was black.
     """
     base_coverage = alpha_coverage(arr[..., 3], cutoff)
     levels = [arr]
-    cur = Image.fromarray(arr, "RGBA")
-    while cur.width > 1 or cur.height > 1:
-        cur = cur.resize((max(1, cur.width // 2), max(1, cur.height // 2)), Image.BOX)
-        level = np.asarray(cur, dtype=np.uint8).copy()
+    cur = arr
+    while cur.shape[1] > 1 or cur.shape[0] > 1:
+        cur = halve_straight(cur)
         if 0.0 < base_coverage < 1.0:
-            level = restore_coverage(level, base_coverage, cutoff)
-            cur = Image.fromarray(level, "RGBA")
-        levels.append(level)
+            cur = restore_coverage(cur, base_coverage, cutoff)
+        levels.append(cur)
     return levels
 
 
@@ -456,6 +481,62 @@ def params_of(args, backend, model) -> dict:
 # Commands
 # ---------------------------------------------------------------------------
 
+def do_remip(data_dir: Path, cutoff: float, dry_run: bool) -> int:
+    """Rebuild the mip chain of every .dds sidecar, keeping level 0 as it is.
+
+    build_mip_chain used to resize through Pillow's RGBA path, which weights
+    colour by alpha - so every level below the base came back black wherever
+    the texture was transparent, throwing away the dilation the base had just
+    been given. Nothing sampled those texels while every alpha-bearing texture
+    was a cutout. An opaque batch does sample them, and Silverpine's trunks
+    came back solid up close and holed in black at any distance, because the
+    bark was in level 0 and nowhere else.
+
+    The base is the expensive part and it is not wrong, so it is kept byte for
+    byte: no upscaler runs, and level 0 is not put through the DXT5 quantiser a
+    second time. Only the levels under it are rebuilt.
+    """
+    repaired = skipped = failed = 0
+    for path in sorted(data_dir.rglob("*.dds")):
+        try:
+            raw = path.read_bytes()
+            if raw[:4] != b"DDS " or len(raw) < 128:
+                skipped += 1
+                continue
+            height, width = struct.unpack_from("<II", raw, 12)
+            mip_count = struct.unpack_from("<I", raw, 28)[0]
+            if raw[84:88] != b"DXT5" or mip_count < 2:
+                skipped += 1
+                continue
+
+            base = np.asarray(Image.open(path).convert("RGBA"), dtype=np.uint8)
+            if base.shape[0] != height or base.shape[1] != width:
+                skipped += 1
+                continue
+            if not (0 < alpha_coverage(base[..., 3], cutoff) < 1.0):
+                # No cutout to hold and no transparent texel to lose colour
+                # under. Whatever chain it has is as good as one built here.
+                skipped += 1
+                continue
+
+            levels = build_mip_chain(dilate_rgb(base), cutoff)
+            rebuilt = dds_dxt5(levels)
+            # Splice the original base back over the re-encoded one.
+            base_bytes = max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * 16
+            out = rebuilt[:128] + raw[128:128 + base_bytes] + rebuilt[128 + base_bytes:]
+            if not dry_run:
+                path.write_bytes(out)
+            repaired += 1
+            if repaired % 100 == 0:
+                print(f"  {repaired} rebuilt...", flush=True)
+        except Exception as exc:                       # noqa: BLE001 - report and continue
+            print(f"  {path.relative_to(data_dir)}: {exc}")
+            failed += 1
+    verb = "would rebuild" if dry_run else "rebuilt"
+    print(f"{verb} {repaired} sidecar(s), skipped {skipped}, failed {failed}")
+    return 1 if failed else 0
+
+
 def do_clean(data_dir: Path) -> None:
     manifest = load_manifest(data_dir)
     removed = 0
@@ -630,11 +711,17 @@ def main() -> int:
     ap.add_argument("--verify", action="store_true",
                     help="report sidecars that are missing, stale or hand-made; exit 1 if any")
     ap.add_argument("--clean", action="store_true", help="delete what this tool generated")
+    ap.add_argument("--remip", action="store_true",
+                    help="rebuild the mip chain of existing .dds sidecars in place, keeping "
+                         "level 0; repairs chains built before colour survived the resize")
     args = ap.parse_args()
 
     data_dir = args.data_dir.resolve()
     if not data_dir.is_dir():
         sys.exit(f"Data dir not found: {data_dir}")
+
+    if args.remip:
+        return do_remip(data_dir, args.alpha_cutoff, args.dry_run)
 
     if args.clean:
         do_clean(data_dir)
