@@ -32,7 +32,8 @@ except ImportError as exc:                   # pragma: no cover - environment
     print(f"skipped: {exc}")
     sys.exit(0)
 
-from upscale_textures import build_mip_chain, halve_straight
+from upscale_textures import (backing_is_painted, build_mip_chain, halve_straight,
+                              restore_hidden_colour)
 
 BARK = (107, 84, 47)          # measured under the alpha of SilverPineTree01TrunkSkin
 CUTOFF = 0.5
@@ -85,11 +86,41 @@ def main() -> int:
                 f"mip {i} ({level.shape[1]}x{level.shape[0]}) went black under alpha: "
                 f"{under.round(1)}, luma {luma(under):.1f}")
 
+    # A painted backing is artwork an opaque batch samples; a black one is the
+    # compressor's junk behind a silhouette. Dilating the first destroys it,
+    # and the client draws exactly the first kind opaque, so the two sides of
+    # the pipeline have to agree on which is which.
+    if not backing_is_painted(sheet()):
+        failures.append("backing_is_painted called painted bark a silhouette")
+    black = sheet()
+    black[:, :32, :3] = (7, 6, 4)          # Alterac's thorn cards, measured
+    if backing_is_painted(black):
+        failures.append("backing_is_painted called a black backing artwork")
+    sparse = sheet()
+    sparse[:, :32, 3] = 255
+    sparse[:2, :4, 3] = 0                  # 8 texels, below the floor
+    if backing_is_painted(sparse):
+        failures.append("backing_is_painted drew a verdict from 8 texels")
+
+    # The restore puts the source back under the alpha and leaves the rest of
+    # the upscale alone.
+    upscaled = np.zeros((128, 128, 4), np.uint8)
+    upscaled[..., :3] = (255, 0, 255)      # stand-in for what a model invented
+    upscaled[:, :64, 3] = 0
+    upscaled[:, 64:, 3] = 255
+    healed = restore_hidden_colour(upscaled, sheet())
+    under = colour_under_alpha(healed)
+    if under is None or abs(under[0] - BARK[0]) > 8:
+        failures.append(f"restore_hidden_colour did not put the source back: {under}")
+    if not (healed[:, 64:, :3] == (255, 0, 255)).all():
+        failures.append("restore_hidden_colour overwrote the opaque texels")
+
     for line in failures:
         print(f"FAIL: {line}")
     if failures:
         return 1
-    print(f"ok: colour holds under alpha across {len(levels)} mip levels")
+    print(f"ok: colour holds under alpha across {len(levels)} mip levels, "
+          "backing classified, source restored")
     return 0
 
 

@@ -156,6 +156,65 @@ def save_rgba(arr: np.ndarray, path: Path) -> None:
     Image.fromarray(arr, "RGBA").save(path, optimize=True)
 
 
+#: Alpha at or below this is the transparent part of a sheet.
+CLEAR_ALPHA = 32
+#: Mean luma below which the colour under the alpha is a backing, not artwork.
+BACKING_LUMA = 20
+#: Too few transparent texels to conclude anything from.
+MIN_CLEAR_TEXELS = 64
+
+
+def backing_is_painted(arr: np.ndarray) -> bool:
+    """Whether real artwork lies under this sheet's transparent texels.
+
+    The mirror of BLPImage::alphaIsSilhouette, and it has to stay one: the
+    client decides whether to key a batch's alpha away by the same measure, so
+    a texture the client draws opaque is exactly a texture whose hidden colour
+    ends up on screen.
+
+    A card drawn on a black backing leaves that backing under the mask and
+    nothing is lost by filling it. An atlas painted edge to edge - the alpha
+    left over from another layer - leaves the art, and the art is what an
+    opaque batch samples.
+    """
+    clear = arr[..., 3] <= CLEAR_ALPHA
+    if int(clear.sum()) < MIN_CLEAR_TEXELS:
+        return False
+    rgb = arr[..., :3][clear].astype(np.float32)
+    luma = 0.299 * rgb[:, 0] + 0.587 * rgb[:, 1] + 0.114 * rgb[:, 2]
+    return float(luma.mean()) >= BACKING_LUMA
+
+
+def restore_hidden_colour(arr: np.ndarray, src: np.ndarray) -> np.ndarray:
+    """Put the source's own colour back under the transparent texels.
+
+    An upscaler is judged on what it can see, and it cannot see under a
+    transparent texel - so whatever it puts there is unconstrained. Measured
+    against a plain Lanczos of the same source, SilverPineTree01TrunkSkin's
+    upscale drifts 6 units across the opaque part of the sheet and 15 under the
+    alpha: two and a half times as far, in the one region nobody could have
+    reviewed because nothing drew it.
+
+    Nothing did draw it, until an opaque batch stopped keying its alpha away.
+    Then it became the middle of every Silverpine trunk, and what the model had
+    invented there read as hard-edged slabs of the wrong colour.
+
+    So that region comes from the source, resampled and not imagined. The
+    opaque texels keep the upscale, which is the part it was good at.
+    """
+    height, width = arr.shape[:2]
+    mask = np.asarray(
+        Image.fromarray(((src[..., 3] <= CLEAR_ALPHA).astype(np.uint8) * 255), "L")
+        .resize((width, height), Image.NEAREST)) > 127
+    if not mask.any():
+        return arr
+    ref = np.asarray(Image.fromarray(src[..., :3], "RGB").resize((width, height), Image.LANCZOS),
+                     dtype=np.uint8)
+    out = arr.copy()
+    out[..., :3][mask] = ref[mask]
+    return out
+
+
 def dilate_rgb(arr: np.ndarray, passes: int = 6, thresh: int = 8) -> np.ndarray:
     """Push colour outward into the transparent texels.
 
@@ -481,59 +540,100 @@ def params_of(args, backend, model) -> dict:
 # Commands
 # ---------------------------------------------------------------------------
 
-def do_remip(data_dir: Path, cutoff: float, dry_run: bool) -> int:
-    """Rebuild the mip chain of every .dds sidecar, keeping level 0 as it is.
+def decode_blp(blp: Path, blp_convert: Path, tmp: Path):
+    """The source BLP as RGBA, or None if there isn't one to read.
+
+    blp_convert writes its PNG beside its input, so the BLP is staged into a
+    scratch directory first: decoding in place would create the very sidecar
+    that overrides the source.
+    """
+    if not blp.is_file():
+        return None
+    staged = tmp / "src.blp"
+    shutil.copyfile(blp, staged)
+    r = subprocess.run([str(blp_convert), "--to-png", str(staged)],
+                       capture_output=True, text=True)
+    staged.unlink(missing_ok=True)
+    png = tmp / "src.png"
+    try:
+        if r.returncode != 0 or not png.is_file():
+            return None
+        return load_rgba(png)
+    finally:
+        png.unlink(missing_ok=True)
+
+
+def do_repair(data_dir: Path, blp_convert: Path, cutoff: float, dry_run: bool) -> int:
+    """Repair existing .dds sidecars in place, without re-running an upscaler.
+
+    Two faults, both of which only ever showed on a texture whose alpha
+    something stopped keying away.
 
     build_mip_chain used to resize through Pillow's RGBA path, which weights
     colour by alpha - so every level below the base came back black wherever
-    the texture was transparent, throwing away the dilation the base had just
-    been given. Nothing sampled those texels while every alpha-bearing texture
-    was a cutout. An opaque batch does sample them, and Silverpine's trunks
-    came back solid up close and holed in black at any distance, because the
-    bark was in level 0 and nowhere else.
+    the texture was transparent. Silverpine's trunks were solid up close and
+    holed in black at any distance, because the bark was in level 0 and nowhere
+    else.
 
-    The base is the expensive part and it is not wrong, so it is kept byte for
-    byte: no upscaler runs, and level 0 is not put through the DXT5 quantiser a
-    second time. Only the levels under it are rebuilt.
+    And level 0 itself holds whatever the upscaler invented under the alpha,
+    which is unconstrained: it is scored on what it can see. That read as
+    hard-edged slabs of the wrong colour across the middle of every trunk. So
+    where the backing is painted, it comes back from the source BLP beside the
+    sidecar, resampled rather than imagined.
+
+    No upscaler runs either way. A sheet whose backing is junk keeps its base
+    byte for byte, not even requantised; one whose backing is artwork has only
+    its hidden texels replaced.
     """
-    repaired = skipped = failed = 0
-    for path in sorted(data_dir.rglob("*.dds")):
-        try:
-            raw = path.read_bytes()
-            if raw[:4] != b"DDS " or len(raw) < 128:
-                skipped += 1
-                continue
-            height, width = struct.unpack_from("<II", raw, 12)
-            mip_count = struct.unpack_from("<I", raw, 28)[0]
-            if raw[84:88] != b"DXT5" or mip_count < 2:
-                skipped += 1
-                continue
+    repaired = restored = skipped = failed = 0
+    with tempfile.TemporaryDirectory(prefix="wowee_repair_") as tmp:
+        tmp = Path(tmp)
+        for path in sorted(data_dir.rglob("*.dds")):
+            try:
+                raw = path.read_bytes()
+                if raw[:4] != b"DDS " or len(raw) < 128:
+                    skipped += 1
+                    continue
+                height, width = struct.unpack_from("<II", raw, 12)
+                mip_count = struct.unpack_from("<I", raw, 28)[0]
+                if raw[84:88] != b"DXT5" or mip_count < 2:
+                    skipped += 1
+                    continue
 
-            base = np.asarray(Image.open(path).convert("RGBA"), dtype=np.uint8)
-            if base.shape[0] != height or base.shape[1] != width:
-                skipped += 1
-                continue
-            if not (0 < alpha_coverage(base[..., 3], cutoff) < 1.0):
-                # No cutout to hold and no transparent texel to lose colour
-                # under. Whatever chain it has is as good as one built here.
-                skipped += 1
-                continue
+                base = np.asarray(Image.open(path).convert("RGBA"), dtype=np.uint8)
+                if base.shape[0] != height or base.shape[1] != width:
+                    skipped += 1
+                    continue
+                if not (0 < alpha_coverage(base[..., 3], cutoff) < 1.0):
+                    # No cutout to hold and no transparent texel to lose colour
+                    # under. Whatever chain it has is as good as one built here.
+                    skipped += 1
+                    continue
 
-            levels = build_mip_chain(dilate_rgb(base), cutoff)
-            rebuilt = dds_dxt5(levels)
-            # Splice the original base back over the re-encoded one.
-            base_bytes = max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * 16
-            out = rebuilt[:128] + raw[128:128 + base_bytes] + rebuilt[128 + base_bytes:]
-            if not dry_run:
-                path.write_bytes(out)
-            repaired += 1
-            if repaired % 100 == 0:
-                print(f"  {repaired} rebuilt...", flush=True)
-        except Exception as exc:                       # noqa: BLE001 - report and continue
-            print(f"  {path.relative_to(data_dir)}: {exc}")
-            failed += 1
-    verb = "would rebuild" if dry_run else "rebuilt"
-    print(f"{verb} {repaired} sidecar(s), skipped {skipped}, failed {failed}")
+                src = decode_blp(path.with_suffix(".blp"), blp_convert, tmp)
+                painted = src is not None and backing_is_painted(src)
+                if painted:
+                    base = restore_hidden_colour(base, src)
+                    restored += 1
+                    levels = build_mip_chain(base, cutoff)
+                    out = dds_dxt5(levels)
+                else:
+                    levels = build_mip_chain(dilate_rgb(base), cutoff)
+                    rebuilt = dds_dxt5(levels)
+                    # Splice the original base back over the re-encoded one.
+                    base_bytes = max(1, (width + 3) // 4) * max(1, (height + 3) // 4) * 16
+                    out = rebuilt[:128] + raw[128:128 + base_bytes] + rebuilt[128 + base_bytes:]
+                if not dry_run:
+                    path.write_bytes(out)
+                repaired += 1
+                if repaired % 100 == 0:
+                    print(f"  {repaired} repaired...", flush=True)
+            except Exception as exc:                   # noqa: BLE001 - report and continue
+                print(f"  {path.relative_to(data_dir)}: {exc}")
+                failed += 1
+    verb = "would repair" if dry_run else "repaired"
+    print(f"{verb} {repaired} sidecar(s) ({restored} with artwork restored under the alpha), "
+          f"skipped {skipped}, failed {failed}")
     return 1 if failed else 0
 
 
@@ -622,11 +722,16 @@ def process_batch(batch, blp_convert, backend, exe, model, args, data_dir, manif
                 continue
             src = load_rgba(png)
             coverage = alpha_coverage(src[..., 3], args.alpha_cutoff)
-            prepared = pad_edges(dilate_rgb(src), PAD_TEXELS,
+            # Dilation fills the transparent texels with the colour beside
+            # them, which is right when they hold the compressor's junk and
+            # destructive when they hold artwork an opaque batch will sample.
+            painted = backing_is_painted(src)
+            prepared = pad_edges(src if painted else dilate_rgb(src), PAD_TEXELS,
                                  bool(flags & m2_textures.TEXTURE_WRAP_X),
                                  bool(flags & m2_textures.TEXTURE_WRAP_Y))
             save_rgba(prepared, png)
-            staged[f"{name}.png"] = (blp, coverage, sha256_of(blp), src.shape[1], src.shape[0])
+            staged[f"{name}.png"] = (blp, coverage, sha256_of(blp), src.shape[1], src.shape[0],
+                                     painted, src)
 
         if not staged:
             return done, failed
@@ -641,18 +746,25 @@ def process_batch(batch, blp_convert, backend, exe, model, args, data_dir, manif
             for name in staged:
                 save_rgba(upscale_pillow(load_rgba(in_dir / name), args.scale), out_dir / name)
 
-        for name, (blp, coverage, digest, src_w, src_h) in staged.items():
+        for name, (blp, coverage, digest, src_w, src_h, painted, src) in staged.items():
             result = out_dir / name
             if not result.is_file():
                 print(f"  MISSING OUTPUT {blp.relative_to(data_dir)}", file=sys.stderr)
                 failed += 1
                 continue
             arr = crop_padding(load_rgba(result), PAD_TEXELS, args.scale)
-            # Again, on the way out. Whatever the backend did with the colour
-            # under the transparent texels - Lanczos undershoot, or an AI
-            # model's guess - it did not have the leaf's colour in mind, and
-            # runtime bilinear will drag it into the edge just the same.
-            arr = dilate_rgb(arr)
+            if painted:
+                # The sheet has artwork under its alpha and something draws it,
+                # so it comes back from the source rather than from whatever
+                # the backend guessed where it could not see.
+                arr = restore_hidden_colour(arr, src)
+            else:
+                # Again, on the way out. Whatever the backend did with the
+                # colour under the transparent texels - Lanczos undershoot, or
+                # an AI model's guess - it did not have the leaf's colour in
+                # mind, and runtime bilinear will drag it into the edge just
+                # the same.
+                arr = dilate_rgb(arr)
             if 0.0 < coverage < 1.0:
                 arr = restore_coverage(arr, coverage, args.alpha_cutoff)
             arr = cap_dimensions(arr, args.max_dim, block_aligned=args.format == "dds")
@@ -711,17 +823,18 @@ def main() -> int:
     ap.add_argument("--verify", action="store_true",
                     help="report sidecars that are missing, stale or hand-made; exit 1 if any")
     ap.add_argument("--clean", action="store_true", help="delete what this tool generated")
-    ap.add_argument("--remip", action="store_true",
-                    help="rebuild the mip chain of existing .dds sidecars in place, keeping "
-                         "level 0; repairs chains built before colour survived the resize")
+    ap.add_argument("--repair", action="store_true",
+                    help="repair existing .dds sidecars in place without re-running an "
+                         "upscaler: rebuild mip chains that lost their colour to the resize, "
+                         "and put the source's own artwork back under transparent texels")
     args = ap.parse_args()
 
     data_dir = args.data_dir.resolve()
     if not data_dir.is_dir():
         sys.exit(f"Data dir not found: {data_dir}")
 
-    if args.remip:
-        return do_remip(data_dir, args.alpha_cutoff, args.dry_run)
+    if args.repair:
+        return do_repair(data_dir, find_blp_convert(), args.alpha_cutoff, args.dry_run)
 
     if args.clean:
         do_clean(data_dir)
