@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.1.26] - 2026-09-13
+
+### Fixed
+- **`extract_assets.sh` stopped on its own usage check and extracted nothing.** It asked `${#POSITIONAL[@]}` twelve lines above the loop that declares POSITIONAL, so under `set -u` every run ended at "POSITIONAL: unbound variable" - with arguments or without, since the check runs before either path. A regression from the commit that added `--upscale` on 2026-09-10, which changed the test from `$#` to the new array and left it where it was. Behind it was a second failure on the same line the usage text is reached by: an empty array and `set -u` disagree in bash 3.2, which is the bash macOS ships and the one `#!/bin/bash` finds there
+- **The model importer wrote models it could not finish.** Its gate tested that every declared texture slot carries a name, which asks the wrong thing of a creature - skin slots are empty by design and the client fills them from CreatureDisplayInfo - and would have refused 362 of 784 imports. What a broken import shares is a slot of type 0, the model naming its own texture, with no name: Legion names those by FileDataID through a `TXID` chunk this does not read, and the client cannot fill such a slot, so it draws flat white. Five creatures reached an installation that way, an earth elemental among them, whose additive dust shells fell back to sampling its own rock skin and drew as white sheets over it. The model and its skins were also written before the textures were fetched, so whatever had not arrived was reported with the model already installed - the half-written model the refusals exist to prevent - and a texture that failed once was recorded as fetched, so the next model to name it skipped the lookup, found nothing missing and was written anyway
+
 ## [v3.1.25] - 2026-09-13
 
 ### Fixed
