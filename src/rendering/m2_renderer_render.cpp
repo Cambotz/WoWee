@@ -720,8 +720,12 @@ void M2Renderer::prepareRender(uint32_t frameIndex, const Camera& camera) {
         // the display skins, the particle emitters and the ribbons were all
         // measured and found correct before the geometry was suspected.
         //
-        // Judged against the model's own bounding radius, so a large creature
-        // is not accused for being large, and said once per model.
+        // Judged against the other bones, not against the model's origin, and
+        // against the model's own bounding radius so a large creature is not
+        // accused for being large. Measuring from the origin flags every
+        // flying critter: a bird's flight path is authored into its root bone,
+        // so the whole skeleton is sixteen yards out and nothing is stretched.
+        // What a stretch looks like is one bone leaving the set behind.
         if (instance.cachedModel != nullptr) {
             const M2ModelGPU& m = *instance.cachedModel;
             const glm::vec3 extent = m.boundMax - m.boundMin;
@@ -732,14 +736,18 @@ void M2Renderer::prepareRender(uint32_t frameIndex, const Camera& camera) {
             static std::unordered_set<uint32_t> boneRangeChecked;
             if (radius > 0.01f && boneRangeChecked.size() < 64 &&
                 boneRangeChecked.insert(instance.modelId).second) {
+                glm::vec3 centre(0.0f);
+                for (const auto& bone : instance.boneMatrices) centre += glm::vec3(bone[3]);
+                centre /= static_cast<float>(instance.boneMatrices.size());
+
                 const float limit = radius * 4.0f;
                 for (size_t bi = 0; bi < instance.boneMatrices.size(); ++bi) {
                     const glm::vec3 t(instance.boneMatrices[bi][3]);
-                    if (glm::length(t) <= limit) continue;
+                    const float stray = glm::length(t - centre);
+                    if (stray <= limit) continue;
                     LOG_WARNING("M2 '", m.name, "' bone ", bi, " of ",
-                                instance.boneMatrices.size(),
-                                " sits at (", t.x, ", ", t.y, ", ", t.z,
-                                "), ", glm::length(t), " from the origin of a model whose"
+                                instance.boneMatrices.size(), " sits ", stray,
+                                " from where the rest of its skeleton is, in a model whose"
                                 " bounding radius is ", radius,
                                 " - anything weighted to it is drawn stretched");
                     break;

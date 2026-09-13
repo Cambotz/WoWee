@@ -1430,6 +1430,29 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
         return false;
     }
 
+    // Every model this renderer takes on, named once.
+    //
+    // Creatures say what they draw through the spawner, and doodads are placed
+    // from ADTs that can be read offline - but a spell visual, an attached
+    // effect or anything else spawned at runtime appears in no list at all.
+    // The Elemental Slave's white sheets are the case: its own model, skins,
+    // particles, ribbons, bones and vertex weights were each measured and
+    // found correct, which leaves something drawn beside it that nothing names.
+    //
+    // Cheap enough to leave on - once per model, and a session loads a few
+    // hundred - and it is the list every "what is that thing" question starts
+    // from.
+    {
+        static core::LogBudget modelLoadBudget(400, "M2 models named at load");
+        if (modelLoadBudget.take()) {
+            LOG_WARNING("M2 load: '", model.name.empty() ? "<unnamed>" : model.name,
+                        "' id=", modelId,
+                        " verts=", model.vertices.size(),
+                        " emitters=", model.particleEmitters.size(),
+                        " ribbons=", model.ribbonEmitters.size());
+        }
+    }
+
     bool hasGeometry = !model.vertices.empty() && !model.indices.empty();
     bool hasParticles = !model.particleEmitters.empty();
     bool hasRibbons   = !model.ribbonEmitters.empty();
