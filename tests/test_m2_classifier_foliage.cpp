@@ -53,6 +53,36 @@ TEST_CASE("rigid props whose names contain a foliage token do not sway",
         CHECK_FALSE(classify("DivineShield_Low_Base").isFoliageLike);
     }
 
+    SECTION("furniture named for the part of a tree it resembles") {
+        // A four-poster's canopy is a canopy, and "canopy" is a foliage token
+        // because a tree's is. InnBedCanopy is the one model in that family
+        // that is not a tree, and its posts and frame bent in the wind.
+        //
+        // Ranking cannot catch this one. The structure mechanism needs the
+        // solid word to come later in the name - "street" needs "lamp" after
+        // it - and here "bed" comes first, so it has to win outright.
+        CHECK_FALSE(classify("InnBedCanopy").isFoliageLike);
+        CHECK_FALSE(classify("InnBedCanopy").shadowWindFoliage);
+        // Its own animation was being turned off as well, which is what
+        // disableAnimation does to anything read as foliage.
+        CHECK_FALSE(classify("InnBedCanopy").disableAnimation);
+        // Substring matching carries the wardrobes along, which is furniture
+        // too: warDRoBEDwarven.
+        CHECK_FALSE(classify("WardrobeDwarvenOrnate01").isFoliageLike);
+    }
+
+    SECTION("and the tree canopies it shares the token with still are") {
+        // The other side of the same rule: everything else named "canopy" is a
+        // tree, and the whole point of the token is that those sway.
+        for (const char* n : {"ElwynnTreeCanopy01", "DuskwoodTreeCanopy02",
+                              "RedridgeTreeCanopy04", "SholazarHugeCanopy_Tree01",
+                              "ThornCanopy_01", "SwampSorrowCanopyTree03"}) {
+            INFO(n);
+            CHECK(classify(n).isFoliageLike);
+            CHECK(classify(n).shadowWindFoliage);
+        }
+    }
+
     SECTION("full paths are matched on the basename") {
         CHECK_FALSE(classify("WORLD\\AZEROTH\\STRANGLETHORN\\PASSIVEDOODADS"
                              "\\RUINS\\STRANGLETHORNRUINS03.M2").isFoliageLike);

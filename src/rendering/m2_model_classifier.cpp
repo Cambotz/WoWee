@@ -421,8 +421,29 @@ M2ClassificationResult classifyM2Model(
     }
     const TokenMatch treeHit = lastMatch(n, "tree");
 
-    const bool foliageName  = foliageHit.found && !structureHit.outranks(foliageHit);
-    const bool treeLike     = treeHit.found && !structureHit.outranks(treeHit);
+    // A bed is furniture, whatever else its name contains.
+    //
+    // "canopy" is a foliage token because a tree's canopy is one, and
+    // InnBedCanopy is the only model in that family that is not a tree - the
+    // rest are Elwynn's, Duskwood's, Redridge's, Sholazar's and the quilboar's
+    // thorn canopies. Classified as foliage, the bed's four posts and its frame
+    // bent in the wind like saplings, and disableAnimation turned off whatever
+    // motion it was authored with.
+    //
+    // Ranking cannot settle this the way a structure token does: "bed" comes
+    // before "canopy" in the name and outranks() needs the structure word to be
+    // the later one - which is the whole point of that mechanism, and why
+    // "street" containing "tree" needed "lamp" after it. So this wins outright,
+    // like teleport below.
+    //
+    // Substring matching takes the dwarven wardrobes with it
+    // (warDRoBEDwarven), which is furniture too and just as much not foliage.
+    const bool furnitureName = has(n, "bed");
+
+    const bool foliageName  = foliageHit.found && !structureHit.outranks(foliageHit)
+                            && !furnitureName;
+    const bool treeLike     = treeHit.found && !structureHit.outranks(treeHit)
+                            && !furnitureName;
     const bool hardTreePart = has(n, "trunk") || has(n, "stump") || has(n, "log");
 
     // A teleport structure is a doorway, not an object: you walk into or onto
