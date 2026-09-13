@@ -35,6 +35,7 @@
 #include "rendering/m2_model_classifier.hpp"
 #include "pipeline/asset_manager.hpp"
 #include "pipeline/blp_loader.hpp"
+#include "core/env_flag.hpp"
 #include "core/logger.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -1783,7 +1784,10 @@ bool CharacterRenderer::loadModel(const pipeline::M2Model& model, uint32_t id) {
     // The emitter count is worth having here for its own reason: this renderer
     // reads it to classify and then draws none of them, so a creature whose
     // effects are missing entirely says so on this line.
-    {
+    // Behind the same switch as M2Renderer's: an inventory rather than a
+    // fault, and 41 more lines on top of that one's 197.
+    static const bool kLoadDiag = core::envFlagEnabled("WOWEE_M2_LOAD_DIAG", false);
+    if (kLoadDiag) {
         static core::LogBudget characterLoadBudget(300, "character models named at load");
         if (characterLoadBudget.take()) {
             LOG_WARNING("Character M2 load: '",

@@ -1442,13 +1442,20 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
     // Cheap enough to leave on - once per model, and a session loads a few
     // hundred - and it is the list every "what is that thing" question starts
     // from.
+    // Off unless asked for. This is an inventory, not a fault: it names every
+    // model the renderer takes on, which is 197 lines of a 884-line log and
+    // the largest single source in it. Worth having - it is what finally
+    // showed that an imported override, not the shipped model, was what the
+    // client drew - and not worth carrying every session.
+    //
     // Two budgets, because one is eaten by the other. A zone's terrain streams
     // in hundreds of doodads within a second or two of arriving, and on the
     // first run of this the four hundred were spent before the creature that
     // prompted it had even spawned. Doodads are placed from ADTs and can be
     // enumerated offline; what cannot is anything spawned at runtime, so that
     // gets the larger share and its own allowance.
-    {
+    static const bool kLoadDiag = core::envFlagEnabled("WOWEE_M2_LOAD_DIAG", false);
+    if (kLoadDiag) {
         const bool placedDoodad = model.name.rfind("WORLD\\", 0) == 0 ||
                                   model.name.rfind("world\\", 0) == 0;
         static core::LogBudget doodadLoadBudget(120, "placed doodad models named at load");
@@ -1882,13 +1889,23 @@ bool M2Renderer::loadModel(const pipeline::M2Model& model, uint32_t modelId) {
                 // cannot see that from here. It is worth naming anyway,
                 // because when it is not filled nothing else says so and the
                 // model has to be guessed at from a screenshot.
-                if (tex.type != 0) {
-                    static core::LogBudget unfilledSlotBudget(
-                        24, "M2 texture slots left for a caller to fill");
-                    if (unfilledSlotBudget.take()) {
+                // Type 0 means the model names its own texture, so an empty
+                // name is a broken model - and it draws flat white, which
+                // reads as a missing texture rather than as a bad file.
+                //
+                // This was written the other way round at first, warning for
+                // types 11-13, where an empty name is how a creature says its
+                // skin comes from CreatureDisplayInfo. It never fired once.
+                // Meanwhile the Elemental Slave's white sheets were an
+                // imported override with three type-0 slots and no names in
+                // them, which this would have found in a single run.
+                if (tex.type == 0) {
+                    static core::LogBudget unnamedSlotBudget(
+                        24, "M2 models with an unnamed texture of their own");
+                    if (unnamedSlotBudget.take()) {
                         LOG_WARNING("M2 '", model.name, "' texture[", ti,
-                                    "] is type ", static_cast<int>(tex.type),
-                                    " with no filename - white until something fills it");
+                                    "] names no file but is type 0, which means it"
+                                    " should - it draws white");
                     }
                 }
                 allTextures.push_back(whiteTexture_.get());
