@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- **The asset manager brings models out of a later installation itself, for both kinds of installation.** The step existed in every profile that offers it and did nothing but say so; it runs now, against a Legion install read as CASC and against a Cataclysm one read as MPQ, through one pass that does not know which it is looking at. A later client names a model's skins and animations by id through chunks inside it, an earlier one names them by path beside it - so the importer asks for both and writes whatever answers. 1191 models convert out of a Legion install in five seconds, every one of them parsed back through this client's own loader
+
+### Fixed
+- **The native importer matched models on the name inside them and matched nothing at all.** The Python it was ported from sweeps every file in the installation and records each model's internal name, and that name is not the name of the file it would replace: Legion's earth elemental calls itself `ElementalEarth2` and lives at `elementalearth.m2`. Across 22169 local models and 732305 CASC files the two never met once, and the pass reported success having written nothing. A path is the same on both sides by construction, and CASC can be asked for one directly through the hash of it, so it asks for exactly the file it wants - 22169 lookups rather than three quarters of a million reads, and the head of each read first so a model the later client did not improve costs four kilobytes instead of the ten megabytes of a character
+- **Converted models were left with the old client's animations.** Keyframes moved out of the model after Wrath into files an `AFID` chunk names by id, and nothing fetched them - so a converted model found the 3.3.5 `.anim` files still sitting beside it, written for a skeleton it no longer has. 727 animation files now come across with the models that need them, under the names this client builds from the model's own path
+- **A model could be written without the index data it needs.** The skins were fetched after the model was already on disk, so a skin that did not arrive left an installed model with no indices - which draws as a burst of spikes from the origin, worse than the model it replaced. Skins are resolved before anything is written, and a model without one is refused
+- **The gate refused models over a texture slot nothing draws.** An unnamed type 0 slot is a model naming its own texture through a chunk this does not read, and the client draws such a slot flat white - but only if a batch samples it at all. `compy` carries one and its single batch draws the creature-skin slot beside it, so the model is fine and would have been turned away. The gate reads the skin's batches and the model's texture-combo list, and refuses only a slot something actually reaches
+- **Imported textures were written at the model's own spelling.** Extraction writes every path lowercased, so a texture arriving as `VALENTINESPLANT.BLP` is a second copy on a case-insensitive filesystem and a texture the client cannot find on a case-sensitive one
+
 ## [v3.1.26] - 2026-09-13
 
 ### Fixed

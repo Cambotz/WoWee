@@ -172,6 +172,18 @@ wowee_add_test(test_sell_count
 wowee_add_test(test_hill_climbing
     SOURCES test_movement_limits.cpp)
 
+# ── test_model_import ───────────────────────────────────────
+# The pass that brings a later client's models into this one's format. It once
+# matched the name inside a model against the name of the file it would replace
+# and converted nothing at all, so the path matching is pinned here along with
+# every refusal - a model written without its skin or its textures is worse than
+# the one it replaced.
+wowee_add_test(test_model_import
+    SOURCES test_model_import.cpp
+            ${CMAKE_SOURCE_DIR}/tools/asset_manager/model_import.cpp)
+target_include_directories(test_model_import PRIVATE
+    ${CMAKE_SOURCE_DIR}/tools/asset_manager)
+
 # ── test_cli_catalog_paths ──────────────────────────────────
 # Working a catalog's base name back out of a path the user typed. Pure header
 # in tools/editor, so the test reaches into that directory for it.

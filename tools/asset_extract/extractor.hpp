@@ -64,6 +64,16 @@ public:
     static std::string detectLocale(const std::string& mpqDir);
 
     /**
+     * The archives that make up an installation, in load order: base first,
+     * patches after, so a later one wins. Exposed because borrowing a handful
+     * of models out of a client needs the same chain extraction does, and a
+     * chain assembled twice is a chain that can disagree with itself.
+     */
+    static std::vector<std::string> archiveChain(const std::string& mpqDir,
+                                                 const std::string& expansion,
+                                                 const std::string& locale);
+
+    /**
      * Run the extraction pipeline
      * @return true on success
      */

@@ -1745,6 +1745,76 @@ else()
     message(STATUS "  asset_extract tool: DISABLED (requires StormLib)")
 endif()
 
+# ---- Tool: wowee_assets (the asset manager window) ----
+#
+# A native window for building this client's assets: SDL2 and Dear ImGui, both
+# of which the client already carries, and Extractor::run called in this
+# process. It replaces a Tkinter window that drove shell scripts that drove
+# Python scripts - a chain where every link was a thing to have installed, and
+# where a `python3` without Tkinter meant the window simply did not appear.
+#
+# SDL's own renderer rather than Vulkan or GL: this draws a form and a log, and
+# the backend that needs no API choice is the one that builds everywhere.
+if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR AND SDL2_FOUND AND EXISTS ${IMGUI_DIR}/imgui.cpp)
+    add_library(imgui_sdlrenderer STATIC
+        ${IMGUI_DIR}/imgui.cpp
+        ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp
+        ${IMGUI_DIR}/imgui_widgets.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_sdlrenderer2.cpp
+    )
+    target_include_directories(imgui_sdlrenderer SYSTEM PUBLIC
+        ${IMGUI_DIR} ${IMGUI_DIR}/backends
+    )
+    target_link_libraries(imgui_sdlrenderer PUBLIC SDL2::SDL2)
+
+    add_executable(wowee_assets
+        tools/asset_manager/main.cpp
+        tools/asset_manager/profiles.cpp
+        tools/asset_manager/install_scan.cpp
+        tools/asset_manager/job.cpp
+        tools/asset_manager/casc.cpp
+        tools/asset_manager/texture_ops.cpp
+        tools/asset_manager/upscale.cpp
+        tools/asset_manager/pack.cpp
+        tools/asset_manager/model_import.cpp
+        tools/asset_manager/model_source.cpp
+        src/rendering/m2_model_classifier.cpp
+        tools/asset_extract/extractor.cpp
+        tools/asset_extract/path_mapper.cpp
+        tools/asset_extract/manifest_writer.cpp
+        tools/asset_extract/open_format_emitter.cpp
+        src/pipeline/dbc_loader.cpp
+        src/pipeline/blp_loader.cpp
+        src/pipeline/dds_loader.cpp
+        src/pipeline/m2_loader.cpp
+        src/pipeline/wmo_loader.cpp
+        src/pipeline/adt_loader.cpp
+        src/pipeline/wowee_model.cpp
+        src/pipeline/wowee_building.cpp
+        src/pipeline/wowee_collision.cpp
+        src/core/logger.cpp
+    )
+    target_include_directories(wowee_assets PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_extract
+        ${STORMLIB_INCLUDE_DIR}
+    )
+    target_include_directories(wowee_assets SYSTEM PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/extern
+    )
+    target_link_libraries(wowee_assets PRIVATE imgui_sdlrenderer Threads::Threads ZLIB::ZLIB)
+    wowee_link_stormlib(wowee_assets)
+    set_target_properties(wowee_assets PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+    install(TARGETS wowee_assets RUNTIME DESTINATION bin)
+    message(STATUS "  wowee_assets window: ENABLED")
+else()
+    message(STATUS "  wowee_assets window: DISABLED (needs StormLib, SDL2 and extern/imgui)")
+endif()
+
 # ---- Tool: dbc_to_csv (DBC → CSV text) ----
 add_executable(dbc_to_csv
     tools/dbc_to_csv/main.cpp

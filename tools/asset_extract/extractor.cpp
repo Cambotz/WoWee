@@ -659,6 +659,12 @@ static void extractInternalListfile(HANDLE hMpq, std::set<std::string>& out) {
     if (!entry.empty()) out.insert(std::move(entry));
 }
 
+std::vector<std::string> Extractor::archiveChain(const std::string& mpqDir,
+                                                 const std::string& expansion,
+                                                 const std::string& locale) {
+    return discoverArchives(mpqDir, expansion, locale);
+}
+
 bool Extractor::enumerateFiles(const Options& opts,
                                std::vector<std::string>& outFiles) {
     auto archives = discoverArchives(opts.mpqDir, opts.expansion, opts.locale);
