@@ -222,9 +222,13 @@ jobs:
         test -x build/bin/asset_extract
         cp build/bin/asset_extract Wowee.app/Contents/MacOS/
 
-        # Extraction scripts and GUI remain available for advanced users.
+        # The asset manager: the window that builds the assets, which replaced
+        # a Python one needing an interpreter with Tkinter built into it.
+        test -x build/bin/wowee_assets
+        cp build/bin/wowee_assets Wowee.app/Contents/MacOS/
+
+        # The command-line extractor's script remains for advanced users.
         cp extract_assets.sh Wowee.app/Contents/Resources/
-        cp tools/asset_pipeline_gui.py Wowee.app/Contents/Resources/
 
         # Assets (exclude proprietary music)
         rsync -a --exclude='Original Music' build/bin/assets/ \
@@ -279,6 +283,7 @@ jobs:
           --search-dir "$(brew --prefix glm)/lib" \
           Wowee.app/Contents/MacOS/wowee_bin \
           Wowee.app/Contents/MacOS/asset_extract \
+          Wowee.app/Contents/MacOS/wowee_assets \
           Wowee.app/Contents/Frameworks/libMoltenVK.dylib \
           Wowee.app/Contents/Frameworks/libSDL3.dylib
 

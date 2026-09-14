@@ -26,6 +26,13 @@ if [ ! -x "${MACOS_DIR}/asset_extract" ]; then
     echo "ERROR: app bundle is missing executable Contents/MacOS/asset_extract" >&2
     exit 1
 fi
+# The window that builds the assets, which is how anybody gets any. Required
+# for the same reason asset_extract is: a client shipped without a way to fill
+# its Data folder is a client that starts and says there is nothing to draw.
+if [ ! -x "${MACOS_DIR}/wowee_assets" ]; then
+    echo "ERROR: app bundle is missing executable Contents/MacOS/wowee_assets" >&2
+    exit 1
+fi
 if [ ! -f "${FRAMEWORKS_DIR}/libMoltenVK.dylib" ]; then
     echo "ERROR: app bundle is missing Contents/Frameworks/libMoltenVK.dylib" >&2
     exit 1

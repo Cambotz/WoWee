@@ -26,14 +26,33 @@ for candidate in "/Applications/Wowee.app" "${HOME}/Applications/Wowee.app"; do
 done
 
 EXTRACTOR="${APP_PATH}/Contents/MacOS/asset_extract"
+MANAGER="${APP_PATH}/Contents/MacOS/wowee_assets"
 BUNDLED_DATA="${APP_PATH}/Contents/Resources/Data"
 OUTPUT_ROOT="${HOME}/Library/Application Support/Wowee/Data"
 
-if [ ! -x "${EXTRACTOR}" ]; then
+if [ ! -x "${EXTRACTOR}" ] && [ ! -x "${MANAGER}" ]; then
     echo "Could not find the bundled asset extractor."
     echo "Keep Wowee Asset Extractor.app beside Wowee.app, or install Wowee.app"
     echo "in /Applications or ~/Applications."
     exit 1
+fi
+
+# Seed expansion profiles and other redistributable configuration without
+# writing into the signed application. ditto merges with existing extractions.
+if [ -d "${BUNDLED_DATA}" ]; then
+    mkdir -p "${OUTPUT_ROOT}"
+    ditto "${BUNDLED_DATA}" "${OUTPUT_ROOT}"
+fi
+
+# The window, where there is one.
+#
+# It asks the three questions this script cannot: which game your server runs,
+# whether you want the upgraded assets, and where they should go - and it opens
+# the system's own folder chooser rather than an AppleScript one. What follows
+# is the path for a build without it: one folder, one extraction, no choices.
+if [ -x "${MANAGER}" ]; then
+    echo "Opening the Wowee Asset Manager..."
+    exec "${MANAGER}"
 fi
 
 WOW_DATA_DIR="$(osascript <<'APPLESCRIPT'
@@ -52,12 +71,6 @@ if [ -z "${WOW_DATA_DIR}" ]; then
 fi
 
 mkdir -p "${OUTPUT_ROOT}"
-
-# Seed expansion profiles and other redistributable configuration without
-# writing into the signed application. ditto merges with existing extractions.
-if [ -d "${BUNDLED_DATA}" ]; then
-    ditto "${BUNDLED_DATA}" "${OUTPUT_ROOT}"
-fi
 
 echo "Wow data: ${WOW_DATA_DIR}"
 echo "Output:   ${OUTPUT_ROOT}"
