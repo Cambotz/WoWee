@@ -192,7 +192,6 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 : executableDir;
         if (chdir(runtimeDir.c_str()) != 0) {}
     }
-    selectUserDataPath();
 #elif defined(__linux__)
     {
         char buf[4096];
@@ -200,6 +199,12 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
         if (len > 0) { buf[len] = '\0'; if (chdir(dirname(buf)) != 0) {} }
     }
 #endif
+
+    // After the working directory is settled, and on every platform: this used
+    // to sit inside the macOS branch above, so Linux and Windows went on
+    // looking beside the executable for assets the asset manager had written
+    // to their own per-user directory.
+    selectUserDataPath();
 
     try {
         wowee::core::Logger::getInstance().setLogLevel(readLogLevelFromEnv());

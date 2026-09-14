@@ -329,12 +329,25 @@ bool readEntry(std::ifstream& in, const Listed& entry, std::vector<uint8_t>& out
 /// path is rebuilt a component at a time, and anything that is not a plain name
 /// throws the entry away rather than being resolved.
 fs::path safeDestination(const fs::path& destDir, const std::string& name) {
+    const fs::path entry(name);
+
+    // An absolute name is refused outright. Appending one component at a time
+    // is not enough on its own: iterating "/etc/passwd" yields "/" as its first
+    // component, and appending that to a relative path does not extend it, it
+    // replaces it - so the walk below would have built an absolute path and
+    // written exactly where the name asked. A backslashed Windows name reaches
+    // here as one component on POSIX, which the drive-letter test catches.
+    if (entry.is_absolute() || entry.has_root_path()) return {};
+    if (name.empty() || name.front() == '/' || name.front() == '\\') return {};
+
     fs::path relative;
     bool first = true;
-    for (const fs::path& part : fs::path(name)) {
+    for (const fs::path& part : entry) {
         const std::string piece = part.string();
         if (piece.empty() || piece == "." || piece == "..") return {};
         if (piece.find(':') != std::string::npos) return {};   // a drive letter
+        if (piece.find('/') != std::string::npos) return {};   // a separator, on Windows
+        if (piece.find('\\') != std::string::npos) return {};
         // The prefix everything was written under, dropped on the way back out.
         if (first) {
             first = false;
@@ -342,8 +355,16 @@ fs::path safeDestination(const fs::path& destDir, const std::string& name) {
         }
         relative /= piece;
     }
-    if (relative.empty()) return {};
-    return destDir / relative;
+    if (relative.empty() || !relative.is_relative()) return {};
+
+    // Whatever the checks above missed, the answer still has to be under the
+    // folder being installed into. Lexical, not canonical: the file is not
+    // there yet, and a path that does not exist cannot be resolved.
+    const fs::path full = (destDir / relative).lexically_normal();
+    const fs::path base = destDir.lexically_normal();
+    const auto relation = full.lexically_relative(base);
+    if (relation.empty() || *relation.begin() == "..") return {};
+    return full;
 }
 
 }  // namespace

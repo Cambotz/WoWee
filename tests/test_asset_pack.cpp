@@ -144,14 +144,40 @@ TEST_CASE("a pack naming a path outside the destination installs nothing") {
 
 TEST_CASE("an absolute path in a pack is refused too") {
     Sandbox box;
-    const fs::path zip = box.root / "absolute.zip";
-    writeZipNamed(zip, "/etc/wowee_should_not_exist", "no");
-
     Sandbox into;
+
+    // Somewhere the test can actually write. Named against a directory with no
+    // permission to write it, this passes whether or not the reader refuses
+    // anything - which is how it passed while the reader did not: iterating
+    // "/etc/passwd" yields "/" as its first component, and appending that to a
+    // relative path replaces it rather than extending it, so the assembled
+    // path came out absolute and landed exactly where the name asked.
+    const fs::path escaped = into.root.parent_path() / "wowee_absolute_escape.txt";
+    fs::remove(escaped);
+
+    const fs::path zip = box.root / "absolute.zip";
+    writeZipNamed(zip, escaped.string(), "this should not be written");
+
     const PackResult read = readPack(zip.string(), into.root.string(),
                                      nullptr, kNeverCancelled);
     CHECK_FALSE(read.ok);
-    CHECK_FALSE(fs::exists("/etc/wowee_should_not_exist"));
+    CHECK(read.files == 0);
+    CHECK_FALSE(fs::exists(escaped));
+}
+
+TEST_CASE("a pack cannot climb out by way of a name that normalises back in") {
+    Sandbox box;
+    Sandbox into;
+    const fs::path escaped = into.root.parent_path() / "wowee_climb_escape.txt";
+    fs::remove(escaped);
+
+    const fs::path zip = box.root / "climb.zip";
+    writeZipNamed(zip, "Data/world/../../../wowee_climb_escape.txt", "no");
+
+    const PackResult read = readPack(zip.string(), into.root.string(),
+                                     nullptr, kNeverCancelled);
+    CHECK_FALSE(read.ok);
+    CHECK_FALSE(fs::exists(escaped));
 }
 
 TEST_CASE("something that is not a zip is refused by name, not by crashing") {

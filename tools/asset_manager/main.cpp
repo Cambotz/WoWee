@@ -585,8 +585,11 @@ void writeScreenshot(SDL_Renderer* renderer, const char* path) {
 fs::path gameFont(const std::string& outputDir, const char* name) {
     std::vector<fs::path> roots;
     if (!outputDir.empty()) roots.emplace_back(outputDir);
-    if (const char* home = std::getenv("HOME"); home != nullptr && *home != '\0') {
-        roots.emplace_back(fs::path(home) / "Library/Application Support/Wowee/Data");
+    // Where the client reads from on this platform, which is not the same
+    // directory on all three - written out by hand it was the macOS one, and
+    // the window went without the game's face everywhere else.
+    if (const fs::path userData = wowee::core::userDataRoot(); !userData.empty()) {
+        roots.emplace_back(userData);
     }
 
     std::error_code ec;

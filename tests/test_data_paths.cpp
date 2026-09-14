@@ -48,9 +48,18 @@ struct Sandbox {
 
 TEST_CASE("the default data root is a real per-user location") {
     const fs::path root = userDataRoot();
-    REQUIRE_FALSE(root.empty());
+
+    // Empty is the documented answer where the platform will not say - a
+    // container with no HOME, say - and is not a failure. Everywhere it does
+    // answer, the answer has to be somewhere absolute.
+    if (root.empty()) {
+        WARN("This environment names no per-user directory; nothing to check.");
+        return;
+    }
     CHECK(root.is_absolute());
-    // It is the folder the assets go in, not the folder above it.
+    // The folder the assets go in, not the folder above it: both programs join
+    // "expansions" onto this, and a root off by one level is two programs
+    // writing and reading different places.
     CHECK(root.filename() == "Data");
 }
 

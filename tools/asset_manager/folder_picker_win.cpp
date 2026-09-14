@@ -5,7 +5,9 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <filesystem>
 #include <string>
+#include <system_error>
 
 namespace wowee::assets {
 namespace {
@@ -61,16 +63,27 @@ bool pickNative(PickWhat what, const std::string& title, const std::string& star
             dialog->SetFileTypes(1, &filter);
         }
 
-        if (!startAt.empty()) {
-            IShellItem* start = nullptr;
-            if (SUCCEEDED(SHCreateItemFromParsingName(widen(startAt).c_str(), nullptr,
-                                                      IID_PPV_ARGS(&start)))) {
-                dialog->SetFolder(start);
-                start->Release();
+        // SetFolder wants a folder. A path naming a file starts the dialog in
+        // the folder holding it, which is what somebody means by handing one
+        // over.
+        std::error_code ec;
+        std::string start = startAt;
+        if (!start.empty() && !std::filesystem::is_directory(start, ec)) {
+            start = std::filesystem::path(start).parent_path().string();
+        }
+        if (!start.empty() && std::filesystem::is_directory(start, ec)) {
+            IShellItem* at = nullptr;
+            if (SUCCEEDED(SHCreateItemFromParsingName(widen(start).c_str(), nullptr,
+                                                      IID_PPV_ARGS(&at)))) {
+                dialog->SetFolder(at);
+                at->Release();
             }
         }
 
-        if (SUCCEEDED(dialog->Show(nullptr))) {
+        // Owned by whatever window is active, so the dialog is modal to this
+        // program and cannot open behind it. Unowned it is a modal nobody can
+        // see, which reads as a window that has stopped responding.
+        if (SUCCEEDED(dialog->Show(GetActiveWindow()))) {
             IShellItem* item = nullptr;
             if (SUCCEEDED(dialog->GetResult(&item))) {
                 PWSTR path = nullptr;
