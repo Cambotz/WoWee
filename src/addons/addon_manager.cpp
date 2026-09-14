@@ -1205,6 +1205,25 @@ bool AddonManager::loadFrameXml(const std::string& frameXmlDir) {
         "        CURRENT_MAP_QUESTS[questID] = i\n"
         "      end\n"
         "    end\n"
+        // Nothing matched, so the question could not be answered rather than
+        // answered with none. A quest sits under the zone its query response
+        // named, and until that lands it sits under Miscellaneous - which
+        // matches no zone, so a log of quests the server has not described yet
+        // filters down to an empty tracker. The panel then hides its own
+        // header and disables the button that would expand it, which reads as
+        // three faults: quests not being tracked, a collapsed panel, and a
+        // dead button. They are one.
+        //
+        // Showing a quest from the wrong zone is a smaller wrong than showing
+        // none, so an empty match falls back to every quest in the log.
+        "    if not next(CURRENT_MAP_QUESTS) then\n"
+        "      for i = 1, GetNumQuestLogEntries() do\n"
+        "        local _, _, _, _, isHeader, _, _, _, questID = GetQuestLogTitle(i)\n"
+        "        if not isHeader and questID and questID ~= 0 then\n"
+        "          CURRENT_MAP_QUESTS[questID] = i\n"
+        "        end\n"
+        "      end\n"
+        "    end\n"
         "  end\n"
         "end\n");
 

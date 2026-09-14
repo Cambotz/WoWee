@@ -191,6 +191,11 @@ private:
     float portraitCameraFovDegrees_ = 0.0f;
     float modelBoundMinZ_ = 0.0f;
     float modelBoundMaxZ_ = 2.0f;
+    /// Where the head is attached, in model Z, or zero if the skeleton does
+    /// not say. The portrait aims here rather than at a fraction of the
+    /// bounding box: a gnome's head bone sits at 60% of its height and a
+    /// tauren's at 82%, because a gnome's hair is most of what is above it.
+    float modelHeadZ_ = 0.0f;
     glm::vec3 previewStandPosition_{0.0f};
     glm::vec3 previewViewDirection_{0.0f, 1.0f, 0.0f};
     bool transparentBackground_ = false;

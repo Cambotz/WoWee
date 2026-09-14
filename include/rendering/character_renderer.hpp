@@ -131,6 +131,15 @@ public:
     /// How tall this character stands, from its feet to the top of its head,
     /// with its scale applied. The model origin is at the feet.
     bool getInstanceHeight(uint32_t instanceId, float& outHeight) const;
+
+    /// Where one of the skeleton's named bones sits, in model Z with the
+    /// instance's scale applied. The key bone ids are WoW's own: 4 is the
+    /// lower spine, 6 the head, 7 the jaw.
+    ///
+    /// A bone is where a thing actually is. A fraction of the bounding box is
+    /// where it usually is, which is not the same for a race whose hair is
+    /// half the distance from its chin to the top of the box.
+    bool getInstanceKeyBonePivotZ(uint32_t instanceId, int32_t keyBoneId, float& outZ) const;
     bool getInstanceFootZ(uint32_t instanceId, float& outFootZ) const;
     bool getInstancePosition(uint32_t instanceId, glm::vec3& outPos) const;
 

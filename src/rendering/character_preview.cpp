@@ -34,6 +34,9 @@ namespace rendering {
 
 namespace {
 
+/// WoW's own key bone numbering: 4 is the lower spine, 6 the head, 7 the jaw.
+constexpr int32_t kKeyBoneHead = 6;
+
 bool isFiniteVec3(const glm::vec3& v) {
     return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z);
 }
@@ -529,6 +532,13 @@ bool CharacterPreview::loadCharacter(game::Race race, game::Gender gender,
         frameCameraForModelBounds(*camera_, frameMin, frameMax);
         modelBoundMinZ_ = frameMin.z;
         modelBoundMaxZ_ = frameMax.z;
+        modelHeadZ_ = 0.0f;
+        if (charRenderer_ && instanceId_ > 0) {
+            float headZ = 0.0f;
+            if (charRenderer_->getInstanceKeyBonePivotZ(instanceId_, kKeyBoneHead, headZ)) {
+                modelHeadZ_ = headZ;
+            }
+        }
         fullBodyDistance_ = camera_->getPosition().y;
         // A player model is framed by its bounds; no creature portrait camera
         // is in play, and a stale one from the shared preview must not be.
@@ -1062,6 +1072,13 @@ bool CharacterPreview::loadCreature(
         frameCameraForModelBounds(*camera_, frameMin, frameMax);
         modelBoundMinZ_ = frameMin.z;
         modelBoundMaxZ_ = frameMax.z;
+        modelHeadZ_ = 0.0f;
+        if (charRenderer_ && instanceId_ > 0) {
+            float headZ = 0.0f;
+            if (charRenderer_->getInstanceKeyBonePivotZ(instanceId_, kKeyBoneHead, headZ)) {
+                modelHeadZ_ = headZ;
+            }
+        }
         fullBodyDistance_ = camera_->getPosition().y;
     }
 
@@ -1475,7 +1492,23 @@ void CharacterPreview::applyPreviewView() {
 
     const float modelHeight = std::max(modelBoundMaxZ_ - modelBoundMinZ_, 0.1f);
     const float bodyFocusZ = (modelBoundMinZ_ + modelBoundMaxZ_) * 0.5f;
-    const float faceFocusZ = modelBoundMinZ_ + modelHeight * 0.82f;
+
+    // Aim at the bone the head is on, not at a share of the bounding box.
+    //
+    // Measured across the player models, the head bone sits at 82% of height
+    // on a tauren and a dwarf - which is why 82% was chosen and why it looked
+    // right - but at 87% on a human, 89% on a night elf and 60% on a gnome. A
+    // gnome's hair and oversized head are 40% of everything above its feet, so
+    // the fraction aimed 26cm over the top of its skull and the face fell out
+    // of the bottom of the frame. The skeleton has no such opinion: the head
+    // bone is where the head is, on every race, by construction.
+    //
+    // This is what the creature path already does by another route, reading
+    // the artist's own portrait camera - whose target for a gnoll is within a
+    // few centimetres of that model's head bone.
+    const float faceFocusZ = modelHeadZ_ > 0.001f
+                                 ? modelHeadZ_
+                                 : modelBoundMinZ_ + modelHeight * 0.82f;
     const float focusZ = bodyFocusZ + (faceFocusZ - bodyFocusZ) * zoomLevel_;
 
     // Stay outside the near plane while getting close enough to inspect facial

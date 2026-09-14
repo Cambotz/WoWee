@@ -4093,6 +4093,21 @@ bool CharacterRenderer::getInstanceBounds(uint32_t instanceId, glm::vec3& outCen
     return true;
 }
 
+bool CharacterRenderer::getInstanceKeyBonePivotZ(uint32_t instanceId, int32_t keyBoneId,
+                                                 float& outZ) const {
+    auto it = instances.find(instanceId);
+    if (it == instances.end()) return false;
+    auto mIt = models.find(it->second.modelId);
+    if (mIt == models.end()) return false;
+
+    for (const auto& bone : mIt->second.data.bones) {
+        if (bone.keyBoneId != keyBoneId) continue;
+        outZ = bone.pivot.z * std::max(0.001f, it->second.scale);
+        return true;
+    }
+    return false;
+}
+
 bool CharacterRenderer::getInstanceHeight(uint32_t instanceId, float& outHeight) const {
     auto it = instances.find(instanceId);
     if (it == instances.end()) return false;
