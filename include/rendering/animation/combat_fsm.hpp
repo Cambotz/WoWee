@@ -108,7 +108,16 @@ private:
     bool charging_ = false;
 
     // Off-hand alternation for dual wielding
+    /// Which hand the next swing uses, and which this one chose.
+    ///
+    /// The turn is taken when a swing begins. Taken where the animation is
+    /// resolved instead, it was taken again on every frame the swing lasted -
+    /// so a dual-wielding character alternated main-hand and off-hand
+    /// animations sixty times a second and stood there shuddering. With one
+    /// weapon there was no second animation to alternate with, which is why it
+    /// only ever showed with two.
     bool offHandTurn_ = false;
+    bool offHandThisSwing_ = false;
 
     /// Internal: update state transitions based on input.
     void updateTransitions(const Input& in);

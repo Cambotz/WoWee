@@ -146,6 +146,11 @@ void CombatFSM::updateTransitions(const Input& in) {
         if (state_ != State::MELEE_SWING) {
             clearSpellState();
             hitReactionAnimId_ = 0;
+            // The hand is chosen here, once, because this is where a swing
+            // begins. Choosing it where the animation is resolved chose it
+            // again on every frame the swing lasted.
+            offHandThisSwing_ = offHandTurn_;
+            offHandTurn_ = !offHandTurn_;
         }
         state_ = State::MELEE_SWING;
         return;
@@ -358,9 +363,10 @@ AnimOutput CombatFSM::resolve(const Input& in, const AnimCapabilitySet& caps,
             if (in.specialAttackAnimId != 0) {
                 animId = in.specialAttackAnimId;
             } else {
-                // Resolve melee animation using probed capabilities + weapon loadout
-                bool useOffHand = loadout.hasOffHand && offHandTurn_;
-                offHandTurn_ = loadout.hasOffHand ? !offHandTurn_ : false;
+                // Resolve melee animation using probed capabilities + weapon
+                // loadout. Which hand is already settled: this runs every frame
+                // of the swing and has to answer the same way each time.
+                const bool useOffHand = loadout.hasOffHand && offHandThisSwing_;
 
                 if (useOffHand) {
                     // The off-hand weapon's kind, not the main hand's.
@@ -460,6 +466,7 @@ void CombatFSM::reset() {
     stunned_ = false;
     charging_ = false;
     offHandTurn_ = false;
+    offHandThisSwing_ = false;
 }
 
 } // namespace rendering
