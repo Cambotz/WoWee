@@ -2294,10 +2294,20 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
             // The head bone, which is what the pivot is placed against. A
             // skeleton that does not name one leaves this zero and falls back
             // to the height.
+            //
+            // A frame that cannot answer keeps the last answer. The height
+            // above is already guarded that way by the enclosing `if`; the
+            // head bone was not, and zeroing it dropped the pivot to a lower
+            // tier of pivotHeightFor - a gnome went 0.65 to 0.88, or to the
+            // flat 1.6 when the height was missing too. Entering a building is
+            // where this showed: the WMO transition re-registers the instance
+            // and the bone query returns false for a frame, so the camera rose
+            // on the doorstep and stayed up.
             float headZ = 0.0f;
-            if (!characterRenderer->getInstanceKeyBonePivotZ(playerInstanceId, kKeyBoneHead, headZ)) {
-                headZ = 0.0f;
-            }
+            const bool measuredHead =
+                characterRenderer->getInstanceKeyBonePivotZ(playerInstanceId, kKeyBoneHead, headZ)
+                && headZ > 0.01f;
+            if (!measuredHead) headZ = followedHeadZ_;
             if (std::abs(height - followedHeight_) > 0.01f ||
                 std::abs(headZ - followedHeadZ_) > 0.01f) {
                 // Said when it changes, which is when a character is first
@@ -2313,7 +2323,7 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
                             kPivotReferenceHeadZ, " head reference)");
             }
             followedHeight_ = height;
-            followedHeadZ_ = headZ;
+            if (measuredHead) followedHeadZ_ = headZ;
         }
 
         // Hide only on first-person *intent* (the user's zoom), not on a
