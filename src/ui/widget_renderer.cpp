@@ -415,7 +415,13 @@ void WidgetRenderer::sizeTooltipWidget(Widget* w, ImFont* font, WidgetTree& tree
         return total;
     };
     for (const auto& line : w->tooltipLines) {
-        if (line.wrap) return;
+        // A wrapping line does not set the width - that is what the comment
+        // above says and what the rest of this function assumes. Returning
+        // here left the whole tooltip unsized instead of skipping the line:
+        // a spell tooltip's description wraps, so the function gave up before
+        // it ever set a height, the box kept whatever size it had, and the
+        // lines past that drew below its bottom edge.
+        if (line.wrap) continue;
         float wide = measure(line.left);
         if (!line.right.empty()) {
             // Left and right text share a line with a gap between them.
@@ -442,14 +448,32 @@ void WidgetRenderer::sizeTooltipWidget(Widget* w, ImFont* font, WidgetTree& tree
         // A line that does not wrap is one row by definition; only a wrapping
         // one has to be measured. Which is what the draw has always done -
         // the two now count the same way.
-        int n = 1;
-        if (line.wrap) {
-            n = static_cast<int>(
-                wrapText(parseMarkup(line.left), wrapW, false,
-                         [&](const std::string& piece) {
-                             return font->CalcTextSizeA(size, FLT_MAX, 0.0f,
-                                                        piece.c_str()).x;
-                         }).size());
+        // A line can carry its own breaks. Spell.dbc writes Eviscerate's
+        // description as one string with a newline before each combo point,
+        // and the draw honours those - so counting the string as one row
+        // measured six lines as one and the other five fell out of the box.
+        int n = 0;
+        std::size_t at = 0;
+        while (at <= line.left.size()) {
+            std::size_t brk = line.left.find('\n', at);
+            std::string segment = line.left.substr(
+                at, brk == std::string::npos ? std::string::npos : brk - at);
+            if (!segment.empty() && segment.back() == '\r') segment.pop_back();
+
+            int rowsHere = 1;
+            if (line.wrap && !segment.empty()) {
+                rowsHere = static_cast<int>(
+                    wrapText(parseMarkup(segment), wrapW, false,
+                             [&](const std::string& piece) {
+                                 return font->CalcTextSizeA(size, FLT_MAX, 0.0f,
+                                                            piece.c_str()).x;
+                             }).size());
+                if (rowsHere < 1) rowsHere = 1;
+            }
+            n += rowsHere;
+
+            if (brk == std::string::npos) break;
+            at = brk + 1;
         }
         line.lines = n > 0 ? n : 1;
         rows += line.lines;

@@ -31,6 +31,8 @@
 #include <set>
 #include <unordered_map>
 #include <unordered_set>
+
+#include "game/spell_description_eval.hpp"
 #include <map>
 #include <optional>
 #include <algorithm>
@@ -3304,6 +3306,9 @@ public:
     /// points and $d durations (incl. cross-spell $<spellId> references), plus $l/$g
     /// plural/gender forms. Unresolvable tokens ($h proc chance, $t period) are stripped
     /// cleanly. `selfSpellId` supplies the default source for index-only tokens like $s1.
+    /// The evaluator's window onto this client, for $<name> and ${}.
+    SpellDescriptionContext descriptionContext(uint32_t spellId,
+                                               const std::string* declarations) const;
     std::string formatSpellDescription(uint32_t selfSpellId, const std::string& raw) const;
     // SpellFocusObject.dbc name ("Anvil", "Cooking Fire", ...) for
     // requires-spell-focus cast failures; empty if unknown.
@@ -3611,6 +3616,9 @@ public:
     auto& spellFlatModsRef() { return spellFlatMods_; }
     auto& spellPctModsRef() { return spellPctMods_; }
     auto& spellNameCacheRef() { return spellNameCache_; }
+    /// The $name=expression declarations a spell's description draws on, or
+    /// empty. Keyed by SpellDescriptionVariables.dbc id.
+    auto& spellDescriptionVariablesRef() { return spellDescriptionVariables_; }
     auto& spellNameCacheLoadedRef() { return spellNameCacheLoaded_; }
 
     // ── Quests & Achievements ────────────────────────────────────────
@@ -3893,6 +3901,11 @@ public:
         // means "Self Only" (shouts, self-buffs); negative means SpellRange.dbc
         // was unavailable, so callers should not infer anything from it.
         float maxRange = -1.0f;
+        /// Spell.dbc SpellDescriptionVariableID: which row of
+        /// SpellDescriptionVariables.dbc defines the $<name> tokens this
+        /// spell's description uses. Zero for the great majority, which use
+        /// none.
+        uint32_t descriptionVariableId = 0;
         int32_t effectBasePoints[3] = {0, 0, 0};
         uint32_t effectIds[3] = {0, 0, 0};
         // Spell.dbc EffectApplyAuraName - which aura an APPLY_AURA effect
@@ -4686,6 +4699,7 @@ private:
     // Trainer
     bool trainerWindowOpen_ = false;
     mutable std::unordered_map<uint32_t, SpellNameEntry> spellNameCache_;
+    mutable std::unordered_map<uint32_t, std::string> spellDescriptionVariables_;
     mutable bool spellNameCacheLoaded_ = false;
 
     // Title cache: maps titleBit → title string (lazy-loaded from CharTitles.dbc)

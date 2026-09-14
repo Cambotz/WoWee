@@ -1,4 +1,5 @@
 #include "game/game_handler.hpp"
+#include "game/spell_description_eval.hpp"
 #include "game/gather_spells.hpp"
 #include "game/packed_time.hpp"
 #include "game/inventory_slots.hpp"
@@ -3620,6 +3621,22 @@ std::string formatSpellDurationSec(float sec) {
 }
 } // namespace
 
+/// The evaluator's window onto this client: what a magnitude is, and which
+/// spells the player knows.
+SpellDescriptionContext GameHandler::descriptionContext(
+        uint32_t spellId, const std::string* declarations) const {
+    SpellDescriptionContext ctx;
+    ctx.declarations = declarations;
+    ctx.magnitude = [this, spellId](int index, double& out) {
+        const int32_t* bp = getSpellEffectBasePoints(spellId);
+        if (!bp || index < 0 || index > 2) return false;
+        out = std::abs(static_cast<double>(bp[index]) + 1.0);
+        return true;
+    };
+    ctx.knowsSpell = [this](uint32_t id) { return isSpellKnownToClient(id); };
+    return ctx;
+}
+
 std::string GameHandler::formatSpellDescription(uint32_t selfSpellId,
                                                 const std::string& raw) const {
     if (raw.empty()) return raw;
@@ -3658,10 +3675,64 @@ std::string GameHandler::formatSpellDescription(uint32_t selfSpellId,
             }
         }
 
-        // Bracketed math expression "${...}" - can't evaluate; strip it (and a trailing %).
+        // A named variable "$<percent>", declared in this spell's row of
+        // SpellDescriptionVariables.dbc. Nothing read that table, and the
+        // parser had no branch for '<' - so it dropped the "$<" as an unknown
+        // token and left "percent>" sitting in the sentence.
+        if (next == '<') {
+            const size_t close = raw.find('>', i + 2);
+            if (close != std::string::npos) {
+                const std::string name = raw.substr(i + 2, close - (i + 2));
+                i = close + 1;
+
+                const auto& cache = const_cast<GameHandler*>(this)->spellNameCacheRef();
+                const auto entry = cache.find(selfSpellId);
+                const std::string* decls = nullptr;
+                if (entry != cache.end() && entry->second.descriptionVariableId != 0) {
+                    auto& table = const_cast<GameHandler*>(this)->spellDescriptionVariablesRef();
+                    const auto row = table.find(entry->second.descriptionVariableId);
+                    if (row != table.end()) decls = &row->second;
+                }
+
+                const SpellDescriptionContext ctx = descriptionContext(selfSpellId, decls);
+                std::string decl;
+                double v = 0.0;
+                if (decls && spellDeclarationOf(ctx, name, decl) &&
+                    evaluateSpellExpression(decl, ctx, v)) {
+                    const long rounded = std::lround(v);
+                    out += std::to_string(rounded);
+                    lastValue = rounded;
+                } else if (i < n && raw[i] == '%') {
+                    // Unresolvable: drop the token and the percent sign it
+                    // qualified, rather than leave a bare "%" behind.
+                    ++i;
+                }
+                continue;
+            }
+        }
+
+        // Bracketed math expression "${...}" - evaluate where it can be, strip
+        // it (and a trailing %) where it cannot.
         if (next == '{') {
             size_t close = raw.find('}', i + 2);
             if (close != std::string::npos) {
+                const auto& cache = const_cast<GameHandler*>(this)->spellNameCacheRef();
+                const auto entry = cache.find(selfSpellId);
+                const std::string* decls = nullptr;
+                if (entry != cache.end() && entry->second.descriptionVariableId != 0) {
+                    auto& table = const_cast<GameHandler*>(this)->spellDescriptionVariablesRef();
+                    const auto row = table.find(entry->second.descriptionVariableId);
+                    if (row != table.end()) decls = &row->second;
+                }
+                const SpellDescriptionContext ctx = descriptionContext(selfSpellId, decls);
+                double v = 0.0;
+                if (evaluateSpellExpression(raw.substr(i + 2, close - (i + 2)), ctx, v)) {
+                    const long rounded = std::lround(v);
+                    out += std::to_string(rounded);
+                    lastValue = rounded;
+                    i = close + 1;
+                    continue;
+                }
                 i = close + 1;
                 if (i < n && raw[i] == '%') ++i;
                 continue;

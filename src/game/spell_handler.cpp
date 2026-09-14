@@ -3166,6 +3166,34 @@ void SpellHandler::loadSpellNameCache() const {
     const uint32_t nameField = spellL ? (*spellL)["Name"] : 136;
     const uint32_t rankField = spellL ? (*spellL)["Rank"] : 153;
     const uint32_t fieldCount = dbc->getFieldCount();
+
+    // Which row of SpellDescriptionVariables.dbc a spell's $<name> tokens are
+    // defined in. Named in the layout where the layout knows it; the WotLK
+    // column otherwise, and only for a file that really is WotLK's - an index
+    // written out here is right for one file and wrong for every other, which
+    // is what the reagent columns above were.
+    uint32_t descVarField = 0xFFFFFFFF;
+    if (spellL) {
+        uint32_t f = spellL->field("DescriptionVariables");
+        if (f != 0xFFFFFFFF && f < fieldCount) descVarField = f;
+    }
+    if (descVarField == 0xFFFFFFFF && fieldCount == 234) descVarField = 232;
+
+    // The declarations themselves, read once. Thirty rows in 3.3.5.
+    if (owner_.spellDescriptionVariablesRef().empty()) {
+        if (auto varDbc = am->loadDBC("SpellDescriptionVariables.dbc");
+            varDbc && varDbc->isLoaded() && varDbc->getFieldCount() >= 2) {
+            for (uint32_t i = 0; i < varDbc->getRecordCount(); ++i) {
+                const uint32_t vid = varDbc->getUInt32(i, 0);
+                std::string text = varDbc->getString(i, 1);
+                if (vid != 0 && !text.empty()) {
+                    owner_.spellDescriptionVariablesRef()[vid] = std::move(text);
+                }
+            }
+            LOG_INFO("Loaded ", owner_.spellDescriptionVariablesRef().size(),
+                     " spell description variable set(s)");
+        }
+    }
     // What a recipe makes and what it consumes, from the layout rather than
     // from three WotLK column numbers written out here.
     //
@@ -3263,6 +3291,9 @@ void SpellHandler::loadSpellNameCache() const {
             }
             if (entry.description.empty() && tooltipField != 0xFFFFFFFF) {
                 entry.description = dbc->getString(i, tooltipField);
+            }
+            if (descVarField != 0xFFFFFFFF) {
+                entry.descriptionVariableId = dbc->getUInt32(i, descVarField);
             }
             if (hasSchoolMask) {
                 entry.schoolMask = dbc->getUInt32(i, schoolMaskField);
