@@ -22,16 +22,20 @@
  * Linux and Android to the same Xbox-shaped button set, so the table below is
  * the table everywhere.
  *
- * What it does not do yet, said plainly because the gap is what a player will
- * notice first: there is no pointer. Looting a corpse, talking to an NPC and
- * buying from a vendor are clicks on a target, and a pad cannot make them. The
- * world is playable - walk, fight, jump, target, cast - and the windows are
- * not.
+ * Looting a corpse, talking to an NPC and buying from a vendor are clicks
+ * rather than keys, so the pad has a pointer as well: Back switches the right
+ * stick from turning the view to moving the mouse. The mouse it moves is the
+ * real one - warped, so that everything which asks where the pointer is gets
+ * the truth, from ImGui down to the client's own picking - and only the button
+ * press is synthesised.
  */
 
 #include <SDL2/SDL.h>
+#include <glm/glm.hpp>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstddef>
 
 namespace wowee {
@@ -77,6 +81,28 @@ public:
     /// the sticks still move the character.
     void setCameraController(rendering::CameraController* camera) { camera_ = camera; }
 
+    /// The window the pointer is moved inside. Without one there is no
+    /// pointer mode, because there is nowhere to put the cursor.
+    void setWindow(SDL_Window* window) { window_ = window; }
+
+    /// How far the pointer travels this frame for a given push of the stick.
+    ///
+    /// Squared, so the one stick does both jobs a pointer needs: a nudge
+    /// creeps across a button at a few pixels a second, a full push crosses
+    /// the window in under two. Linear, the speed that lands on a 20 pixel
+    /// button is too slow to cross a screen and the one that crosses a screen
+    /// cannot land on the button.
+    ///
+    /// Static and taking everything it uses, so the curve can be checked
+    /// without a window, a pad or a frame.
+    [[nodiscard]] static glm::vec2 pointerStep(float stickX, float stickY, float deltaTime) {
+        const float magnitude = std::sqrt(stickX * stickX + stickY * stickY);
+        if (magnitude <= 0.0f || deltaTime <= 0.0f) return glm::vec2(0.0f);
+        const float clamped = std::min(magnitude, 1.0f);
+        const float speed = clamped * clamped * kPointerPointsPerSecond;
+        return glm::vec2(stickX / magnitude, stickY / magnitude) * (speed * deltaTime);
+    }
+
     /// Reads the pad and applies it. Call once a frame, before Input::update,
     /// so that a button pressed this frame reads as just-pressed this frame
     /// rather than next.
@@ -118,9 +144,29 @@ private:
     void applyZoom(float in, float out, float deltaTime);
     /// The buttons, as the keys in the table.
     void applyButtons();
+    /// The right stick, as the mouse pointer, and two buttons as its clicks.
+    void applyPointer(float deltaTime);
+    /// Holds a mouse button and remembers that this is what is holding it.
+    void holdMouseButton(int button, bool held);
+    /// Turns the pointer on or off, putting the cursor somewhere sensible.
+    void setPointerMode(bool on);
 
     rendering::CameraController* camera_ = nullptr;
+    SDL_Window* window_ = nullptr;
     bool inWorld_ = false;
+    /// The right stick moves the pointer instead of the view.
+    bool pointerMode_ = false;
+    /// Back is read here rather than through the table, because it toggles
+    /// rather than holds and the edge is the whole of what it means.
+    bool pointerToggleWasDown_ = false;
+    /// Where the pointer is, in window coordinates. Kept as floats because a
+    /// stick pushed gently is worth a fraction of a pixel a frame, and an int
+    /// would round every one of them to nothing.
+    float pointerX_ = 0.0f;
+    float pointerY_ = 0.0f;
+    /// Which mouse buttons this is holding, so letting go clears those and
+    /// only those. Index is SDL's, which is one-based.
+    std::array<bool, 8> heldMouseButtons_{};
     bool enabled_ = true;
     bool steering_ = false;
     bool invertLook_ = false;
@@ -148,6 +194,11 @@ private:
     static constexpr float kReleaseHysteresis = 0.10f;
     /// Notches of the mouse wheel a fully pulled trigger is worth per second.
     static constexpr float kZoomNotchesPerSecond = 6.0f;
+    /// How fast the pointer crosses the window at full deflection, in window
+    /// points a second. Fast enough to cross a 1280-wide window in a second
+    /// and a half, which is about as slow as a pointer can be before it feels
+    /// broken.
+    static constexpr float kPointerPointsPerSecond = 900.0f;
 };
 
 /// The one instance, reached the way the touch controls are.

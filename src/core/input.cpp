@@ -29,7 +29,7 @@ void Input::update() {
     // SDL_BUTTON(0) is undefined behavior (negative shift). Start at 1.
     currentMouseState[0] = false;
     for (int i = 1; i < NUM_MOUSE_BUTTONS; ++i) {
-        currentMouseState[i] = (mouseState & SDL_BUTTON(i)) != 0;
+        currentMouseState[i] = ((mouseState & SDL_BUTTON(i)) != 0) || virtualMouseState[i];
     }
 
     // Calculate mouse delta
@@ -39,6 +39,11 @@ void Input::update() {
 void Input::setVirtualKey(SDL_Scancode key, bool held) {
     if (key < 0 || key >= NUM_KEYS) return;
     virtualKeyState[key] = held;
+}
+
+void Input::setVirtualMouseButton(int button, bool held) {
+    if (button < 0 || button >= NUM_MOUSE_BUTTONS) return;
+    virtualMouseState[button] = held;
 }
 
 void Input::clearVirtualKeys() {

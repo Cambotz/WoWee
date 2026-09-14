@@ -63,6 +63,12 @@ void GamepadControls::reset() {
         heldKeys_[i] = false;
         core::Input::getInstance().setVirtualKey(static_cast<SDL_Scancode>(i), false);
     }
+    for (std::size_t i = 0; i < heldMouseButtons_.size(); ++i) {
+        if (!heldMouseButtons_[i]) continue;
+        heldMouseButtons_[i] = false;
+        core::Input::getInstance().setVirtualMouseButton(static_cast<int>(i), false);
+        ImGui::GetIO().AddMouseButtonEvent(i == SDL_BUTTON_RIGHT ? 1 : 0, false);
+    }
     if (escapeDown_) {
         ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
         escapeDown_ = false;
@@ -123,11 +129,79 @@ void GamepadControls::applyZoom(float in, float out, float deltaTime) {
     camera_->processMouseWheel(whole);
 }
 
+void GamepadControls::holdMouseButton(int button, bool held) {
+    if (button < 0 || button >= static_cast<int>(heldMouseButtons_.size())) return;
+    const auto i = static_cast<std::size_t>(button);
+    // As with the keys: a button this is not holding is left alone, so a real
+    // mouse and the pad cannot switch each other off.
+    if (!held && !heldMouseButtons_[i]) return;
+    if (held == heldMouseButtons_[i]) return;
+    heldMouseButtons_[i] = held;
+    // Both channels, because both are read. The world's own targeting polls
+    // core::Input, and every panel asks ImGui.
+    core::Input::getInstance().setVirtualMouseButton(button, held);
+    ImGui::GetIO().AddMouseButtonEvent(button == SDL_BUTTON_RIGHT ? 1 : 0, held);
+}
+
+void GamepadControls::setPointerMode(bool on) {
+    if (pointerMode_ == on) return;
+    pointerMode_ = on;
+    if (!on) {
+        holdMouseButton(SDL_BUTTON_LEFT, false);
+        holdMouseButton(SDL_BUTTON_RIGHT, false);
+        return;
+    }
+    // Starts where the pointer already is rather than at the middle of the
+    // screen, so turning it on twice does not throw away where it was left.
+    int x = 0;
+    int y = 0;
+    SDL_GetMouseState(&x, &y);
+    pointerX_ = static_cast<float>(x);
+    pointerY_ = static_cast<float>(y);
+    if (window_ && (x == 0 && y == 0)) {
+        int w = 0;
+        int h = 0;
+        SDL_GetWindowSize(window_, &w, &h);
+        pointerX_ = static_cast<float>(w) * 0.5f;
+        pointerY_ = static_cast<float>(h) * 0.5f;
+    }
+}
+
+void GamepadControls::applyPointer(float deltaTime) {
+    if (!window_) return;
+    int w = 0;
+    int h = 0;
+    SDL_GetWindowSize(window_, &w, &h);
+    if (w <= 0 || h <= 0) return;
+
+    const auto& pad = core::gamepad();
+    const glm::vec2 step = pointerStep(pad.rightStick().x, pad.rightStick().y, deltaTime);
+    if (step.x != 0.0f || step.y != 0.0f) {
+        pointerX_ = std::clamp(pointerX_ + step.x, 0.0f, static_cast<float>(w - 1));
+        pointerY_ = std::clamp(pointerY_ + step.y, 0.0f, static_cast<float>(h - 1));
+        SDL_WarpMouseInWindow(window_, static_cast<int>(pointerX_), static_cast<int>(pointerY_));
+    }
+
+    // A is the click, as it is on every console, and X is the right click -
+    // which in this game opens a corpse, uses a door and brings up a unit's
+    // menu, so a pad without one cannot loot.
+    holdMouseButton(SDL_BUTTON_LEFT, pad.held(SDL_CONTROLLER_BUTTON_A));
+    holdMouseButton(SDL_BUTTON_RIGHT, pad.held(SDL_CONTROLLER_BUTTON_X));
+}
+
 void GamepadControls::applyButtons() {
     const auto& pad = core::gamepad();
     std::size_t count = 0;
     const PadBinding* bindings = padBindings(count);
     for (std::size_t i = 0; i < count; ++i) {
+        // A and X are the pointer's two clicks while it is up. Jumping and
+        // casting from the same press would fire a spell at whatever was
+        // under the cursor every time a window was clicked.
+        if (pointerMode_ && (bindings[i].button == SDL_CONTROLLER_BUTTON_A ||
+                             bindings[i].button == SDL_CONTROLLER_BUTTON_X)) {
+            holdKey(bindings[i].key, false);
+            continue;
+        }
         holdKey(bindings[i].key, pad.held(bindings[i].button));
     }
 
@@ -161,6 +235,7 @@ void GamepadControls::update(float deltaTime) {
 
     if (!pad.isConnected()) announced_ = false;
     if (!live) {
+        setPointerMode(false);
         reset();
         return;
     }
@@ -173,7 +248,7 @@ void GamepadControls::update(float deltaTime) {
         LOG_WARNING("Gamepad: ", pad.describe(),
                     " - left stick moves, right stick looks, triggers zoom, "
                     "A jumps, B closes, X/Y and the D-pad are actions 1-6, "
-                    "hold LB for 7-12, RB targets, L3 autoruns");
+                    "hold LB for 7-12, RB targets, L3 autoruns, Back gives you a pointer");
     }
 
     // Typing takes precedence over everything. The chat box is reached with a
@@ -184,9 +259,30 @@ void GamepadControls::update(float deltaTime) {
         return;
     }
 
+    // Back switches the right stick between the view and the pointer. On its
+    // edge rather than while held: it is a mode, and a mode that lasted only
+    // as long as a thumb could hold a button would be no use for buying from
+    // a vendor.
+    const bool toggle = pad.held(SDL_CONTROLLER_BUTTON_BACK);
+    if (toggle && !pointerToggleWasDown_) {
+        setPointerMode(!pointerMode_);
+        // At warning, because the two modes look identical apart from the
+        // cursor, and a player wondering why the stick stopped turning the
+        // view has one place to look.
+        LOG_WARNING("Gamepad: the right stick now ",
+                    pointerMode_ ? "moves the pointer" : "turns the view");
+    }
+    pointerToggleWasDown_ = toggle;
+
+    // Walking and zooming work in both modes. A pointer that stopped the
+    // player from stepping back out of a fire would be worse than none.
     applyMovement(pad.leftStick().x, pad.leftStick().y);
-    applyLook(pad.rightStick().x, pad.rightStick().y, deltaTime);
     applyZoom(pad.rightTrigger(), pad.leftTrigger(), deltaTime);
+    if (pointerMode_) {
+        applyPointer(deltaTime);
+    } else {
+        applyLook(pad.rightStick().x, pad.rightStick().y, deltaTime);
+    }
     applyButtons();
 }
 

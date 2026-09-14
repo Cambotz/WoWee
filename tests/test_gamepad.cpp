@@ -140,3 +140,55 @@ TEST_CASE("the keys the pad holds are ones the client answers") {
         CHECK(answered.count(static_cast<int>(bindings[i].key)) == 1);
     }
 }
+
+TEST_CASE("the pointer does not move on its own") {
+    const glm::vec2 still = wowee::ui::GamepadControls::pointerStep(0.0f, 0.0f, 0.016f);
+    CHECK(still.x == Catch::Approx(0.0f));
+    CHECK(still.y == Catch::Approx(0.0f));
+    // A frame that took no time moves it nowhere either, rather than dividing
+    // by it.
+    const glm::vec2 frozen = wowee::ui::GamepadControls::pointerStep(1.0f, 0.0f, 0.0f);
+    CHECK(frozen.x == Catch::Approx(0.0f));
+}
+
+TEST_CASE("a gentle push moves the pointer much more slowly than a full one") {
+    // The reason for the curve. Linear, the speed that can land on a small
+    // button cannot cross a window, and the speed that crosses a window
+    // cannot land on the button.
+    const float dt = 1.0f;
+    const float slow = wowee::ui::GamepadControls::pointerStep(0.25f, 0.0f, dt).x;
+    const float fast = wowee::ui::GamepadControls::pointerStep(1.0f, 0.0f, dt).x;
+    CHECK(slow > 0.0f);
+    // A quarter of the stick is a sixteenth of the speed.
+    CHECK(fast / slow == Catch::Approx(16.0f).margin(0.1f));
+    // And a full push crosses a 1280 wide window in under two seconds.
+    CHECK(fast > 640.0f);
+}
+
+TEST_CASE("the pointer goes where the stick points") {
+    const glm::vec2 diagonal = wowee::ui::GamepadControls::pointerStep(0.5f, 0.5f, 0.1f);
+    CHECK(diagonal.x == Catch::Approx(diagonal.y));
+    CHECK(diagonal.x > 0.0f);
+    const glm::vec2 up = wowee::ui::GamepadControls::pointerStep(0.0f, -0.8f, 0.1f);
+    CHECK(up.x == Catch::Approx(0.0f));
+    CHECK(up.y < 0.0f);
+}
+
+TEST_CASE("a stick reading past its corner does not outrun the curve") {
+    // stickVector caps at one, but this is a static taking whatever it is
+    // given, and a driver that reports 1.4 on the diagonal would otherwise
+    // move the pointer twice as fast diagonally as straight.
+    const float straight = wowee::ui::GamepadControls::pointerStep(1.0f, 0.0f, 0.1f).x;
+    const glm::vec2 corner = wowee::ui::GamepadControls::pointerStep(1.0f, 1.0f, 0.1f);
+    const float diagonal = std::sqrt(corner.x * corner.x + corner.y * corner.y);
+    CHECK(diagonal == Catch::Approx(straight).margin(0.001f));
+}
+
+TEST_CASE("the pointer travels the same distance however the frame is cut") {
+    // A step proportional to the frame time, so a 144Hz screen and a 30Hz one
+    // move the pointer at the same speed.
+    const float oneStep = wowee::ui::GamepadControls::pointerStep(0.6f, 0.0f, 0.2f).x;
+    float many = 0.0f;
+    for (int i = 0; i < 10; ++i) many += wowee::ui::GamepadControls::pointerStep(0.6f, 0.0f, 0.02f).x;
+    CHECK(many == Catch::Approx(oneStep).margin(0.001f));
+}

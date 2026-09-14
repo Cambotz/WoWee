@@ -25,6 +25,15 @@ public:
     /// Merged over the hardware state, so a keyboard still works alongside.
     void setVirtualKey(SDL_Scancode key, bool held);
     void clearVirtualKeys();
+
+    /// Holds a mouse button down from somewhere that is not a mouse.
+    ///
+    /// The controller's pointer is the reason, and it is the same argument as
+    /// the virtual keys above: targeting, looting and every click on the world
+    /// is a chain that starts at isMouseButtonJustPressed, and a pad has no
+    /// mouse. The pointer itself is the real one - it is warped, so everything
+    /// that asks where it is gets the truth - and only the button is faked.
+    void setVirtualMouseButton(int button, bool held);
     [[nodiscard]] bool isKeyJustPressed(SDL_Scancode key) const;
 
     // Mouse
@@ -51,6 +60,7 @@ private:
     std::array<bool, NUM_KEYS> previousKeyState = {};
 
     std::array<bool, NUM_MOUSE_BUTTONS> currentMouseState = {};
+    std::array<bool, NUM_MOUSE_BUTTONS> virtualMouseState = {};
     std::array<bool, NUM_MOUSE_BUTTONS> previousMouseState = {};
 
     glm::vec2 mousePosition = glm::vec2(0.0f);

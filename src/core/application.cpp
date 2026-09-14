@@ -1695,6 +1695,7 @@ void Application::run() {
         // one frame late and a tap of one could be missed entirely.
         core::gamepad().update();
         ui::gamepadControls().setInWorld(state == AppState::IN_GAME);
+        ui::gamepadControls().setWindow(window ? window->getSDLWindow() : nullptr);
         if (renderer && renderer->getCameraController()) {
             auto* cam = renderer->getCameraController();
             ui::gamepadControls().setCameraController(cam);
