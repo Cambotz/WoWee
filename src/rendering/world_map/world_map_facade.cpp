@@ -722,6 +722,13 @@ void WorldMapFacade::zoomOutOneLevel() {
     impl_->viewState.zoomOut();
 }
 
+std::string WorldMapFacade::currentMapFolder() const {
+    const int idx = impl_->viewState.currentZoneIdx();
+    const auto& zones = impl_->data.zones();
+    if (idx < 0 || idx >= static_cast<int>(zones.size())) return {};
+    return zones[static_cast<size_t>(idx)].areaName;
+}
+
 std::vector<OverlayEntry> WorldMapFacade::currentOverlays() const {
     const int idx = impl_->viewState.currentZoneIdx();
     const auto& zones = impl_->data.zones();

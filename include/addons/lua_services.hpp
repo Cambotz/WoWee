@@ -140,6 +140,10 @@ struct LuaServices {
     };
     std::function<std::vector<MapOverlay>()> getMapOverlays;
 
+    /// The folder the shown map's art lives in, which is what GetMapInfo
+    /// answers with and what the interface builds every tile path from.
+    std::function<std::string()> getMapFileName;
+
     struct MapLandmark {
         std::string name;
         std::string description;

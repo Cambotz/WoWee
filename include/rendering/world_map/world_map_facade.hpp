@@ -94,6 +94,11 @@ public:
     /// continent and cosmic level, which have no per-zone art.
     [[nodiscard]] std::vector<OverlayEntry> currentOverlays() const;
 
+    /// The folder this map's art lives in under Interface\WorldMap, which is
+    /// also what GetMapInfo answers with. Empty at continent and cosmic level,
+    /// where the interface has names of its own for those.
+    [[nodiscard]] std::string currentMapFolder() const;
+
     /// One area POI, already projected into the [0,1] map space the interface
     /// places its pins in.
     struct Landmark {

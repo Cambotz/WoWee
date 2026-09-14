@@ -564,13 +564,24 @@ bool Application::initialize() {
         // the zones, their overlays and the area POIs and drew them only
         // itself; FrameXML's map has readers for exactly these and had nothing
         // behind them.
+        luaSvc.getMapFileName = [r = renderer.get()]() -> std::string {
+            auto* wmap = r ? r->getWorldMap() : nullptr;
+            return wmap ? wmap->currentMapFolder() : std::string();
+        };
         luaSvc.getMapOverlays = [r = renderer.get()]() {
             std::vector<addons::LuaServices::MapOverlay> out;
             auto* wmap = r ? r->getWorldMap() : nullptr;
             if (!wmap) return out;
+            const std::string folder = wmap->currentMapFolder();
             for (const auto& o : wmap->currentOverlays()) {
                 addons::LuaServices::MapOverlay m;
-                m.texture = o.textureName;
+                // The whole path up to the tile number, because that is what
+                // the interface does with it: WorldMapFrame_Update appends the
+                // index and nothing else, so a bare DBC name asks for
+                // "CHILLWINDPOINT1" and finds nothing.
+                m.texture = folder.empty()
+                                ? o.textureName
+                                : "Interface\\WorldMap\\" + folder + "\\" + o.textureName;
                 m.width = o.texWidth;
                 m.height = o.texHeight;
                 m.offsetX = o.offsetX;

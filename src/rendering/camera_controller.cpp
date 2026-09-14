@@ -1,4 +1,6 @@
 #include "rendering/camera_controller.hpp"
+
+#include "core/env_flag.hpp"
 #include "rendering/swim_wall.hpp"
 #include "core/click_drag.hpp"
 #include "core/coordinates.hpp"
@@ -165,6 +167,21 @@ CameraController::CameraController(Camera* cam) : camera(cam) {
     facingYaw = defaultYaw;
     pitch = defaultPitch;
     reset();
+}
+
+/// The floor dumps, which are a hunt rather than a fault.
+///
+/// Each is ten lines of every WMO group and doodad near a position, written
+/// whenever a floor probe comes up empty - which happens in ordinary play and
+/// is recovered from. In one six-minute session they were ninety-one lines of
+/// eleven hundred, at the level these logs carry, describing something that
+/// then worked. The one-line statement that a probe found nothing stays; the
+/// inventory behind it is asked for.
+///
+/// F8 still dumps on demand, which is somebody asking for exactly this.
+bool floorDiagEnabled() {
+    static const bool on = core::envFlagEnabled("WOWEE_FLOOR_DIAG", false);
+    return on;
 }
 
 void CameraController::startIntroPan(float durationSec, float orbitDegrees) {
@@ -1142,12 +1159,14 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
                 // what sent this hunt after the wrong thing.
                 LOG_WARNING("Centre floor probe found nothing (feet ", targetPos.z,
                             ") - the recovery passes have not run yet");
-                if (wmoRenderer) {
-                    wmoRenderer->debugDumpGroupsAtPosition(
+                if (floorDiagEnabled()) {
+                    if (wmoRenderer) {
+                        wmoRenderer->debugDumpGroupsAtPosition(
+                            targetPos.x, targetPos.y, targetPos.z);
+                    }
+                    m2Renderer->debugDumpFloorCandidatesAt(
                         targetPos.x, targetPos.y, targetPos.z);
                 }
-                m2Renderer->debugDumpFloorCandidatesAt(
-                    targetPos.x, targetPos.y, targetPos.z);
             }
         }
 
@@ -1242,7 +1261,7 @@ CameraController::FloorSample CameraController::sampleFloorUnderFeet(const glm::
             // what keeps it cheap, not the size of the drop.
             if (wmoRenderer && std::abs(*groundH - lastGroundZ) > 0.35f) {
                 static std::chrono::steady_clock::time_point lastFloorDump{};
-                if (now - lastFloorDump > std::chrono::seconds(5)) {
+                if (floorDiagEnabled() && now - lastFloorDump > std::chrono::seconds(5)) {
                     lastFloorDump = now;
                     core::Logger::getInstance().warning(
                         "Player floor jump: dumping WMO groups at the "
