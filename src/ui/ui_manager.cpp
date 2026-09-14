@@ -1,6 +1,7 @@
 #include "ui/ui_manager.hpp"
 #include <cstring>
 #include "pipeline/asset_manager.hpp"
+#include "ui/imgui_theme.hpp"
 #include "ui/interface_fonts.hpp"
 
 #include <SDL2/SDL.h>
@@ -96,31 +97,9 @@ bool UIManager::initialize(core::Window* win) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;
 
-    // Setup ImGui style
-    ImGui::StyleColorsDark();
-
-    // Customize style for better WoW feel
+    // The look, shared with the asset manager so the two agree.
     ImGuiStyle& style = ImGui::GetStyle();
-    style.WindowRounding = 6.0f;
-    style.FrameRounding = 4.0f;
-    style.GrabRounding = 4.0f;
-    style.WindowBorderSize = 1.0f;
-    style.FrameBorderSize = 1.0f;
-
-    // WoW-inspired colors
-    ImVec4* colors = style.Colors;
-    colors[ImGuiCol_WindowBg] = ImVec4(0.08f, 0.08f, 0.12f, 0.94f);
-    // ImGui uses PopupBg for hover tooltips. Keep their text and item details
-    // fully legible over the 3D scene.
-    colors[ImGuiCol_PopupBg] = ImVec4(0.06f, 0.06f, 0.09f, 1.00f);
-    colors[ImGuiCol_TitleBg] = ImVec4(0.10f, 0.10f, 0.15f, 1.00f);
-    colors[ImGuiCol_TitleBgActive] = ImVec4(0.15f, 0.15f, 0.25f, 1.00f);
-    colors[ImGuiCol_Button] = ImVec4(0.20f, 0.25f, 0.40f, 1.00f);
-    colors[ImGuiCol_ButtonHovered] = ImVec4(0.25f, 0.30f, 0.50f, 1.00f);
-    colors[ImGuiCol_ButtonActive] = ImVec4(0.15f, 0.20f, 0.35f, 1.00f);
-    colors[ImGuiCol_Header] = ImVec4(0.20f, 0.25f, 0.40f, 0.55f);
-    colors[ImGuiCol_HeaderHovered] = ImVec4(0.25f, 0.30f, 0.50f, 0.80f);
-    colors[ImGuiCol_HeaderActive] = ImVec4(0.20f, 0.25f, 0.45f, 1.00f);
+    ui::applyWoweeStyle(style);
 
     // Padding, rounding, scrollbars and the rest, before the backend starts.
     // Fonts are scaled where the atlas is built, so they stay crisp rather than
