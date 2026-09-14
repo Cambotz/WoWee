@@ -189,10 +189,11 @@ struct Sandbox {
     ~Sandbox() { std::error_code ec; fs::remove_all(root, ec); }
 
     /// An extracted model already here, of the size given.
-    void installed(const std::string& relative, uint32_t vertices) {
+    void installed(const std::string& relative, uint32_t vertices,
+                   const std::vector<TextureSlot>& textures = {}) {
         const fs::path at = root / relative;
         fs::create_directories(at.parent_path());
-        const std::vector<uint8_t> body = makeBody(264, vertices, {});
+        const std::vector<uint8_t> body = makeBody(264, vertices, textures);
         std::ofstream out(at, std::ios::binary);
         out.write(reinterpret_cast<const char*>(body.data()), std::streamsize(body.size()));
     }
@@ -425,4 +426,50 @@ TEST_CASE("only the asked-for prefix is looked at") {
         CHECK(path.rfind("world", 0) == 0);
     }
     CHECK_FALSE(source.asked.empty());
+}
+
+TEST_CASE("a model wanting more monster skins than the data can dress is refused") {
+    Sandbox box;
+    // The boar, measured: the shipped one has a single monster-skin slot, and
+    // its CreatureDisplayInfo row names one skin because that is what the model
+    // it shipped with asked for.
+    box.installed("creature/boar/boar.m2", 401, {{11, ""}});
+
+    FakeSource source;
+    // Legion's carries a second, for the mane. Nothing names it here, so it
+    // would draw untextured however well the rest of the conversion went.
+    source.files["creature/boar/boar.m2"] =
+        wrap(makeBody(274, 1841, {{11, ""}, {12, "maehne"}}), {1}, {});
+    source.ids[1] = makeSkin({{0, 2}});
+
+    const ImportResult result = run(source, box);
+    CHECK(result.written == 0);
+    CHECK(result.needsMoreSkins == 1);
+    CHECK_FALSE(box.has("creature/boar/boar.m2"));
+}
+
+TEST_CASE("the same number of monster skins is fine") {
+    Sandbox box;
+    box.installed("creature/murloc/murloc.m2", 100, {{11, ""}});
+
+    FakeSource source;
+    source.files["creature/murloc/murloc.m2"] =
+        wrap(makeBody(274, 900, {{11, ""}}), {1}, {});
+    source.ids[1] = makeSkin({{0, 1}});
+
+    const ImportResult result = run(source, box);
+    CHECK(result.needsMoreSkins == 0);
+    CHECK(result.written == 1);
+}
+
+TEST_CASE("fewer monster skins than the data can dress is fine too") {
+    Sandbox box;
+    box.installed("creature/thing/thing.m2", 100, {{11, ""}, {12, ""}});
+
+    FakeSource source;
+    source.files["creature/thing/thing.m2"] =
+        wrap(makeBody(274, 900, {{11, ""}}), {1}, {});
+    source.ids[1] = makeSkin({{0, 1}});
+
+    CHECK(run(source, box).written == 1);
 }

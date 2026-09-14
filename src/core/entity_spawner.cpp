@@ -2094,6 +2094,13 @@ void EntitySpawner::applyCreatureDisplayTextures(uint32_t displayId, uint32_t mo
                 if (skinTex) {
                     charRenderer->setModelTexture(modelId, static_cast<uint32_t>(ti), skinTex);
                     LOG_DEBUG("Applied creature skin texture: ", skinPath, " to slot ", ti);
+                } else {
+                    // The row named a skin, the path was built, and the file
+                    // behind it did not load. Said nothing before: the slot
+                    // kept whatever it had and the creature drew wrong with
+                    // no line anywhere saying which texture had not arrived.
+                    LOG_WARNING("Creature skin did not load for displayId ", displayId,
+                                " slot ", ti, " type ", tex.type, ": ", skinPath);
                 }
             } else if ((tex.type == 11 && !dispData.skin1.empty()) ||
                        (tex.type == 12 && !dispData.skin2.empty()) ||

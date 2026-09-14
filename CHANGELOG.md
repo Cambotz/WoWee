@@ -1,5 +1,13 @@
 # Changelog
 
+## [Unreleased]
+
+### Fixed
+- **A dual-wielding character shuddered instead of swinging.** Which hand a swing uses was chosen where the animation is resolved, which runs on every frame the swing lasts - so the animation alternated between the main-hand and off-hand attacks sixty times a second and the character stood there vibrating. The turn is taken when the swing begins now. With one weapon there was no second animation to alternate with, which is why it only ever showed with two
+- **Some creatures drew untextured where an imported model carried a texture name.** Only a type 0 slot names its own file; every other type is a slot the client fills - the body and hair from CharSections, the monster skins from CreatureDisplayInfo. A name on one of those is leftover from whoever built the model, and this loaded it anyway. It reads as nothing on the shipped data: of 946 creature models and 38 character models not one names a replaceable slot, and the only three among 8205 item models point at Blizzard's own build machine. Imported models are another matter - 103 of 784 from a Legion installation carry Legion paths this installation does not have, which is why the boar asked for "maehne" and its mane drew bare
+- **The importer wrote creatures the data cannot dress.** A creature is textured from its CreatureDisplayInfo row, and that row names as many skins as the model it shipped with wanted. Legion's boar carries a second monster-skin slot for its mane where 3.3.5's names one, so the mane draws untextured however well the rest of the conversion goes. 46 of 784 imported models are in that position, and are refused now
+- **A creature skin that failed to load said nothing.** The row named it, the path was built, and the file behind it did not arrive - the slot kept whatever it had and the creature drew wrong with no line anywhere saying which texture was missing
+
 ## [v3.1.27] - 2026-09-13
 
 ### Added

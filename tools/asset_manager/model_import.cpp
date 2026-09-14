@@ -88,6 +88,28 @@ bool md21Body(const std::vector<uint8_t>& blob, std::vector<uint8_t>& body,
 /// types 11 to 13 are a creature's skin, which the client composes from
 /// CreatureDisplayInfo and which is empty here by design. So an empty name
 /// means opposite things in the two cases, and only the first is a fault.
+/// How many monster skins a model expects the client to hand it.
+///
+/// Types 11, 12 and 13 are MONSTER_1 to MONSTER_3, filled from a
+/// CreatureDisplayInfo row's three texture columns. A model asking for more of
+/// them than the row has is a model the data cannot dress: the columns were
+/// written for the model that shipped with them.
+std::size_t monsterSkinSlots(const std::vector<uint8_t>& body) {
+    if (body.size() < kTexturesOffset + 4) return 0;
+    const uint32_t count = readLE32(body.data() + kTexturesCount);
+    const uint32_t offset = readLE32(body.data() + kTexturesOffset);
+    if (count > 512) return 0;
+
+    std::size_t slots = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        const std::size_t entry = offset + std::size_t(i) * 16;
+        if (entry + 16 > body.size()) break;
+        const uint32_t kind = readLE32(body.data() + entry);
+        if (kind >= 11 && kind <= 13) ++slots;
+    }
+    return slots;
+}
+
 /// Whether any batch in this skin draws one of the named texture slots.
 ///
 /// A batch names a run of the model's texture-combo list, and each entry there
@@ -184,8 +206,8 @@ bool writeFile(const fs::path& path, const uint8_t* data, std::size_t size) {
 
 std::size_t indexLocalModels(const std::string& expansionDir,
                              std::vector<ImportCandidate>* out) {
-    // name -> (vertices, game-relative path, came from override)
-    std::map<std::string, std::tuple<uint32_t, std::string, bool>> found;
+    // name -> (vertices, game-relative path, came from override, monster skins)
+    std::map<std::string, std::tuple<uint32_t, std::string, bool, uint32_t>> found;
     std::error_code ec;
     const fs::path root(expansionDir);
 
@@ -206,6 +228,28 @@ std::size_t indexLocalModels(const std::string& expansionDir,
         const std::size_t shift = version >= 264 ? 0 : 8;
         const uint32_t vertices = readLE32(head + 60 + shift);
 
+        // The monster-skin slots, read by seeking to the texture array rather
+        // than reading the file: it sits wherever the model put it, which for
+        // a character model is megabytes in.
+        uint32_t monsterSkins = 0;
+        {
+            const uint32_t texCount = readLE32(head + kTexturesCount + shift);
+            const uint32_t texOffset = readLE32(head + kTexturesOffset + shift);
+            if (texCount > 0 && texCount <= 512) {
+                std::vector<uint8_t> entries(std::size_t(texCount) * 16);
+                in.seekg(texOffset);
+                in.read(reinterpret_cast<char*>(entries.data()),
+                        static_cast<std::streamsize>(entries.size()));
+                if (in.gcount() == static_cast<std::streamsize>(entries.size())) {
+                    for (uint32_t i = 0; i < texCount; ++i) {
+                        const uint32_t kind = readLE32(entries.data() + std::size_t(i) * 16);
+                        if (kind >= 11 && kind <= 13) ++monsterSkins;
+                    }
+                }
+            }
+            in.clear();
+        }
+
         fs::path relative = fs::relative(it->path(), root, ec);
         std::string first = relative.begin() != relative.end()
                             ? lower(relative.begin()->string()) : std::string();
@@ -225,7 +269,7 @@ std::size_t indexLocalModels(const std::string& expansionDir,
         const std::string key = lower(filename.substr(0, filename.size() - 3));
         auto existing = found.find(key);
         if (existing == found.end()) {
-            found[key] = {vertices, relative.generic_string(), overridden};
+            found[key] = {vertices, relative.generic_string(), overridden, monsterSkins};
         } else {
             const bool wasOverride = std::get<2>(existing->second);
             const uint32_t wasVertices = std::get<0>(existing->second);
@@ -235,9 +279,9 @@ std::size_t indexLocalModels(const std::string& expansionDir,
             // installed reads as an improvement worth making again - and a
             // better model gets replaced by a poorer one.
             if (overridden && !wasOverride) {
-                existing->second = {vertices, relative.generic_string(), true};
+                existing->second = {vertices, relative.generic_string(), true, monsterSkins};
             } else if (overridden == wasOverride && vertices > wasVertices) {
-                existing->second = {vertices, relative.generic_string(), overridden};
+                existing->second = {vertices, relative.generic_string(), overridden, monsterSkins};
             }
         }
     }
@@ -249,6 +293,7 @@ std::size_t indexLocalModels(const std::string& expansionDir,
             candidate.name = key;
             candidate.localVertices = std::get<0>(record);
             candidate.destination = std::get<1>(record);
+            candidate.localMonsterSkins = std::get<3>(record);
             out->push_back(std::move(candidate));
         }
     }
@@ -371,6 +416,22 @@ ImportResult importModels(ModelSource& source, const std::string& expansionDir,
             // spikes from the origin - far more obviously wrong than the model
             // it would have replaced.
             ++result.missingSkin;
+            continue;
+        }
+
+        // A creature is dressed from its CreatureDisplayInfo row, and that row
+        // was written for the model that shipped with it. A later model with
+        // more monster-skin slots than the one it replaces has slots nothing
+        // can fill - Legion's boar carries a second one for its mane, and
+        // 3.3.5's row names a body skin and nothing else, so the mane draws
+        // untextured however well the rest goes.
+        // Only where the model here has monster skins of its own. With none,
+        // there is no CreatureDisplayInfo row behind it to be outgrown - a
+        // doodad that happens to carry one of these slots is not a creature
+        // and is not dressed from that table.
+        if (candidate.localMonsterSkins > 0 &&
+            monsterSkinSlots(body) > candidate.localMonsterSkins) {
+            ++result.needsMoreSkins;
             continue;
         }
 

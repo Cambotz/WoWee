@@ -57,6 +57,10 @@ struct ImportCandidate {
     std::string name;
     std::string destination;   ///< game-relative path, and what to ask for
     uint32_t localVertices = 0;
+    /// How many monster-skin slots the model already here asks to be filled.
+    /// A CreatureDisplayInfo row names as many skins as the model it shipped
+    /// with wanted, so this is what the data can dress.
+    uint32_t localMonsterSkins = 0;
 };
 
 struct ImportResult {
@@ -64,6 +68,7 @@ struct ImportResult {
     std::size_t refusedByGate = 0;   ///< a texture slot the client cannot fill
     std::size_t missingTextures = 0;
     std::size_t missingSkin = 0;      ///< index data that did not come with it
+    std::size_t needsMoreSkins = 0;   ///< more monster skins than the DBC can fill
     std::size_t hasEmitters = 0;     ///< particle or ribbon structs that grew
     std::size_t notBetter = 0;
 };

@@ -1810,9 +1810,25 @@ bool CharacterRenderer::loadModel(const pipeline::M2Model& model, uint32_t id) {
     // Calculate bind pose
     calculateBindPose(gpuModel);
 
-    // Load textures from model
+    // Load textures from model.
+    //
+    // Only type 0 names its own file. Every other type is a slot the client
+    // fills: the body and hair from CharSections, the monster skins from
+    // CreatureDisplayInfo, the tabard from the guild. Whatever name a model
+    // carries on one of those is leftover from whoever built it, and loading
+    // it is loading the wrong thing.
+    //
+    // It reads as nothing on the shipped data, where those names are empty -
+    // of 946 creature models and 38 character models, not one names a
+    // replaceable slot, and the only three among 8205 item models are
+    // Blizzard's own build machine ("Z:\World of Warcraft Proj Server\...")
+    // and could never have resolved. It is imported models that carry them:
+    // 103 of 784 from a Legion installation, naming Legion paths this
+    // installation does not have. The boar's mane asked for "maehne" and drew
+    // untextured when nothing answered, because CreatureDisplayInfo has no
+    // second skin for it to be overwritten with.
     for (const auto& tex : model.textures) {
-        VkTexture* texPtr = loadTexture(tex.filename);
+        VkTexture* texPtr = tex.type == 0 ? loadTexture(tex.filename) : nullptr;
         gpuModel.textureIds.push_back(texPtr);
     }
 
