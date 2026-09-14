@@ -1565,6 +1565,19 @@ install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/assets
     DESTINATION bin
     PATTERN "Original Music" EXCLUDE)
 
+# The expansion profiles, which say what each game this client can speak is:
+# its build number, protocol version, races and classes, opcode table and
+# update-field layout. Nineteen small files that are not extracted from
+# anything - they ship with the client.
+#
+# Only symlinked into the build output before this, which is a development
+# convenience and not an install rule, so every package cpack built - the
+# Debian one, the Windows zip and the NSIS installer - went out without them.
+# A client that finds no expansion profile falls back to a hardcoded default
+# and offers nothing to choose at its login screen.
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/Data
+    DESTINATION bin)
+
 # On Windows, install any DLLs that were bundled into the build output dir
 # (populated by the CI workflow's DLL-bundling step before cpack runs)
 if(WIN32)
@@ -2488,10 +2501,16 @@ if(WIN32)
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
     # Run wowee from bin/ so that ./assets/ resolves correctly.
     # SetOutPath sets the shortcut's working directory in NSIS.
+    #
+    # Two shortcuts, because there are two programs and the first thing anyone
+    # has to do is the second one: a client installed next to no game assets
+    # starts and says there is nothing to draw, and the asset manager is what
+    # fills that in. One entry pointing only at the client leaves the other
+    # program sitting in an install directory nobody opens.
     set(CPACK_NSIS_CREATE_ICONS_EXTRA
-        "SetOutPath '$INSTDIR\\\\bin'\nCreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Wowee.lnk' '$INSTDIR\\\\bin\\\\wowee.exe'")
+        "SetOutPath '$INSTDIR\\\\bin'\nCreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Wowee.lnk' '$INSTDIR\\\\bin\\\\wowee.exe'\nCreateShortCut '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Wowee Asset Manager.lnk' '$INSTDIR\\\\bin\\\\wowee_assets.exe'")
     set(CPACK_NSIS_DELETE_ICONS_EXTRA
-        "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Wowee.lnk'")
+        "Delete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Wowee.lnk'\nDelete '$SMPROGRAMS\\\\$STARTMENU_FOLDER\\\\Wowee Asset Manager.lnk'")
 elseif(APPLE)
     set(CPACK_GENERATOR "DragNDrop")
 else()
