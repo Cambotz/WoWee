@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v3.1.27] - 2026-09-13
 
 ### Added
 - **Several games can be built into one folder, and the client offers the choice at its login screen.** Each game lands under its own name in the destination, so building a second one adds to it rather than replacing it - and the asset manager says which are already there, because otherwise a second build into the same place looks like it overwrote the first. Saving that folder as a pack gives one file holding all of them, named for what it holds rather than for the last thing built. The client's Assets row moves out from behind the "more options" link and into the card itself, and appears only when more than one set is installed: with one there is nothing to choose and the row is a question with a single answer
