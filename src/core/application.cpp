@@ -66,6 +66,9 @@
 #include "pipeline/dbc_loader.hpp"
 #include "ui/ui_manager.hpp"
 #include "ui/touch_controls.hpp"
+#include "ui/gamepad_controls.hpp"
+#include "core/gamepad.hpp"
+#include "core/data_paths.hpp"
 #include "ui/ui_services.hpp"
 #include "auth/auth_handler.hpp"
 #include "game/game_handler.hpp"
@@ -232,6 +235,24 @@ bool Application::initialize() {
     if (!window->initialize()) {
         LOG_FATAL("Failed to initialize window");
         return false;
+    }
+
+    // Controllers, which are a window's business rather than a renderer's:
+    // SDL delivers their events on the same queue, and a pad plugged in later
+    // arrives the same way. A client that cannot talk to them still starts.
+    {
+        auto& pad = core::gamepad();
+        pad.init();
+        // A mapping file for a pad SDL does not already know. Beside the
+        // installed data first, because that is the directory a player can
+        // reach without a terminal, then beside the binary for a checkout.
+        for (const std::filesystem::path& where :
+             {core::userDataRoot() / "gamecontrollerdb.txt",
+              std::filesystem::path("assets/gamecontrollerdb.txt")}) {
+            std::error_code ec;
+            if (!std::filesystem::exists(where, ec)) continue;
+            if (pad.addMappingsFromFile(where.string()) >= 0) break;
+        }
     }
 
     // Create renderer
@@ -1324,6 +1345,10 @@ void Application::run() {
         ui::ageChatSlashEcho();
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
+            // Connected and disconnected, which is all the pad needs from the
+            // queue - its sticks and buttons are sampled once a frame rather
+            // than accumulated out of events.
+            core::gamepad().handleEvent(event);
 #ifdef __ANDROID__
             // The stick and the pinch read the finger events SDL sends
             // alongside the mouse ones. They claim nothing else: every panel,
@@ -1664,6 +1689,22 @@ void Application::run() {
             break;
         }
 
+        // The pad, before the keyboard is sampled: it drives the client
+        // through core::Input's virtual keys, and Input::update is what turns
+        // those into a press. Applied after that read, every button would be
+        // one frame late and a tap of one could be missed entirely.
+        core::gamepad().update();
+        ui::gamepadControls().setInWorld(state == AppState::IN_GAME);
+        if (renderer && renderer->getCameraController()) {
+            auto* cam = renderer->getCameraController();
+            ui::gamepadControls().setCameraController(cam);
+            ui::gamepadControls().update(deltaTime);
+            cam->setSteering(ui::gamepadControls().isSteering());
+        } else {
+            ui::gamepadControls().setCameraController(nullptr);
+            ui::gamepadControls().update(deltaTime);
+        }
+
         // Update input
         Input::getInstance().update();
 
@@ -1732,6 +1773,9 @@ void Application::run() {
 
 void Application::shutdown() {
     LOG_DEBUG("Shutting down application...");
+
+    // Before the window, whose destructor takes SDL down with it.
+    core::gamepad().shutdown();
 
     // Hide the window immediately so the OS doesn't think the app is frozen
     // during the (potentially slow) resource cleanup below.
@@ -3401,7 +3445,8 @@ void Application::updateInGame(float deltaTime, const char*& updateCheckpoint) {
         // doing it. SDL's own translation of the first finger must not turn it
         // as well, or a drag counts twice and the stick swings the camera.
         cam->setRotationSuppressed(true);
-        cam->setSteering(ui::touchControls().isSteering());
+        cam->setSteering(ui::touchControls().isSteering() ||
+                         ui::gamepadControls().isSteering());
     }
 #endif
     runInGameStage("gameHandler->update", [&] {

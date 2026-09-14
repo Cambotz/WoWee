@@ -1467,6 +1467,22 @@ wowee_add_test(test_camera
             ${CMAKE_SOURCE_DIR}/src/rendering/camera.cpp
             ${TEST_COMMON_SOURCES})
 
+# ── test_gamepad ─────────────────────────────────────────────
+# The stick arithmetic and the binding table. The table sits in its own file
+# for exactly this reason: what applies it drives the camera and ImGui, and
+# none of that is needed to ask whether a button has been bound twice.
+add_executable(test_gamepad
+    test_gamepad.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/gamepad.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/gamepad_bindings.cpp
+    ${TEST_COMMON_SOURCES})
+target_include_directories(test_gamepad PRIVATE ${TEST_INCLUDE_DIRS})
+target_include_directories(test_gamepad SYSTEM PRIVATE ${TEST_SYSTEM_INCLUDE_DIRS})
+target_link_libraries(test_gamepad PRIVATE catch2_main SDL2::SDL2)
+wowee_test_link_glm(test_gamepad)
+add_test(NAME gamepad COMMAND test_gamepad)
+register_test_target(test_gamepad)
+
 # ── test_camera_pivot ────────────────────────────────────────
 # Header-only: the pivot arithmetic is a static member, so this needs SDL2's
 # headers (camera_controller.hpp includes them) but none of its symbols.

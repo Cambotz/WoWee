@@ -99,6 +99,10 @@ public:
     // ---- Pending camera / controls ----
     float pendingMouseSensitivity = 0.2f;
     bool pendingInvertMouse = false;
+    bool pendingGamepadEnabled = true;
+    float pendingGamepadLookSpeed = 180.0f;   // degrees a second at full stick
+    bool pendingGamepadInvertLook = false;
+    float pendingGamepadDeadzone = 0.18f;
     float pendingCameraStiffness = 30.0f;  // Camera smooth speed (higher = tighter, less sway)
     int pendingCameraMaxDistance = 22;     // Yards; the CVar counts multiples of this default
     float pendingPivotHeight = 1.6f;       // Camera pivot height above feet (lower = less detached feel)

@@ -286,6 +286,20 @@ constexpr SettingDesc kSchema[] = {
      "both wrote this one value.", "", 0.2f},
     {"invertmouse", "Invert mouse look", SettingKind::Bool, 0, 0, 0, "Camera", "",
      "Push the mouse forward to look up, as in a flight sim.", "", 0},
+    {"gamepad", "Use a controller", SettingKind::Bool, 0, 0, 0, "Camera", "Controller",
+     "Let a connected controller move, look, target and cast. The left stick\n"
+     "walks, the right stick looks, the triggers zoom, and the face buttons\n"
+     "and D-pad are the first six action slots - hold the left bumper for the\n"
+     "other six.", "", 1},
+    {"gamepadlookspeed", "Controller look speed", SettingKind::Float, 60, 540, 10, "Camera", "",
+     "How fast the right stick turns the view, in degrees a second at full\n"
+     "deflection. Separate from the mouse: the two are different instruments\n"
+     "and slowing one says nothing about the other.", "", 180, "gamepad"},
+    {"gamepadinvertlook", "Invert controller look", SettingKind::Bool, 0, 0, 0, "Camera", "",
+     "Push the right stick forward to look down.", "", 0, "gamepad"},
+    {"gamepaddeadzone", "Controller deadzone", SettingKind::Float, 0, 0.5f, 0.01f, "Camera", "",
+     "How much of each stick counts as resting. Raise it for a worn stick\n"
+     "that drifts when nobody is touching it; lower it for finer control.", "", 0.18f, "gamepad"},
 
     // --------------------------------------------------------------- Interface
     //

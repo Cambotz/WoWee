@@ -600,6 +600,7 @@ set(WOWEE_SOURCES
     src/core/ui_screen_callback_handler.cpp
     src/core/window.cpp
     src/core/input.cpp
+    src/core/gamepad.cpp
     src/core/logger.cpp
     src/core/memory_monitor.cpp
     src/core/app_clock.cpp
@@ -1007,6 +1008,8 @@ set(WOWEE_SOURCES
     src/ui/toast_manager.cpp
     src/ui/dialog_manager.cpp
     src/ui/settings_panel.cpp
+    src/ui/gamepad_bindings.cpp
+    src/ui/gamepad_controls.cpp
     src/ui/touch_controls.cpp
     src/ui/combat_ui.cpp
     src/ui/window_manager.cpp

@@ -24,7 +24,9 @@ WHAT IT DOES
 Finds every `Class::handleX` defined in src/, and asks whether anything reaches
 that class's copy: a call inside another method of the same class (the dispatch
 lambdas in registerOpcodes are written that way), a `&Class::handleX` member
-pointer, or a call through a member of that type.
+pointer, a call through a member of that type, or a call through the free
+accessor that hands out the one instance - `touchControls().handleEvent(e)`,
+which is how the two classes with no owner but the application are reached.
 
 WHAT IT CANNOT SEE
 
@@ -50,6 +52,13 @@ THROUGH = re.compile(r"(\w+)\s*(?:->|\.)\s*(handle\w+)\s*\(")
 # `std::unique_ptr<SpellHandler> spellHandler_;` and plain members, so a call
 # through a member can be attributed to the class it points at.
 MEMBER = re.compile(r"\b(?:std::(?:unique_ptr|shared_ptr)<\s*)?(\w+Handler)\s*>?\s*[\*&]?\s*(\w+_)\s*[;=]")
+# `TouchControls& touchControls();` - a free function handing out the single
+# instance of a class that has no owner to be a member of. Without this the
+# only thing calling that class's handler is a line the scan cannot attribute
+# to anything, and every one of its handlers reads as unreachable.
+ACCESSOR = re.compile(r"^\s*(\w+)\s*&\s*(\w+)\s*\(\s*\)\s*;", re.M)
+# `touchControls().handleEvent(` - the call that accessor makes possible.
+VIA_ACCESSOR = re.compile(r"(\w+)\s*\(\s*\)\s*\.\s*(handle\w+)\s*\(")
 
 
 def main() -> int:
@@ -85,6 +94,17 @@ def main() -> int:
             member_class[m.group(2)] = m.group(1)
     for m in THROUGH.finditer(joined):
         cls = member_class.get(m.group(1))
+        if cls:
+            called_in[m.group(2)].add(cls)
+
+    # And the class a free accessor hands out, so a call through it is a call
+    # on that class.
+    accessor_class = {}
+    for path in sorted((ROOT / "include").rglob("*.hpp")):
+        for m in ACCESSOR.finditer(path.read_text(errors="ignore")):
+            accessor_class[m.group(2)] = m.group(1)
+    for m in VIA_ACCESSOR.finditer(joined):
+        cls = accessor_class.get(m.group(1))
         if cls:
             called_in[m.group(2)].add(cls)
 

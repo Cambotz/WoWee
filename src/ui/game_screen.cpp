@@ -1,5 +1,7 @@
 #include "ui/graphics_choices.hpp"
 #include "ui/game_screen.hpp"
+#include "ui/gamepad_controls.hpp"
+#include "core/gamepad.hpp"
 
 #include <set>
 #include "core/click_drag.hpp"
@@ -263,6 +265,14 @@ void GameScreen::applyCameraControlSettings() {
         cam->setShakeScale(settingsPanel_.pendingCameraShake);
         cam->setMaxDistanceFactor(cameraDistanceFactor(settingsPanel_.pendingCameraMaxDistance));
     }
+
+    // The controller reads its own settings here for the same reason the
+    // camera does: the file is read in the constructor, and these are the
+    // values it found rather than the ones the class was built with.
+    gamepadControls().setEnabled(settingsPanel_.pendingGamepadEnabled);
+    gamepadControls().setLookDegreesPerSecond(settingsPanel_.pendingGamepadLookSpeed);
+    gamepadControls().setInvertLook(settingsPanel_.pendingGamepadInvertLook);
+    core::gamepad().setStickDeadzone(settingsPanel_.pendingGamepadDeadzone);
 }
 
 namespace {

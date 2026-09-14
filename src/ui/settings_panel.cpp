@@ -15,6 +15,8 @@
 #include "ui/chat_panel.hpp"
 #include "ui/chat/chat_settings.hpp"
 #include "ui/keybinding_manager.hpp"
+#include "ui/gamepad_controls.hpp"
+#include "core/gamepad.hpp"
 #include "core/application.hpp"
 #include "core/config_paths.hpp"
 #include "core/logger.hpp"
@@ -1010,6 +1012,10 @@ constexpr FieldBinding kFieldBindings[] = {
     {.key = "smoothfollow",    .asBool  = &SettingsPanel::pendingSmoothCameraFollow},
     {.key = "idleorbit",       .asBool  = &SettingsPanel::pendingIdleCameraOrbit},
     {.key = "invertmouse",     .asBool  = &SettingsPanel::pendingInvertMouse},
+    {.key = "gamepad",          .asBool  = &SettingsPanel::pendingGamepadEnabled},
+    {.key = "gamepadlookspeed", .asFloat = &SettingsPanel::pendingGamepadLookSpeed},
+    {.key = "gamepadinvertlook", .asBool = &SettingsPanel::pendingGamepadInvertLook},
+    {.key = "gamepaddeadzone",  .asFloat = &SettingsPanel::pendingGamepadDeadzone},
 
     // --- Interface ---
     {.key = "uiopacity",     .asInt   = &SettingsPanel::pendingUiOpacity},
@@ -1243,6 +1249,14 @@ void SettingsPanel::applySettingSideEffects(const std::string& key) {
         }
     } else if (key == "invertmouse") {
         if (cameraController) cameraController->setInvertMouse(pendingInvertMouse);
+    } else if (key == "gamepad") {
+        ui::gamepadControls().setEnabled(pendingGamepadEnabled);
+    } else if (key == "gamepadlookspeed") {
+        ui::gamepadControls().setLookDegreesPerSecond(pendingGamepadLookSpeed);
+    } else if (key == "gamepadinvertlook") {
+        ui::gamepadControls().setInvertLook(pendingGamepadInvertLook);
+    } else if (key == "gamepaddeadzone") {
+        core::gamepad().setStickDeadzone(pendingGamepadDeadzone);
     } else if (key == "graphicspreset") {
         applyGraphicsPreset(pendingGraphicsPreset);
     } else if (key == "antialiasing") {
