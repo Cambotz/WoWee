@@ -1470,16 +1470,10 @@ const ContinentEntry kContinents[] = {
 };
 constexpr int kContinentCount = static_cast<int>(std::size(kContinents));
 
-/// The zone-list index of a continent, or -1. A continent is the zone with no
-/// area of its own on that map.
+/// Shared with the projection helpers, which is where the other two continent
+/// questions already live.
 int continentZoneIdx(const std::vector<Zone>& zones, uint32_t mapId) {
-    for (size_t i = 0; i < zones.size(); ++i) {
-        if (zones[i].mapID == mapId && zones[i].areaID == 0 &&
-            isLeafContinent(zones, static_cast<int>(i))) {
-            return static_cast<int>(i);
-        }
-    }
-    return -1;
+    return continentZoneIndex(zones, mapId);
 }
 
 } // namespace

@@ -33,6 +33,28 @@ bool isLeafContinent(const std::vector<Zone>& zones, int idx) {
     return c.parentWorldMapID != 0;
 }
 
+int continentZoneIndex(const std::vector<Zone>& zones, uint32_t mapId) {
+    int firstWithNoArea = -1;
+    int firstNotRoot = -1;
+
+    for (int i = 0; i < static_cast<int>(zones.size()); ++i) {
+        if (zones[static_cast<size_t>(i)].mapID != mapId) continue;
+        if (zones[static_cast<size_t>(i)].areaID != 0) continue;
+
+        // A leaf is the best answer where one exists: its parent is the map
+        // above it and the zones hang off it.
+        if (isLeafContinent(zones, i)) return i;
+        if (firstWithNoArea < 0) firstWithNoArea = i;
+        if (firstNotRoot < 0 && !isRootContinent(zones, i)) firstNotRoot = i;
+    }
+
+    // Then one that is not a root - a root has leaf children, and the children
+    // are where the zones are. Then whatever row has no area at all, which is
+    // the shape 3.3.5 actually ships.
+    if (firstNotRoot >= 0) return firstNotRoot;
+    return firstWithNoArea;
+}
+
 // ── UV projection ────────────────────────────────────────────
 
 glm::vec2 renderPosToMapUV(const glm::vec3& renderPos,

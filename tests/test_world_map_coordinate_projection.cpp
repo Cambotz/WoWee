@@ -258,3 +258,66 @@ TEST_CASE("findZoneByAreaId: exact, and -1 for unknown or zero",
     // 0 is "no zone", not the continent entry, whose areaID is also 0.
     REQUIRE(findZoneByAreaId(zones, 0) == -1);
 }
+
+// ── continentZoneIndex ───────────────────────────────────────
+//
+// The world map's zone dropdown was empty on every continent, and choosing a
+// continent did nothing. Both read the continent's row out of the zone list,
+// and the lookup insisted that row be a leaf - a continent whose
+// parentWorldMapID names the map above it. 3.3.5's WorldMapArea.dbc leaves
+// that field zero on all four of them, so the lookup answered -1 for Kalimdor,
+// Azeroth, Expansion01 and Northrend alike: every continent in the game.
+
+TEST_CASE("a continent row with no parent is still the continent",
+          "[world_map][coordinate_projection]") {
+    std::vector<Zone> zones;
+    // Exactly the shape the game ships: areaID 0, parentWorldMapID 0.
+    Zone azeroth;  azeroth.mapID = 0; azeroth.areaID = 0; azeroth.wmaID = 14;
+    azeroth.parentWorldMapID = 0;
+    Zone elwynn;   elwynn.mapID = 0; elwynn.areaID = 12; elwynn.wmaID = 30;
+    zones.push_back(azeroth);
+    zones.push_back(elwynn);
+
+    REQUIRE(isLeafContinent(zones, 0) == false);   // the reason it used to fail
+    REQUIRE(continentZoneIndex(zones, 0) == 0);
+}
+
+TEST_CASE("a leaf continent is preferred over the root above it",
+          "[world_map][coordinate_projection]") {
+    std::vector<Zone> zones;
+    Zone root;  root.mapID = 0; root.areaID = 0; root.wmaID = 100;
+    root.parentWorldMapID = 0;
+    Zone leaf;  leaf.mapID = 0; leaf.areaID = 0; leaf.wmaID = 101;
+    leaf.parentWorldMapID = 100;         // its parent is the row above
+    zones.push_back(root);
+    zones.push_back(leaf);
+
+    // The zones hang off the leaf, so the leaf is the one worth finding.
+    REQUIRE(isRootContinent(zones, 0) == true);
+    REQUIRE(isLeafContinent(zones, 1) == true);
+    REQUIRE(continentZoneIndex(zones, 0) == 1);
+}
+
+TEST_CASE("a map with no continent row answers -1",
+          "[world_map][coordinate_projection]") {
+    std::vector<Zone> zones;
+    Zone onlyAZone; onlyAZone.mapID = 0; onlyAZone.areaID = 12; onlyAZone.wmaID = 30;
+    zones.push_back(onlyAZone);
+
+    REQUIRE(continentZoneIndex(zones, 0) == -1);
+    REQUIRE(continentZoneIndex(zones, 571) == -1);   // a map with nothing at all
+}
+
+TEST_CASE("each continent finds its own row, not another map's",
+          "[world_map][coordinate_projection]") {
+    std::vector<Zone> zones;
+    for (uint32_t mapId : {uint32_t(1), uint32_t(0), uint32_t(530), uint32_t(571)}) {
+        Zone c; c.mapID = mapId; c.areaID = 0; c.wmaID = 10 + mapId;
+        c.parentWorldMapID = 0;
+        zones.push_back(c);
+    }
+    REQUIRE(continentZoneIndex(zones, 1) == 0);
+    REQUIRE(continentZoneIndex(zones, 0) == 1);
+    REQUIRE(continentZoneIndex(zones, 530) == 2);
+    REQUIRE(continentZoneIndex(zones, 571) == 3);
+}

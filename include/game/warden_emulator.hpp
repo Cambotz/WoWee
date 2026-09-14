@@ -39,6 +39,18 @@ public:
     ~WardenEmulator();
 
     /**
+     * Whether a failure to run this module is expected.
+     *
+     * A module that did not verify against Blizzard's key is run anyway, so a
+     * private server's own module gets its chance - and when it turns out not
+     * to be x86 Blizzard code at all, it faults. That is the attempt failing,
+     * not the client: reported at error level it makes a working login look
+     * broken, and it buries the errors that do matter.
+     */
+    void setFailuresExpected(bool expected) { failuresExpected_ = expected; }
+    [[nodiscard]] bool failuresExpected() const { return failuresExpected_; }
+
+    /**
      * Initialize emulator with module code
      *
      * @param moduleCode Loaded x86 code (post-relocation)
@@ -128,6 +140,9 @@ public:
     [[nodiscard]] uint32_t getAPIAddress(const std::string& dllName, const std::string& funcName) const;
 
 private:
+    bool failuresExpected_ = false;
+
+
     // Memory layout for the emulated environment. Here rather than in the
     // .cpp because the fields below carry them as initialisers, and the .cpp
     // defined them inside #ifdef HAVE_UNICORN - so the stub constructor could

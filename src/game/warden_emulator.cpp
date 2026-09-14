@@ -258,7 +258,12 @@ uint32_t WardenEmulator::callFunction(uint32_t address, const std::vector<uint32
     // Execute until return address
     uc_err err = uc_emu_start(uc_, address, retAddr, 0, 0);
     if (err != UC_ERR_OK) {
-        LOG_ERROR("WardenEmulator: Execution failed: ", uc_strerror(err));
+        if (failuresExpected_) {
+            LOG_WARNING("WardenEmulator: module did not run (", uc_strerror(err),
+                        ") - expected, it did not verify as Blizzard's");
+        } else {
+            LOG_ERROR("WardenEmulator: Execution failed: ", uc_strerror(err));
+        }
         return 0;
     }
 
@@ -532,7 +537,7 @@ void WardenEmulator::hookCode(uc_engine* uc, uint64_t address, [[maybe_unused]] 
     uc_reg_write(uc, UC_X86_REG_EIP, &retAddr);
 }
 
-void WardenEmulator::hookMemInvalid([[maybe_unused]] uc_engine* uc, int type, uint64_t address, int size, [[maybe_unused]] int64_t value, [[maybe_unused]] void* userData) {
+void WardenEmulator::hookMemInvalid([[maybe_unused]] uc_engine* uc, int type, uint64_t address, int size, [[maybe_unused]] int64_t value, void* userData) {
 
     const char* typeStr = "UNKNOWN";
     switch (type) {
@@ -545,10 +550,17 @@ void WardenEmulator::hookMemInvalid([[maybe_unused]] uc_engine* uc, int type, ui
     }
 
     {
-        char mBuf[128];
+        char mBuf[160];
         std::snprintf(mBuf, sizeof(mBuf), "WardenEmulator: Invalid memory access: %s at 0x%llX (size=%d)",
                       typeStr, static_cast<unsigned long long>(address), size);
-        LOG_ERROR(mBuf);
+        // A module that never verified faulting is the attempt failing, not
+        // the client. Said at error level it makes a working login look broken.
+        const auto* self = static_cast<const WardenEmulator*>(userData);
+        if (self != nullptr && self->failuresExpected()) {
+            LOG_WARNING(mBuf);
+        } else {
+            LOG_ERROR(mBuf);
+        }
     }
 }
 

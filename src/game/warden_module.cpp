@@ -458,6 +458,7 @@ bool WardenModule::verifyRSASignature(const std::vector<uint8_t>& data) {
 
         if (std::memcmp(actualHash.data(), expectedHash.data(), 20) == 0) {
             LOG_INFO("WardenModule: RSA signature verified");
+            signatureVerified_ = true;
             return true;
         }
     }
@@ -1438,11 +1439,22 @@ bool WardenModule::initializeModule() {
 
         try {
             // Call: WardenFuncList* InitModule(ClientCallbacks* callbacks)
+            // A module that did not verify is being given its chance rather
+            // than being relied on, so its faulting is not an error here.
+            emulator_->setFailuresExpected(!signatureVerified_);
             std::vector<uint32_t> args = { callbackStructAddr };
             uint32_t result = emulator_->callFunction(entryPoint, args);
 
             if (result == 0) {
-                LOG_ERROR("WardenModule: Module entry returned NULL");
+                // Expected when the module never verified: it is not Blizzard's,
+                // and running it was the attempt rather than the promise.
+                if (signatureVerified_) {
+                    LOG_ERROR("WardenModule: Module entry returned NULL");
+                } else {
+                    LOG_WARNING("WardenModule: the module did not verify against "
+                                "Blizzard's key and did not run - expected on a "
+                                "server that signs its own");
+                }
                 return false;
             }
 

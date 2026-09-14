@@ -72,6 +72,20 @@ bool isRootContinent(const std::vector<Zone>& zones, int idx);
 /// Check whether the zone at idx is a leaf continent (parentWorldMapID != 0, areaID == 0).
 bool isLeafContinent(const std::vector<Zone>& zones, int idx);
 
+/// The zone-list index of the continent shown on `mapId`, or -1.
+///
+/// A continent is the row with no area of its own on that map. Which of
+/// several such rows to take depends on the data: where a root continent has
+/// leaf children beneath it, the leaf is the one with zones, and where nothing
+/// is marked at all any row with no area is the continent.
+///
+/// That last case is not a corner. 3.3.5's WorldMapArea.dbc leaves
+/// parentWorldMapID zero on all four continent rows - Kalimdor, Azeroth,
+/// Expansion01 and Northrend - so a lookup that insists on a leaf finds
+/// nothing for any continent in the game, which is what emptied the world
+/// map's zone dropdown and made choosing a continent do nothing.
+int continentZoneIndex(const std::vector<Zone>& zones, uint32_t mapId);
+
 } // namespace world_map
 } // namespace rendering
 } // namespace wowee

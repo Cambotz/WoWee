@@ -207,6 +207,16 @@ private:
     bool decryptRC4(const std::vector<uint8_t>& encrypted,
                     const std::vector<uint8_t>& key,
                     std::vector<uint8_t>& decryptedOut);
+    /// Whether the module's signature actually matched Blizzard's key.
+    ///
+    /// verifyRSASignature answers true either way on purpose, so a private
+    /// server's module - signed with a key that is not Blizzard's, or not
+    /// signed at all - still gets a chance to run. This records what it really
+    /// found, because a module that did not verify and then fails to execute
+    /// has failed exactly as expected, and saying so at error level makes a
+    /// working client look broken.
+    bool signatureVerified_ = false;
+
     bool verifyRSASignature(const std::vector<uint8_t>& data);
     bool decompressZlib(const std::vector<uint8_t>& compressed,
                         std::vector<uint8_t>& decompressedOut);
