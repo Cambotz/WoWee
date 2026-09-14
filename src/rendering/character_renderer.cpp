@@ -4093,6 +4093,23 @@ bool CharacterRenderer::getInstanceBounds(uint32_t instanceId, glm::vec3& outCen
     return true;
 }
 
+bool CharacterRenderer::getInstanceHeight(uint32_t instanceId, float& outHeight) const {
+    auto it = instances.find(instanceId);
+    if (it == instances.end()) return false;
+    auto mIt = models.find(it->second.modelId);
+    if (mIt == models.end()) return false;
+
+    // The tight bind-pose bounds, which is where the top of the head is. The
+    // M2 header's own box describes collision on a good many models and can
+    // come out shorter than the thing it encloses, so it is the fallback.
+    float top = mIt->second.visualBoundMax.z;
+    if (top <= 0.001f) top = mIt->second.data.boundMax.z;
+    if (top <= 0.001f) return false;
+
+    outHeight = top * std::max(0.001f, it->second.scale);
+    return true;
+}
+
 bool CharacterRenderer::getInstanceFootZ(uint32_t instanceId, float& outFootZ) const {
     auto it = instances.find(instanceId);
     if (it == instances.end()) return false;

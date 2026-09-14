@@ -1894,7 +1894,7 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
             if (terrainAtCam) {
                 // Keep pivot high enough so near-hill camera rays don't cut through terrain.
                 constexpr float kMinRayClearance = 2.0f;
-                float basePivotZ = targetPos.z + pivotHeight_ + mountedOffset;
+                float basePivotZ = targetPos.z + pivotHeightFor(followedHeight_) + mountedOffset;
                 float rayClearance = basePivotZ - *terrainAtCam;
                 if (rayClearance < kMinRayClearance) {
                     desiredLift = std::clamp(kMinRayClearance - rayClearance, 0.0f, 1.4f);
@@ -1912,7 +1912,7 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
         // are not relevant for camera pivoting.
         cachedPivotLift_ = 0.0f;
     }
-    glm::vec3 pivot = targetPos + glm::vec3(0.0f, 0.0f, pivotHeight_ + mountedOffset + pivotLift);
+    glm::vec3 pivot = targetPos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset + pivotLift);
 
     // Camera direction from yaw/pitch (already computed as forward3D)
     glm::vec3 camDir = -f.forward3D;  // Camera looks at pivot, so it's behind
@@ -2281,6 +2281,16 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
     // WoW fades between ~1.0m and ~0.5m, hides fully below 0.5m
     // For now, just hide below first-person threshold
     if (characterRenderer && playerInstanceId > 0) {
+        // How tall whoever is being followed actually is, so the pivot lands
+        // on them rather than at a fixed distance above their feet. Measured
+        // here because it changes with the model: a race change, a mount, a
+        // shapeshift. Kept if it ever fails to measure, so a frame that could
+        // not answer does not snap the camera.
+        float height = 0.0f;
+        if (characterRenderer->getInstanceHeight(playerInstanceId, height) && height > 0.01f) {
+            followedHeight_ = height;
+        }
+
         // Hide only on first-person *intent* (the user's zoom), not on a
         // collision-squeezed distance. The `actualDist < MIN_DISTANCE + 0.1`
         // term fired whenever geometry pushed the camera close in third
@@ -2533,7 +2543,7 @@ void CameraController::update(float deltaTime) {
 
             // Pivot point at upper chest/neck
             float mountedOffset = mounted_ ? mountHeightOffset_ : 0.0f;
-            glm::vec3 pivot = targetPos + glm::vec3(0.0f, 0.0f, pivotHeight_ + mountedOffset);
+            glm::vec3 pivot = targetPos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset);
 
             // Camera direction from yaw/pitch
             glm::vec3 camDir = -forward3D;
@@ -3265,7 +3275,7 @@ void CameraController::reset() {
             currentDistance = userTargetDistance;
             collisionDistance = currentDistance;
             float mountedOffset = mounted_ ? mountHeightOffset_ : 0.0f;
-            glm::vec3 pivot = spawnPos + glm::vec3(0.0f, 0.0f, pivotHeight_ + mountedOffset);
+            glm::vec3 pivot = spawnPos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset);
             glm::vec3 camDir = -forward3D;
             glm::vec3 camPos = pivot + camDir * currentDistance;
             smoothedCamPos = camPos;
@@ -3407,7 +3417,7 @@ void CameraController::reset() {
         collisionDistance = currentDistance;
 
         float mountedOffset = mounted_ ? mountHeightOffset_ : 0.0f;
-        glm::vec3 pivot = spawnPos + glm::vec3(0.0f, 0.0f, pivotHeight_ + mountedOffset);
+        glm::vec3 pivot = spawnPos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset);
         glm::vec3 camDir = -forward3D;
         glm::vec3 camPos = pivot + camDir * currentDistance;
         smoothedCamPos = camPos;
@@ -3446,7 +3456,7 @@ void CameraController::teleportTo(const glm::vec3& pos) {
         camera->setRotation(yaw, pitch);
         glm::vec3 forward3D = camera->getForward();
         float mountedOffset = mounted_ ? mountHeightOffset_ : 0.0f;
-        glm::vec3 pivot = pos + glm::vec3(0.0f, 0.0f, pivotHeight_ + mountedOffset);
+        glm::vec3 pivot = pos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset);
         glm::vec3 camDir = -forward3D;
         glm::vec3 camPos = pivot + camDir * currentDistance;
         smoothedCamPos = camPos;

@@ -475,9 +475,30 @@ public:
     [[nodiscard]] bool isSmoothCameraFollow() const { return smoothCameraFollow_; }
     void setPivotHeight(float h) { pivotHeight_ = std::clamp(h, 0.0f, 3.0f); }
     [[nodiscard]] float getPivotHeight() const { return pivotHeight_; }
+
+    /// Where the camera looks, on the character it is following.
+    ///
+    /// pivotHeight_ is a distance in metres, and a metre is a different part
+    /// of a gnome than it is of a tauren: at a fixed 1.6 the camera orbited a
+    /// point above a short character's head and zoomed into thin air. The
+    /// setting is read as a proportion of the height it was chosen against -
+    /// a night elf, who stands about that - and applied to whoever is actually
+    /// being followed.
+    [[nodiscard]] float pivotHeightFor(float characterHeight) const {
+        if (characterHeight <= 0.01f) return pivotHeight_;
+        const float share = pivotHeight_ / kPivotReferenceHeight;
+        return std::clamp(characterHeight * share, 0.2f, 3.0f);
+    }
 private:
     static constexpr float PIVOT_HEIGHT_DEFAULT = 1.6f;
+    /// The height PIVOT_HEIGHT_DEFAULT was chosen against, so that the default
+    /// still puts the pivot exactly where it always did for a character of
+    /// that size and only moves it for the ones it was wrong for.
+    static constexpr float kPivotReferenceHeight = 2.0f;
     float pivotHeight_ = PIVOT_HEIGHT_DEFAULT;  // User-configurable pivot height
+    /// The followed character's height, refreshed as it is followed. Zero
+    /// until something has been measured, which reads as the old behaviour.
+    float followedHeight_ = 0.0f;
     static constexpr float CAM_SPHERE_RADIUS = 0.32f;  // Keep camera farther from geometry to avoid clipping-through surfaces
     static constexpr float CAM_EPSILON = 0.22f;        // Extra wall offset to avoid near-plane clipping artifacts
     static constexpr float COLLISION_FOCUS_RADIUS_THIRD_PERSON = 20.0f;  // Reduced for performance
