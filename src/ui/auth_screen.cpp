@@ -6,6 +6,7 @@
 #include "ui/settings_panel.hpp"
 #include "auth/crypto.hpp"
 #include "core/application.hpp"
+#include "pipeline/asset_inventory.hpp"
 #include "core/config_paths.hpp"
 #include "core/logger.hpp"
 #include "core/version.hpp"
@@ -440,6 +441,23 @@ std::vector<AssetChoice> assetChoices(const game::ExpansionRegistry* registry) {
     return out;
 }
 
+/// One line saying what the assets about to be used actually are.
+///
+/// Which set that is depends on the override: with none, it is whatever the
+/// protocol expansion's is, which is the answer somebody gets by doing nothing.
+std::string assetLine(const pipeline::AssetInventory& inventory,
+                      const game::ExpansionRegistry* registry,
+                      const std::string& overrideId) {
+    std::string id = overrideId;
+    if (id == "legacy") return {};
+    if (id.empty() && registry != nullptr) {
+        if (const game::ExpansionProfile* active = registry->getActive()) id = active->id;
+    }
+    const pipeline::AssetSet* set = inventory.find(id);
+    if (set == nullptr || !set->usable()) return {};
+    return set->summary();
+}
+
 }  // namespace
 
 void AuthScreen::renderCard(auth::AuthHandler& authHandler, float screenW, float screenH) {
@@ -506,6 +524,25 @@ void AuthScreen::renderCard(auth::AuthHandler& authHandler, float screenW, float
     if (chooseAssets) {
         contentH += fieldRow + px(kRowGap);
         if (!assetProfileId_.empty()) contentH += smallRow + px(4);
+    }
+
+    // What is installed, said on the screen somebody is looking at when they
+    // wonder. Either a line describing the set about to be played with, or -
+    // when there is nothing to play with - what to do about it, which is the
+    // one thing the client never used to say.
+    const pipeline::AssetInventory& inventory =
+        core::Application::getInstance().getAssetInventory();
+    const std::string trouble = inventory.troubleText();
+    const std::string haveLine = assetLine(inventory, registry, assetProfileId_);
+
+    float troubleH = 0.0f;
+    float haveH = 0.0f;
+    if (!trouble.empty()) {
+        troubleH = ui_.wrappedHeight(contentW, trouble.c_str(), smallSize) + px(6);
+        contentH += troubleH;
+    } else if (!haveLine.empty()) {
+        haveH = ui_.wrappedHeight(contentW, haveLine.c_str(), smallSize) + px(6);
+        contentH += haveH;
     }
 
     if (codeInMain) contentH += fieldRow + px(kRowGap);
@@ -641,6 +678,15 @@ void AuthScreen::renderCard(auth::AuthHandler& authHandler, float screenW, float
                      theme.pencil);
             col.gap(smallRow + px(4));
         }
+    }
+
+    // ---- what is installed ------------------------------------------------
+    if (troubleH > 0.0f) {
+        ui_.wrapped(col.at(), contentW, trouble.c_str(), smallSize, theme.crayonRed);
+        col.gap(troubleH);
+    } else if (haveH > 0.0f) {
+        ui_.wrapped(col.at(), contentW, haveLine.c_str(), smallSize, theme.pencil);
+        col.gap(haveH);
     }
 
     // ---- status ---------------------------------------------------------

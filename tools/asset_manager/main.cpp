@@ -36,6 +36,7 @@
 #include "stb_image_write.h"
 
 #include "core/data_paths.hpp"
+#include "pipeline/asset_inventory.hpp"
 #include "core/local_time.hpp"
 #include "ui/imgui_theme.hpp"
 
@@ -170,13 +171,23 @@ void folderRow(App& app, const char* label, char* buffer, std::size_t size,
 /// cached answer is one that goes stale in each of those.
 std::vector<std::string> installedGames(const std::string& dataRoot) {
     std::vector<std::string> out;
-    // Named as a player would say them where the name is known. An expansion
-    // built by something else, or by a later version of this, still counts as
-    // installed - it is in the folder and the client will offer it.
-    for (const std::string& id : wowee::core::installedExpansions(dataRoot)) {
-        const auto found = std::find_if(bases().begin(), bases().end(),
-                                        [&id](const Base& b) { return b.expansion == id; });
-        out.push_back(found != bases().end() ? found->name : id);
+    // The same reading the client takes of the same folder, so the two cannot
+    // describe it differently. An expansion built by something else, or by a
+    // later version of this, still counts - it is there and the client will
+    // offer it.
+    for (const wowee::pipeline::AssetSet& set : wowee::pipeline::takeInventory(dataRoot).sets) {
+        if (set.usable()) out.push_back(set.name);
+    }
+    return out;
+}
+
+/// What is in the destination, in as much detail as there is.
+std::vector<std::string> installedDetail(const std::string& dataRoot) {
+    std::vector<std::string> out;
+    for (const wowee::pipeline::AssetSet& set : wowee::pipeline::takeInventory(dataRoot).sets) {
+        // A set nobody has built is a directory of protocol definitions this
+        // client ships, not something to report as present or as a problem.
+        if (set.usable() || set.anyAssets) out.push_back(set.summary());
     }
     return out;
 }
@@ -202,23 +213,26 @@ void drawGame(App& app) {
               PickWhat::Folder, "Choose where to put the built assets",
               app.picker, app.pendingPick, 4);
 
-    const std::vector<std::string> already = installedGames(app.outputDir);
-    if (already.empty()) {
+    const std::vector<std::string> detail = installedDetail(app.outputDir);
+    if (detail.empty()) {
         dimmed("Nothing built here yet. This is where the client looks for its assets.");
     } else {
         // Several games can share one folder, each under its own name, and the
         // client picks between them at its login screen. Saying what is already
         // there is what makes that visible: otherwise a second game built into
         // the same place looks like it overwrote the first.
-        std::string line = "Already here: " + already.front();
-        for (std::size_t i = 1; i < already.size(); ++i) line += ", " + already[i];
-        line += already.size() > 1
-                    ? ".  The client offers all of them at its login screen."
-                    : ".  Build another game into this same folder and you can choose "
-                      "between them when the client starts.";
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.78f, 0.45f, 1.0f));
-        wrapped(line.c_str());
+        wrapped("Already here:");
         ImGui::PopStyleColor();
+        ImGui::Indent();
+        for (const std::string& line : detail) dimmed(line.c_str());
+        ImGui::Unindent();
+        if (installedGames(app.outputDir).size() < 2) {
+            dimmed("Build another game into this same folder and you can choose between "
+                   "them when the client starts.");
+        } else {
+            dimmed("The client offers all of them at its login screen.");
+        }
     }
 }
 

@@ -366,6 +366,27 @@ float layOutWrapped(const char* s, float width, float lineStep, const Measure& m
         y += lineStep;
         line.clear();
     };
+    // A word with nowhere to break is broken anyway, once it is alone on a line
+    // and still too wide. Left whole it is drawn straight past the edge of
+    // whatever it is in - a file path has no spaces in it, and the one place
+    // this client shows a path is the message saying it could not find the
+    // assets, on a card the path then runs out of.
+    const auto breakLongWord = [&](std::string& piece) {
+        while (measure(piece.c_str()) > width) {
+            std::size_t fits = 0;
+            for (std::size_t i = 1; i <= piece.size(); ++i) {
+                // Never between the bytes of one character.
+                if (i < piece.size() && (piece[i] & 0xC0) == 0x80) continue;
+                if (measure(piece.substr(0, i).c_str()) > width) break;
+                fits = i;
+            }
+            if (fits == 0) break;               // narrower than one character
+            emit(piece.substr(0, fits), y);
+            y += lineStep;
+            piece.erase(0, fits);
+        }
+    };
+
     const char* p = s;
     while (true) {
         const bool atEnd = (*p == '\0');
@@ -374,6 +395,10 @@ float layOutWrapped(const char* s, float width, float lineStep, const Measure& m
                 const std::string candidate = line.empty() ? word : line + " " + word;
                 if (!line.empty() && measure(candidate.c_str()) > width) {
                     flush();
+                    breakLongWord(word);
+                    line = word;
+                } else if (line.empty() && measure(word.c_str()) > width) {
+                    breakLongWord(word);
                     line = word;
                 } else {
                     line = candidate;

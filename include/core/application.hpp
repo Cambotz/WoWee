@@ -9,6 +9,7 @@
 #include "core/world_loader.hpp"
 #include "game/character.hpp"
 #include "game/game_services.hpp"
+#include "pipeline/asset_inventory.hpp"
 #include "pipeline/blp_loader.hpp"
 #include <memory>
 #include <map>
@@ -90,6 +91,10 @@ public:
     pipeline::AssetManager* getAssetManager() { return assetManager.get(); }
     addons::AddonManager* getAddonManager() { return addonManager_.get(); }
     game::ExpansionRegistry* getExpansionRegistry() { return expansionRegistry_.get(); }
+
+    /// What assets were found at startup. Taken once, because it walks the
+    /// override tree and no screen should do that while it is being drawn.
+    const pipeline::AssetInventory& getAssetInventory() const { return assetInventory_; }
     pipeline::DBCLayout* getDBCLayout() { return dbcLayout_.get(); }
     bool setAssetExpansionOverride(const std::string& id);
     [[nodiscard]] const std::string& getAssetExpansionOverride() const { return assetExpansionOverrideId_; }
@@ -190,6 +195,11 @@ private:
     bool frameProfileEnabled_ = false;
     std::map<std::string, StageStat> stageStats_;
     std::chrono::steady_clock::time_point stageStatsSince_{};
+    /// What assets were found at startup, so the login screen can say so
+    /// rather than every screen finding out separately.
+    pipeline::AssetInventory assetInventory_;
+
+
     int stageStatFrames_ = 0;
 
     /// WOWEE_SCREENSHOT: frames drawn before the picture is taken, so the

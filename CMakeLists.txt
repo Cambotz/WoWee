@@ -692,6 +692,7 @@ set(WOWEE_SOURCES
     src/pipeline/dds_loader.cpp
     src/pipeline/dbc_loader.cpp
     src/pipeline/asset_manager.cpp
+    src/pipeline/asset_inventory.cpp
     src/pipeline/asset_manifest.cpp
     src/pipeline/loose_file_reader.cpp
     src/pipeline/m2_loader.cpp
@@ -1781,6 +1782,7 @@ if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR AND SDL2_FOUND AND EXISTS ${IMGUI_D
         tools/asset_manager/model_import.cpp
         tools/asset_manager/model_source.cpp
         tools/asset_manager/folder_picker.cpp
+        src/pipeline/asset_inventory.cpp
         src/rendering/m2_model_classifier.cpp
         tools/asset_extract/extractor.cpp
         tools/asset_extract/path_mapper.cpp
@@ -2187,6 +2189,7 @@ add_executable(wowee_editor
     src/pipeline/dbc_layout.cpp
     src/pipeline/spell_icon_paths.cpp
     src/pipeline/asset_manager.cpp
+    src/pipeline/asset_inventory.cpp
     src/pipeline/asset_manifest.cpp
     src/pipeline/loose_file_reader.cpp
     src/pipeline/m2_loader.cpp

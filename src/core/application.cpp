@@ -75,6 +75,7 @@
 #include "game/world.hpp"
 #include "game/expansion_profile.hpp"
 #include "game/packet_parsers.hpp"
+#include "pipeline/asset_inventory.hpp"
 #include "pipeline/asset_manager.hpp"
 #include "pipeline/dbc_layout.hpp"
 #include "pipeline/spell_icon_paths.hpp"
@@ -297,6 +298,25 @@ bool Application::initialize() {
 
     // Scan for available expansion profiles
     expansionRegistry_->initialize(dataPath);
+
+    // Say what is actually installed, before anything tries to use it.
+    //
+    // With nothing extracted the client used to start anyway, report no
+    // expansions, fall back to a hardcoded default and fail somewhere far from
+    // the cause - a missing texture, a model that would not load, a DBC lookup
+    // returning nothing. None of it said there were no assets, and none of it
+    // said where it had looked.
+    assetInventory_ = pipeline::takeInventory(dataPath);
+    if (assetInventory_.anyUsable()) {
+        // At the level these logs carry, because this is the line that answers
+        // the most common question anyone asks of them. One per installed set,
+        // and the sets nobody has built are not mentioned at all.
+        for (const pipeline::AssetSet& set : assetInventory_.sets) {
+            if (set.usable() || set.anyAssets) LOG_WARNING("Assets: ", set.summary());
+        }
+    } else {
+        LOG_WARNING(assetInventory_.troubleText());
+    }
 
     // Load the tables this expansion's protocol is described by.
     if (gameHandler && expansionRegistry_) {

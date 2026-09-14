@@ -172,6 +172,15 @@ wowee_add_test(test_sell_count
 wowee_add_test(test_hill_climbing
     SOURCES test_movement_limits.cpp)
 
+# ── test_asset_inventory ────────────────────────────────────
+# What is installed and whether it can be used. The client used to start with
+# nothing extracted and fail far from the cause, never saying there were no
+# assets or where it had looked. Cheap on purpose: the extraction manifest is
+# thirty megabytes and nothing here parses it.
+wowee_add_test(test_asset_inventory
+    SOURCES test_asset_inventory.cpp
+            ${CMAKE_SOURCE_DIR}/src/pipeline/asset_inventory.cpp)
+
 # ── test_data_paths ─────────────────────────────────────────
 # Where the assets go, which the client and the asset manager have to agree on
 # and did not: one looked in a macOS-only place, the other wrote beside the
