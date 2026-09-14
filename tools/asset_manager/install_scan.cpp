@@ -1,6 +1,7 @@
 #include "install_scan.hpp"
 
 #include "casc.hpp"
+#include "../asset_extract/extractor.hpp"
 
 #include <algorithm>
 #include <filesystem>
@@ -57,8 +58,17 @@ InstallScan scanInstall(const std::string& path) {
             out.kind = InstallKind::Mpq;
             out.dataDir = candidate.string();
             out.archiveCount = archives;
-            out.note = "Found a game here - " + std::to_string(archives) +
-                       " archives, readable.";
+
+            // Which game it is, from the archives that are there. Worth saying
+            // rather than making somebody pick it off a list: the answer is in
+            // the folder they just chose, and a person who mis-picks it builds
+            // the wrong thing for eight minutes before finding out.
+            out.expansion = tools::Extractor::detectExpansion(out.dataDir);
+            out.note = out.expansion.empty()
+                           ? "Found " + std::to_string(archives) +
+                                 " archives here, but not which game they are from."
+                           : "Found a game here - " + std::to_string(archives) +
+                                 " archives, readable.";
             return out;
         }
     }

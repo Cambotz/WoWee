@@ -41,6 +41,7 @@
 #include "casc.hpp"
 #include "pack.hpp"
 #include "install_scan.hpp"
+#include "folder_picker.hpp"
 #include "job.hpp"
 #include "profiles.hpp"
 
@@ -70,7 +71,18 @@ struct App {
 
     InstallScan gameScan;
     InstallScan secondScan;
-    std::string selected = "wotlk";
+
+    /// Which game, and what was ticked on top of it.
+    std::string selectedBase = "wotlk";
+    std::vector<std::string> chosen;
+    /// Whether the base has been set from what the game folder turned out to
+    /// be. Once, so that choosing otherwise is not undone on the next frame.
+    bool detected = false;
+
+    Picker picker;
+    /// Which row opened the in-window browser, so its answer goes back to the
+    /// field that asked. Zero when nothing is being browsed.
+    int pendingPick = 0;
 
     Job job;
     bool started = false;
@@ -82,6 +94,7 @@ struct App {
     std::atomic<bool> packing{false};
     std::atomic<bool> packCancel{false};
     std::string packNote;
+    std::atomic<bool> importing{false};
     /// Mutable so a const read of the note can still take the lock: the note is
     /// written from the packing thread and read while laying the window out.
     mutable std::mutex packMutex;
@@ -121,83 +134,165 @@ bool haveGame(const App& app)   { return app.gameScan.kind == InstallKind::Mpq; 
 bool haveBorrow(const App& app) { return app.secondScan.kind == InstallKind::Mpq; }
 bool haveLater(const App& app)  { return app.secondScan.kind == InstallKind::Casc; }
 
-void drawSources(App& app) {
-    ImGui::SeparatorText("1.  Where is the game?");
-    // Labels above rather than beside, because the widths here are set by a
-    // typeface that is not the one the layout was measured against: a label
-    // reserved room beside its field is a label clipped by the window edge in
-    // whichever of the two is wider.
-    ImGui::TextUnformatted("Game folder");
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::InputText("##gameDir", app.gameDir, sizeof(app.gameDir))) rescan(app);
+/// One row: a path, a Browse button that opens the system's own chooser, and
+/// whatever the scan made of what is there.
+///
+/// The button is what people look for. Typing a path still works and dropping a
+/// folder on the window still works, but neither is discoverable, and a text
+/// box with no button beside it reads as the only way in.
+void folderRow(App& app, const char* label, char* buffer, std::size_t size,
+               PickWhat what, const char* title, Picker& picker, int& pending, int id) {
+    ImGui::PushID(id);
+    ImGui::TextUnformatted(label);
+
+    const float browse = ImGui::CalcTextSize("Browse...").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+    ImGui::SetNextItemWidth(-(browse + ImGui::GetStyle().ItemSpacing.x));
+    if (ImGui::InputText("##path", buffer, size)) rescan(app);
+
+    ImGui::SameLine();
+    if (ImGui::Button("Browse...")) {
+        std::string chosen;
+        if (picker.ask(what, title, buffer, "", &chosen)) {
+            std::snprintf(buffer, size, "%s", chosen.c_str());
+            rescan(app);
+        } else {
+            pending = id;   // no system chooser here; the in-window one opened
+        }
+    }
+    ImGui::PopID();
+}
+
+void drawGame(App& app) {
+    ImGui::SeparatorText("1.  Where is your game?");
+    folderRow(app, "The World of Warcraft folder you want to build from",
+              app.gameDir, sizeof(app.gameDir), PickWhat::Folder,
+              "Choose your World of Warcraft folder", app.picker, app.pendingPick, 1);
+
     if (!app.gameScan.note.empty()) {
         const bool good = haveGame(app);
         ImGui::PushStyleColor(ImGuiCol_Text, good ? ImVec4(0.35f, 0.78f, 0.45f, 1.0f)
                                                   : ImVec4(0.85f, 0.65f, 0.30f, 1.0f));
         wrapped(app.gameScan.note.c_str());
         ImGui::PopStyleColor();
-    }
-
-    ImGui::Spacing();
-    ImGui::TextUnformatted("A later client (optional)");
-    ImGui::SetNextItemWidth(-1.0f);
-    if (ImGui::InputText("##secondDir", app.secondDir, sizeof(app.secondDir))) {
-        rescan(app);
-    }
-    dimmed("Own a newer World of Warcraft? Point at it and this can borrow art from it.");
-    if (!app.secondScan.note.empty()) dimmed(app.secondScan.note.c_str());
-    if (app.secondScan.kind == InstallKind::Casc && !app.cascConfirmed) {
-        if (ImGui::Button("Check it")) confirmSecond(app);
-        ImGui::SameLine();
-        dimmed("Reads its file table - about a second.");
-    }
-    if (!app.cascError.empty()) {
-        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.42f, 0.38f, 1.0f));
-        wrapped(app.cascError.c_str());
-        ImGui::PopStyleColor();
+    } else {
+        dimmed("You can also drag the folder onto this window.");
     }
 }
 
-void drawProfiles(App& app) {
-    ImGui::SeparatorText("2.  What do you want?");
+void drawBase(App& app) {
+    ImGui::SeparatorText("2.  Which game does your server run?");
 
-    // Without a game folder nothing here can be built, and every profile says
-    // so for the same reason. Said once it is an instruction; said eight times
-    // it is the loudest thing on the page and buries what the profiles differ
-    // by, which is the choice actually being made.
-    const bool anyGame = haveGame(app);
-    if (!anyGame) {
-        dimmed("Point at your game folder above, and these become available.");
+    if (!haveGame(app)) {
+        dimmed("Choose your game folder above first.");
+        return;
     }
 
-    for (const Profile& profile : profiles()) {
-        std::string why;
-        const bool ok = profileAvailable(profile, anyGame, haveBorrow(app),
-                                         haveLater(app), &why);
-        ImGui::BeginDisabled(!ok);
-        if (ImGui::RadioButton(profile.name.c_str(), app.selected == profile.id)) {
-            app.selected = profile.id;
-        }
-        ImGui::EndDisabled();
+    // Whatever they pointed at, chosen for them. They can still say otherwise -
+    // a 3.3.5 server can be played with a Cataclysm client's art - but the
+    // common case is that the folder they just picked is the answer.
+    if (!app.detected && !app.gameScan.expansion.empty()) {
+        app.selectedBase = app.gameScan.expansion;
+        app.detected = true;
+    }
 
+    for (const Base& base : bases()) {
+        const bool isDetected = base.id == app.gameScan.expansion;
+        std::string label = base.name + "   " + base.patch;
+        if (isDetected) label += "     (this is what you pointed at)";
+        if (ImGui::RadioButton(label.c_str(), app.selectedBase == base.id)) {
+            app.selectedBase = base.id;
+        }
         ImGui::Indent();
-        const bool sayWhy = !ok && anyGame;
-        dimmed(sayWhy ? (profile.summary + "   (" + why + ")").c_str()
-                      : profile.summary.c_str());
+        dimmed(base.detail.c_str());
         ImGui::Unindent();
     }
 }
 
-void drawPlan(App& app) {
-    const Profile* profile = profileById(app.selected);
-    if (profile == nullptr) return;
+void drawUpgrades(App& app) {
+    const Base* base = baseById(app.selectedBase);
+    if (base == nullptr || !haveGame(app)) return;
 
-    ImGui::SeparatorText("3.  What will happen");
-    wrapped(profile->detail.c_str());
+    ImGui::SeparatorText("3.  Do you want updated assets?");
+    dimmed("Optional. Everything here is on top of the game above, and each one can "
+           "be left off.");
     ImGui::Spacing();
 
+    // Two upgrades can want the same second installation, and asking for it
+    // once per upgrade puts the same field and the same warning on screen twice
+    // - which reads as two different things being needed.
+    Source asked = Source::None;
+
+    for (const Upgrade& upgrade : upgrades()) {
+        if (!upgradeSuitsBase(upgrade, *base)) continue;
+
+        std::string why;
+        const bool usable = sourceAvailable(upgrade.source, haveGame(app), haveBorrow(app),
+                                            haveLater(app), &why);
+        auto at = std::find(app.chosen.begin(), app.chosen.end(), upgrade.id);
+        bool ticked = at != app.chosen.end();
+
+        ImGui::PushID(upgrade.id.c_str());
+        ImGui::BeginDisabled(!usable);
+        if (ImGui::Checkbox(upgrade.name.c_str(), &ticked)) {
+            if (ticked) app.chosen.push_back(upgrade.id);
+            else app.chosen.erase(at);
+        }
+        ImGui::EndDisabled();
+
+        ImGui::Indent();
+        dimmed(upgrade.summary.c_str());
+
+        // The second installation is asked for here, beside the thing that
+        // needs it, rather than as a second box at the top that most people do
+        // not need and nothing explains.
+        // The installation an upgrade needs, asked for beside it - once per
+        // installation, and whether or not it is already set. Hidden as soon as
+        // it is valid, there would be no way to see which one is being used or
+        // to point at a different one.
+        if (upgrade.source != Source::None && upgrade.source != asked) {
+            asked = upgrade.source;
+            if (!usable) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.85f, 0.65f, 0.30f, 1.0f));
+                wrapped(why.c_str());
+                ImGui::PopStyleColor();
+            }
+            folderRow(app, upgrade.source == Source::Later
+                               ? "Your Legion (or later) installation"
+                               : "Your Cataclysm installation",
+                      app.secondDir, sizeof(app.secondDir), PickWhat::Folder,
+                      "Choose the installation to take art from",
+                      app.picker, app.pendingPick, 2);
+            if (!app.secondScan.note.empty()) dimmed(app.secondScan.note.c_str());
+
+            if (usable && upgrade.source == Source::Later && !app.cascConfirmed) {
+                if (ImGui::Button("Check it")) confirmSecond(app);
+                ImGui::SameLine();
+                dimmed("Reads its file table - about a second.");
+            }
+            if (!app.cascError.empty() && upgrade.source == Source::Later) {
+                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.88f, 0.42f, 0.38f, 1.0f));
+                wrapped(app.cascError.c_str());
+                ImGui::PopStyleColor();
+            }
+        } else if (upgrade.source != Source::None) {
+            dimmed(upgrade.source == Source::Later
+                       ? "Uses the same Legion installation as above."
+                       : "Uses the same Cataclysm installation as above.");
+        }
+        ImGui::Unindent();
+        ImGui::PopID();
+    }
+}
+
+void drawPlan(App& app) {
+    const Base* base = baseById(app.selectedBase);
+    if (base == nullptr || !haveGame(app)) return;
+
+    const Profile profile = assemble(*base, app.chosen);
+    ImGui::SeparatorText("4.  What will happen");
+
     const std::vector<JobStage> planned =
-        Job::plan(*profile, haveBorrow(app), haveLater(app));
+        Job::plan(profile, haveBorrow(app), haveLater(app));
     for (std::size_t i = 0; i < planned.size(); ++i) {
         const JobStage& stage = planned[i];
         std::string line = "  " + std::to_string(i + 1) + ". " + stage.label;
@@ -205,11 +300,10 @@ void drawPlan(App& app) {
         if (stage.skipped) dimmed(line.c_str()); else wrapped(line.c_str());
     }
     ImGui::Spacing();
-    dimmed(("About " + std::to_string(profile->minutes()) +
+    dimmed(("About " + std::to_string(profile.minutes()) +
             " minutes. Nothing is written into your game install.").c_str());
 }
 
-/// Keep a copy of what was built, as one file somebody else could install.
 void startPack(App& app, const std::string& profileId) {
     std::string out = app.outputDir;
     if (out.empty()) out = (fs::current_path() / "Data").string();
@@ -251,6 +345,48 @@ void startPack(App& app, const std::string& profileId) {
     }).detach();
 }
 
+/// Install a pack somebody else built, into the same tree a build writes to.
+void startImport(App& app, const std::string& zipPath) {
+    std::string out = app.outputDir;
+    if (out.empty()) out = (fs::current_path() / "Data").string();
+
+    const PackInfo info = readPackInfo(zipPath);
+    if (!info.ok) {
+        std::lock_guard<std::mutex> lock(app.packMutex);
+        app.packNote = "That does not look like a pack: " + info.error;
+        return;
+    }
+
+    app.importing.store(true);
+    app.packCancel.store(false);
+    {
+        std::lock_guard<std::mutex> lock(app.packMutex);
+        app.packNote = "Installing " + (info.name.empty() ? std::string("a pack") : info.name) +
+                       " - " + std::to_string(info.files) + " files...";
+    }
+    std::thread([&app, zipPath, out]() {
+        PackResult result = readPack(
+            zipPath, out,
+            [&app](std::size_t done, std::size_t total) {
+                std::lock_guard<std::mutex> lock(app.packMutex);
+                app.packNote = "Installing " + std::to_string(done) + " of " +
+                               std::to_string(total) + " files...";
+            },
+            app.packCancel);
+        std::lock_guard<std::mutex> lock(app.packMutex);
+        if (!result.ok) {
+            app.packNote = "Could not install that pack: " + result.error;
+        } else {
+            const double raw = double(result.rawBytes) / (1024.0 * 1024.0 * 1024.0);
+            char line[512];
+            std::snprintf(line, sizeof(line), "Installed %zu files - %.1f GB - into %s",
+                          result.files, raw, out.c_str());
+            app.packNote = line;
+        }
+        app.importing.store(false);
+    }).detach();
+}
+
 /// How much of the window the actions need reserved at the bottom.
 ///
 /// The button row always, and the progress bar and log once there is something
@@ -272,18 +408,19 @@ float actionsHeight(const App& app) {
 }
 
 void drawRun(App& app) {
-    const Profile* profile = profileById(app.selected);
-    if (profile == nullptr) return;
+    const Base* base = baseById(app.selectedBase);
+    const Profile profile = base != nullptr ? assemble(*base, app.chosen) : Profile{};
+    const bool busy = app.job.running() || app.packing.load() || app.importing.load();
 
-    std::string why;
-    const bool ok = profileAvailable(*profile, haveGame(app), haveBorrow(app),
-                                     haveLater(app), &why);
+    const bool ok = base != nullptr &&
+                    profileAvailable(profile, haveGame(app), haveBorrow(app),
+                                     haveLater(app), nullptr);
 
-    ImGui::BeginDisabled(!ok || app.job.running());
+    ImGui::BeginDisabled(!ok || busy);
     if (ImGui::Button("Build my assets", ImVec2(180, 32))) {
         std::string out = app.outputDir;
         if (out.empty()) out = (fs::current_path() / "Data").string();
-        app.job.start(*profile, app.gameDir, app.secondDir, out,
+        app.job.start(profile, app.gameDir, app.secondDir, out,
                       haveBorrow(app), haveLater(app));
         app.started = true;
     }
@@ -294,10 +431,26 @@ void drawRun(App& app) {
         if (ImGui::Button("Stop", ImVec2(90, 32))) app.job.cancel();
     }
 
+    // Installing somebody else's pack asks nothing about your game, so it is
+    // not behind the questions above: a person handed a pack has no archives to
+    // point at and nothing to choose.
     ImGui::SameLine();
-    ImGui::BeginDisabled(app.job.running() || app.packing.load());
+    ImGui::BeginDisabled(busy);
+    if (ImGui::Button("Install a pack...", ImVec2(170, 32))) {
+        std::string chosen;
+        if (app.picker.ask(PickWhat::File, "Choose a pack to install", app.outputDir,
+                           ".zip", &chosen)) {
+            startImport(app, chosen);
+        } else {
+            app.pendingPick = 3;
+        }
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SameLine();
+    ImGui::BeginDisabled(busy || !app.started);
     if (ImGui::Button("Save what I have as a pack", ImVec2(240, 32))) {
-        startPack(app, profile->id);
+        startPack(app, profile.id);
     }
     ImGui::EndDisabled();
     {
@@ -327,9 +480,10 @@ void drawRun(App& app) {
 }
 
 /// How many frames to let settle before the picture is taken. ImGui sizes a
-/// good deal of its layout from what it measured last frame, so the first one
+/// good deal of its layout from what it measured last frame, and hides a window
+/// outright for its first frame or two while it fits itself, so an early one
 /// is not what the window looks like.
-constexpr int kShotFrame = 3;
+constexpr int kShotFrame = 8;
 
 /// The renderer's own pixels, as a PNG.
 void writeScreenshot(SDL_Renderer* renderer, const char* path) {
@@ -513,9 +667,8 @@ int main(int argc, char** argv) {
                      ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse |
                      ImGuiWindowFlags_NoBringToFrontOnFocus);
 
-        wrapped("Point this at a World of Warcraft folder you own, choose how you want "
-                "the game to look, and press Build. Nothing is written into the game "
-                "install - the assets are copied out into a tree of their own.");
+        dimmed("Builds the assets this client reads out of a World of Warcraft "
+               "install you own. Nothing is written into the install itself.");
         ImGui::Spacing();
 
         // The questions scroll; the button that answers them does not. With
@@ -524,13 +677,31 @@ int main(int argc, char** argv) {
         // program exists to offer, reachable only by scrolling past the reading.
         const float actionsHigh = actionsHeight(app);
         if (ImGui::BeginChild("questions", ImVec2(0.0f, -actionsHigh))) {
-            drawSources(app);
+            drawGame(app);
             ImGui::Spacing();
-            drawProfiles(app);
+            drawBase(app);
+            ImGui::Spacing();
+            drawUpgrades(app);
             ImGui::Spacing();
             drawPlan(app);
         }
         ImGui::EndChild();
+
+        // The in-window browser, on platforms with no chooser of their own. It
+        // is a modal, so it is drawn last and over everything.
+        if (std::string chosen; app.picker.draw(&chosen)) {
+            switch (app.pendingPick) {
+                case 1: std::snprintf(app.gameDir, sizeof(app.gameDir), "%s", chosen.c_str());
+                        rescan(app);
+                        break;
+                case 2: std::snprintf(app.secondDir, sizeof(app.secondDir), "%s", chosen.c_str());
+                        rescan(app);
+                        break;
+                case 3: startImport(app, chosen); break;
+                default: break;
+            }
+            app.pendingPick = 0;
+        }
 
         ImGui::Separator();
         drawRun(app);

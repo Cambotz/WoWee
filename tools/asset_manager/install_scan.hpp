@@ -24,6 +24,10 @@ struct InstallScan {
     std::string dataDir;     ///< where the content actually lives
     std::string note;        ///< what to tell the person who chose it
     int archiveCount = 0;
+    /// Which game this is, in the extractor's spelling: "wotlk", "cata", "tbc",
+    /// "classic", "turtle". Empty when the archives are there but say nothing
+    /// recognisable about which game they came from.
+    std::string expansion;
     /// For a CASC install: how many files its root declares, once opened.
     /// Zero until somebody asks, since opening one reads an 80MB table.
     std::size_t fileCount = 0;

@@ -172,6 +172,27 @@ wowee_add_test(test_sell_count
 wowee_add_test(test_hill_climbing
     SOURCES test_movement_limits.cpp)
 
+# ── test_asset_profiles ─────────────────────────────────────
+# The asset sets on offer. Pinned because the upgrades used to be written per
+# base and so were only ever offered on Wrath, and because the plan's ordering
+# is load-bearing: an upscale before the models arrive sharpens nothing.
+wowee_add_test(test_asset_profiles
+    SOURCES test_asset_profiles.cpp
+            ${CMAKE_SOURCE_DIR}/tools/asset_manager/profiles.cpp)
+target_include_directories(test_asset_profiles PRIVATE
+    ${CMAKE_SOURCE_DIR}/tools/asset_manager)
+
+# ── test_asset_pack ─────────────────────────────────────────
+# A pack is a file people send each other, so its reader is handed archives
+# nobody here wrote. The round trip is checked, and so is the refusal: a zip
+# entry names where its own contents land, and "../.." is a name.
+wowee_add_test(test_asset_pack
+    SOURCES test_asset_pack.cpp
+            ${CMAKE_SOURCE_DIR}/tools/asset_manager/pack.cpp)
+target_include_directories(test_asset_pack PRIVATE
+    ${CMAKE_SOURCE_DIR}/tools/asset_manager)
+target_link_libraries(test_asset_pack PRIVATE ZLIB::ZLIB)
+
 # ── test_model_import ───────────────────────────────────────
 # The pass that brings a later client's models into this one's format. It once
 # matched the name inside a model against the name of the file it would replace

@@ -184,4 +184,272 @@ PackResult writePack(const std::string& sourceDir, const std::string& destZip,
     return result;
 }
 
+
+
+namespace {
+
+uint16_t get16(const uint8_t* at) { return uint16_t(at[0] | (at[1] << 8)); }
+uint32_t get32(const uint8_t* at) {
+    return uint32_t(at[0]) | (uint32_t(at[1]) << 8) | (uint32_t(at[2]) << 16) |
+           (uint32_t(at[3]) << 24);
+}
+
+bool inflateBytes(const uint8_t* in, std::size_t inSize, std::size_t rawSize,
+                  std::vector<uint8_t>& out) {
+    out.clear();
+    out.reserve(rawSize);
+    z_stream stream{};
+    if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) return false;
+    stream.next_in = const_cast<Bytef*>(in);
+    stream.avail_in = static_cast<uInt>(inSize);
+
+    std::vector<uint8_t> buffer(64 * 1024);
+    int status = Z_OK;
+    do {
+        stream.next_out = buffer.data();
+        stream.avail_out = static_cast<uInt>(buffer.size());
+        status = inflate(&stream, Z_NO_FLUSH);
+        if (status != Z_OK && status != Z_STREAM_END) {
+            inflateEnd(&stream);
+            return false;
+        }
+        out.insert(out.end(), buffer.data(), buffer.data() + (buffer.size() - stream.avail_out));
+    } while (status != Z_STREAM_END);
+    inflateEnd(&stream);
+    return true;
+}
+
+/// One entry, as the central directory describes it.
+struct Listed {
+    std::string name;
+    uint16_t method = 0;
+    uint32_t compressed = 0;
+    uint32_t raw = 0;
+    uint32_t headerAt = 0;
+};
+
+/// Every entry in the archive, read from the directory at the end of it.
+bool listEntries(std::ifstream& in, std::vector<Listed>& out, std::string* error) {
+    in.seekg(0, std::ios::end);
+    const std::streamoff size = in.tellg();
+    if (size < 22) {
+        if (error) *error = "Not a zip file.";
+        return false;
+    }
+
+    // The end record is last, but a zip comment can follow it, so the last 64K
+    // is searched backwards for its signature.
+    const std::streamoff window = std::min<std::streamoff>(size, 66000);
+    std::vector<uint8_t> tail(static_cast<std::size_t>(window));
+    in.seekg(size - window);
+    in.read(reinterpret_cast<char*>(tail.data()), window);
+
+    std::streamoff endAt = -1;
+    for (std::streamoff i = window - 22; i >= 0; --i) {
+        if (get32(tail.data() + i) == 0x06054B50) { endAt = i; break; }
+    }
+    if (endAt < 0) {
+        if (error) *error = "Not a zip file, or damaged.";
+        return false;
+    }
+
+    const uint16_t count = get16(tail.data() + endAt + 10);
+    const uint32_t directoryAt = get32(tail.data() + endAt + 16);
+    const uint32_t directorySize = get32(tail.data() + endAt + 12);
+    if (directoryAt + directorySize > uint64_t(size)) {
+        if (error) *error = "The zip's directory points outside the file.";
+        return false;
+    }
+
+    std::vector<uint8_t> directory(directorySize);
+    in.seekg(directoryAt);
+    in.read(reinterpret_cast<char*>(directory.data()), directorySize);
+
+    std::size_t at = 0;
+    for (uint16_t i = 0; i < count && at + 46 <= directory.size(); ++i) {
+        if (get32(directory.data() + at) != 0x02014B50) break;
+        Listed entry;
+        entry.method = get16(directory.data() + at + 10);
+        entry.compressed = get32(directory.data() + at + 20);
+        entry.raw = get32(directory.data() + at + 24);
+        const uint16_t nameLen = get16(directory.data() + at + 28);
+        const uint16_t extraLen = get16(directory.data() + at + 30);
+        const uint16_t commentLen = get16(directory.data() + at + 32);
+        entry.headerAt = get32(directory.data() + at + 42);
+        if (at + 46 + nameLen > directory.size()) break;
+        entry.name.assign(reinterpret_cast<const char*>(directory.data() + at + 46), nameLen);
+        at += 46 + nameLen + extraLen + commentLen;
+        out.push_back(std::move(entry));
+    }
+    return true;
+}
+
+/// The bytes of one entry, following its local header to find where they start.
+bool readEntry(std::ifstream& in, const Listed& entry, std::vector<uint8_t>& out,
+               std::string* error) {
+    uint8_t local[30];
+    in.seekg(entry.headerAt);
+    in.read(reinterpret_cast<char*>(local), sizeof(local));
+    if (!in || get32(local) != 0x04034B50) {
+        if (error) *error = "Damaged entry: " + entry.name;
+        return false;
+    }
+    // The local header's own name and extra lengths, not the directory's: the
+    // two are allowed to differ in the extra field and often do.
+    const std::streamoff dataAt =
+        std::streamoff(entry.headerAt) + 30 + get16(local + 26) + get16(local + 28);
+
+    std::vector<uint8_t> packed(entry.compressed);
+    in.seekg(dataAt);
+    in.read(reinterpret_cast<char*>(packed.data()), std::streamsize(packed.size()));
+    if (!in) {
+        if (error) *error = "Truncated: " + entry.name;
+        return false;
+    }
+
+    if (entry.method == 0) {
+        out = std::move(packed);
+        return true;
+    }
+    if (entry.method != 8) {
+        if (error) *error = "Unsupported compression in: " + entry.name;
+        return false;
+    }
+    if (!inflateBytes(packed.data(), packed.size(), entry.raw, out)) {
+        if (error) *error = "Could not decompress: " + entry.name;
+        return false;
+    }
+    return true;
+}
+
+/// Where an entry should land, or empty if it should not land anywhere.
+///
+/// A zip entry's name is a string chosen by whoever built the archive, and
+/// "../../../.ssh/authorized_keys" is a valid one. Nothing here trusts it: the
+/// path is rebuilt a component at a time, and anything that is not a plain name
+/// throws the entry away rather than being resolved.
+fs::path safeDestination(const fs::path& destDir, const std::string& name) {
+    fs::path relative;
+    bool first = true;
+    for (const fs::path& part : fs::path(name)) {
+        const std::string piece = part.string();
+        if (piece.empty() || piece == "." || piece == "..") return {};
+        if (piece.find(':') != std::string::npos) return {};   // a drive letter
+        // The prefix everything was written under, dropped on the way back out.
+        if (first) {
+            first = false;
+            if (piece == "Data") continue;
+        }
+        relative /= piece;
+    }
+    if (relative.empty()) return {};
+    return destDir / relative;
+}
+
+}  // namespace
+
+PackInfo readPackInfo(const std::string& zipPath) {
+    PackInfo info;
+    std::ifstream in(zipPath, std::ios::binary);
+    if (!in) {
+        info.error = "Cannot open that file.";
+        return info;
+    }
+
+    std::vector<Listed> entries;
+    if (!listEntries(in, entries, &info.error)) return info;
+
+    for (const Listed& entry : entries) {
+        if (entry.name == "Data/pack.json" || entry.name == "pack.json") {
+            std::vector<uint8_t> bytes;
+            if (readEntry(in, entry, bytes, &info.error)) {
+                const std::string text(bytes.begin(), bytes.end());
+                // One string out of a small object this program wrote itself.
+                const std::string key = "\"name\":";
+                if (const std::size_t at = text.find(key); at != std::string::npos) {
+                    const std::size_t open = text.find('"', at + key.size());
+                    const std::size_t close = open == std::string::npos
+                                                  ? std::string::npos
+                                                  : text.find('"', open + 1);
+                    if (close != std::string::npos) {
+                        info.name = text.substr(open + 1, close - open - 1);
+                    }
+                }
+            }
+            continue;
+        }
+        if (!entry.name.empty() && entry.name.back() == '/') continue;
+        ++info.files;
+        info.rawBytes += entry.raw;
+    }
+
+    if (info.files == 0) {
+        info.error = "There are no asset files in that zip.";
+        return info;
+    }
+    info.ok = true;
+    return info;
+}
+
+PackResult readPack(const std::string& zipPath, const std::string& destDir,
+                    const std::function<void(std::size_t, std::size_t)>& progress,
+                    const std::atomic<bool>& cancel) {
+    PackResult result;
+    std::ifstream in(zipPath, std::ios::binary);
+    if (!in) {
+        result.error = "Cannot open that file.";
+        return result;
+    }
+
+    std::vector<Listed> entries;
+    if (!listEntries(in, entries, &result.error)) return result;
+
+    std::error_code ec;
+    fs::create_directories(destDir, ec);
+
+    std::size_t done = 0;
+    for (const Listed& entry : entries) {
+        if (cancel.load()) {
+            result.error = "Stopped.";
+            return result;
+        }
+        ++done;
+        if (progress && done % 64 == 0) progress(done, entries.size());
+
+        if (!entry.name.empty() && entry.name.back() == '/') continue;
+        if (entry.name == "Data/pack.json" || entry.name == "pack.json") continue;
+
+        const fs::path at = safeDestination(destDir, entry.name);
+        if (at.empty()) {
+            result.error = "That pack contains a path outside the folder it "
+                           "would be installed into, and was not trusted: " + entry.name;
+            return result;
+        }
+
+        std::vector<uint8_t> bytes;
+        if (!readEntry(in, entry, bytes, &result.error)) return result;
+
+        fs::create_directories(at.parent_path(), ec);
+        std::ofstream out(at, std::ios::binary | std::ios::trunc);
+        if (!out) {
+            result.error = "Cannot write " + at.string();
+            return result;
+        }
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+        if (!out) {
+            result.error = "Ran out of room writing " + at.string();
+            return result;
+        }
+        ++result.files;
+        result.rawBytes += bytes.size();
+        result.packedBytes += entry.compressed;
+    }
+
+    if (progress) progress(entries.size(), entries.size());
+    result.ok = result.files > 0;
+    if (!result.ok) result.error = "There were no asset files in that zip.";
+    return result;
+}
+
 }  // namespace wowee::assets

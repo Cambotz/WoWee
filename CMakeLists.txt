@@ -1780,6 +1780,7 @@ if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR AND SDL2_FOUND AND EXISTS ${IMGUI_D
         tools/asset_manager/pack.cpp
         tools/asset_manager/model_import.cpp
         tools/asset_manager/model_source.cpp
+        tools/asset_manager/folder_picker.cpp
         src/rendering/m2_model_classifier.cpp
         tools/asset_extract/extractor.cpp
         tools/asset_extract/path_mapper.cpp
@@ -1796,6 +1797,24 @@ if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR AND SDL2_FOUND AND EXISTS ${IMGUI_D
         src/pipeline/wowee_collision.cpp
         src/core/logger.cpp
     )
+    # The folder chooser is the operating system's own where there is one. On
+    # Linux and the BSDs there is no such call - the usual answer is to run
+    # zenity or kdialog, which is a program that may not be installed and a
+    # button that silently does nothing when it is not - so those get the
+    # browser drawn in the window instead.
+    if(APPLE)
+        target_sources(wowee_assets PRIVATE tools/asset_manager/folder_picker_mac.mm)
+        set_source_files_properties(tools/asset_manager/folder_picker_mac.mm
+            PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+        target_link_libraries(wowee_assets PRIVATE
+            "-framework AppKit" "-framework UniformTypeIdentifiers")
+    elseif(WIN32)
+        target_sources(wowee_assets PRIVATE tools/asset_manager/folder_picker_win.cpp)
+        target_link_libraries(wowee_assets PRIVATE ole32 shell32)
+    else()
+        target_sources(wowee_assets PRIVATE tools/asset_manager/folder_picker_none.cpp)
+    endif()
+
     target_include_directories(wowee_assets PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/include
         ${CMAKE_CURRENT_SOURCE_DIR}/tools/asset_extract

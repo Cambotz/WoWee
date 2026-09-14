@@ -35,4 +35,26 @@ PackResult writePack(const std::string& sourceDir, const std::string& destZip,
                      const std::function<void(std::size_t, std::size_t)>& progress,
                      const std::atomic<bool>& cancel);
 
+/// What a pack says it is, without unpacking it.
+struct PackInfo {
+    bool ok = false;
+    std::string error;
+    std::string name;        ///< what it was built as, from pack.json
+    std::size_t files = 0;
+    std::size_t rawBytes = 0;
+};
+
+/// Read the pack's own description of itself. Cheap: the directory at the end
+/// of the file and one small entry, not the whole archive.
+PackInfo readPackInfo(const std::string& zipPath);
+
+/// Unpack into `destDir`, stripping the Data/ prefix the pack was written with.
+///
+/// Overwrites what is already there, because that is what installing a pack
+/// means - but refuses any entry naming a path outside the destination, which
+/// is how an archive from a stranger reaches the rest of the disk.
+PackResult readPack(const std::string& zipPath, const std::string& destDir,
+                    const std::function<void(std::size_t, std::size_t)>& progress,
+                    const std::atomic<bool>& cancel);
+
 }  // namespace wowee::assets
