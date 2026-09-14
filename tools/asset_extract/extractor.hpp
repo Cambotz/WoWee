@@ -80,8 +80,6 @@ public:
     static bool run(const Options& opts);
 
 private:
-    static bool enumerateFiles(const Options& opts,
-                               std::vector<std::string>& outFiles);
 };
 
 } // namespace tools

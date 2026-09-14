@@ -665,7 +665,11 @@ std::vector<std::string> Extractor::archiveChain(const std::string& mpqDir,
     return discoverArchives(mpqDir, expansion, locale);
 }
 
-bool Extractor::enumerateFiles(const Options& opts,
+namespace {
+
+/// Every file the archives hold, for one extraction. Internal because only
+/// run() has ever asked: it was public API nothing outside this file called.
+bool enumerateFilesImpl(const Extractor::Options& opts,
                                std::vector<std::string>& outFiles) {
     auto archives = discoverArchives(opts.mpqDir, opts.expansion, opts.locale);
     if (archives.empty()) {
@@ -744,6 +748,8 @@ bool Extractor::enumerateFiles(const Options& opts,
     return true;
 }
 
+}  // namespace
+
 bool Extractor::run(const Options& opts) {
     auto startTime = std::chrono::steady_clock::now();
 
@@ -753,7 +759,7 @@ bool Extractor::run(const Options& opts) {
 
     // Enumerate all unique files across all archives
     std::vector<std::string> files;
-    if (!enumerateFiles(opts, files)) {
+    if (!enumerateFilesImpl(opts, files)) {
         return false;
     }
 

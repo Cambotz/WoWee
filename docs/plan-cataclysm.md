@@ -168,7 +168,7 @@ wire reads with the same primitives. Cata's does not.
 - **Assets stay player-extracted.** This is settled for every platform already, most recently in
   `docs/plan-android.md`: assets are never bundled and never downloaded by us.
 - **No CASC, and no CDN fetching.** Answered at length on issue #130. 4.3.4 is MPQ anyway, so this
-  question does not arise for Cata even if it is reopened for something else. `tools/casc_extract.py`
+  question does not arise for Cata even if it is reopened for something else. `wowee_assets`
   is not a counter-example: it reads an installation you already own, offline, the way
   `asset_extract` reads an MPQ one. The client itself still opens neither.
 - **4.3.4 only.** Not 4.0.6, 4.1 or 4.2. One build, the one the cores implement, in keeping with

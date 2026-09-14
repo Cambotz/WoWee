@@ -68,11 +68,6 @@ struct ImportResult {
     std::size_t notBetter = 0;
 };
 
-/// Every model already here, by name: how many vertices it has and where it
-/// lives. A candidate has to beat what the client actually draws, so an
-/// installed override counts and counts first.
-std::size_t indexLocalModels(const std::string& expansionDir,
-                             std::vector<ImportCandidate>* out);
 
 /// Convert what is worth converting under one path prefix.
 ///

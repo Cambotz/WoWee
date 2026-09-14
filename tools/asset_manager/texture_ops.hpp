@@ -62,17 +62,10 @@ void restoreCoverage(Image& image, float target, float cutoff);
 
 /// Halve an image without letting alpha weight the colour.
 ///
-/// The obvious way - filtering RGBA together - is premultiplied, and a texel
-/// that is fully transparent contributes nothing and comes out black. That is
-/// right for a texture whose transparent texels hold junk and wrong for one
-/// whose transparent texels were dilated on purpose.
-Image halveStraight(const Image& image);
 
 /// Every mip level down to 1x1, with the cutout's coverage held at each.
 std::vector<Image> buildMipChain(const Image& base, float cutoff);
 
-/// BC3 (DXT5) blocks for one image. Width and height are rounded up to 4.
-std::vector<uint8_t> encodeBC3(const Image& image);
 
 /// A .dds file holding the whole chain as BC3.
 std::vector<uint8_t> writeDDS(const std::vector<Image>& levels);

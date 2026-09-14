@@ -13,6 +13,7 @@ namespace {
 
 namespace fs = std::filesystem;
 
+
 uint32_t readBE32(const uint8_t* at) {
     return (uint32_t(at[0]) << 24) | (uint32_t(at[1]) << 16) |
            (uint32_t(at[2]) << 8) | uint32_t(at[3]);
@@ -85,6 +86,18 @@ bool decodeChunk(const uint8_t* chunk, std::size_t size, std::vector<uint8_t>& o
                  std::string* error);
 
 }  // namespace
+
+/// Bob Jenkins' hashlittle2, which is how CASC names a file. The path is
+/// uppercased and its separators turned to backslashes first, because that is
+/// the form the hash was taken over.
+uint64_t jenkins96(const std::string& path);
+
+/// Decode a BLTE container. `limit` stops once that many bytes are out, which
+/// turns identifying a file - a few hundred bytes of it - from a multi-megabyte
+/// decompression into a small one. Declared here because a BLTE chunk can hold
+/// another one, so the decoder calls itself.
+std::vector<uint8_t> blteDecode(const uint8_t* data, std::size_t size,
+                                std::size_t limit, std::string* error);
 
 uint64_t jenkins96(const std::string& path) {
     std::string key;

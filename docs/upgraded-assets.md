@@ -24,9 +24,9 @@ BLP, and `src/pipeline/m2_loader.cpp` reads both. This is the case that works.
 
 **Warlords onwards needs a different reader.** 6.x moved to CASC, which
 `asset_extract` does not read - it is built on StormLib and StormLib is an MPQ
-library - and its models are the chunked `MD21`. `tools/casc_extract.py` reads
-the storage and `tools/casc_model_import.py` converts what comes out of it;
-see [Reading a CASC installation](#reading-a-casc-installation). That path is
+library - and its models are the chunked `MD21`. `wowee_assets` reads that
+storage and converts what comes out of it; see
+[Reading a CASC installation](#reading-a-casc-installation). That path is
 narrower than the MPQ one and worth understanding before relying on it.
 
 **Player character models cannot be swapped, from any client.** This is worth
@@ -169,30 +169,32 @@ file by content key, encoding maps a content key to an encoding key, the `.idx`
 buckets map an encoding key to an offset inside an archive, and every entry is
 BLTE - a container of independently compressed chunks.
 
-Two steps. Sweep the install for its models once, then take what is worth
-taking:
+One step, in the window: point the second box at the Legion installation and
+tick the models you want.
 
 ```sh
-python3 tools/casc_extract.py "/path/to/World of Warcraft - Legion" \
-    --sweep > m2names.txt
-
-python3 tools/casc_model_import.py "/path/to/World of Warcraft - Legion" \
-    /somewhere/legion-pack/expansions/wotlk \
-    --catalogue=m2names.txt --local=<your 3.3.5 install> \
-    --prefix=world/azeroth/elwynn --better
+wowee_assets <your 3.3.5 install> "/path/to/World of Warcraft - Legion"
 ```
 
-That is "every model in Elwynn worth replacing": `--prefix` takes a subtree,
-`--better` keeps only what the later client draws with more geometry, and the
-local installation supplies both the comparison and the place each file goes -
-CASC knows a FileDataID and not a path, so without it a pack cannot be written
-at all. `--name=SUBSTR` selects by model name instead, and dropping `--better`
-takes everything under the prefix whether it improved or not.
+There is no sweep to run first. The importer asks the later installation for
+each model already here, by that model's own path - CASC stores no filenames,
+only a hash of the path, and a path already on disk is a path already known.
+Matching on the name recorded inside each model is what the sweep was for, and
+it does not work: Legion's earth elemental calls itself `ElementalEarth2` and
+lives at `elementalearth.m2`, so the two never meet.
 
-On Elwynn that is six models: four tree canopies at 141 vertices to 635, the
-lion statue at 205 to 919, a shovel, and the campfire refused for its emitters.
-The output lands in the layout a pack wants, so it installs like any other -
-see [Doing it](#doing-it) - and nothing is written into your game data.
+Each upgrade names the subtrees it takes - creature, world and item for the
+creatures and doodads, character for the player models - and a model is taken
+only where the later one is meaningfully bigger than the one already there. The
+installation being built supplies both that comparison and the place each file
+goes: CASC knows a FileDataID and not a path, so without it nothing could be
+written at all.
+
+Out of a Legion installation that is 1191 models in about five seconds, every
+one of them resolved whole before anything is written - its skins, the
+animations an `AFID` chunk names, and every texture it names for itself. The
+output lands in the destination the client reads from, and nothing is written
+into either game installation.
 
 Two things about CASC shape everything else.
 

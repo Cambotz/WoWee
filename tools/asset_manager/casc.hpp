@@ -60,15 +60,7 @@ struct RootEntry {
 
 /// Bob Jenkins' hashlittle2, which is how CASC names a file.
 ///
-/// The path is uppercased and its separators turned to backslashes first,
-/// because that is the form the hash was taken over.
-uint64_t jenkins96(const std::string& path);
 
-/// Decode a BLTE container. `limit` stops once that many bytes are out, which
-/// turns identifying a file - a few hundred bytes of it - from a multi-megabyte
-/// decompression into a small one.
-std::vector<uint8_t> blteDecode(const uint8_t* data, std::size_t size,
-                                std::size_t limit, std::string* error);
 
 class CascStorage {
 public:
