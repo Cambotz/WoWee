@@ -1467,6 +1467,17 @@ wowee_add_test(test_camera
             ${CMAKE_SOURCE_DIR}/src/rendering/camera.cpp
             ${TEST_COMMON_SOURCES})
 
+# ── test_camera_pivot ────────────────────────────────────────
+# Header-only: the pivot arithmetic is a static member, so this needs SDL2's
+# headers (camera_controller.hpp includes them) but none of its symbols.
+add_executable(test_camera_pivot test_camera_pivot.cpp ${TEST_COMMON_SOURCES})
+target_include_directories(test_camera_pivot PRIVATE ${TEST_INCLUDE_DIRS})
+target_include_directories(test_camera_pivot SYSTEM PRIVATE ${TEST_SYSTEM_INCLUDE_DIRS})
+target_link_libraries(test_camera_pivot PRIVATE catch2_main SDL2::SDL2)
+wowee_test_link_glm(test_camera_pivot)
+add_test(NAME camera_pivot COMMAND test_camera_pivot)
+register_test_target(test_camera_pivot)
+
 # ── test_gltf_terrain_bin ────────────────────────────────────
 # The BIN chunk of a terrain .glb, packed byte for byte by two exporters.
 # Checked against the glTF 2.0 layout rather than against the old code.

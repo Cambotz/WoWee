@@ -34,6 +34,9 @@ namespace {
 
 constexpr float kMaxPhysicsDelta = 1.0f / 30.0f;
 
+/// WoW's own key bone id for the head, as the M2 skeleton names it.
+constexpr int32_t kKeyBoneHead = 6;
+
 std::optional<float> selectReachableFloor(const std::optional<float>& terrainH,
                                           const std::optional<float>& wmoH,
                                           float refZ,
@@ -1894,7 +1897,7 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
             if (terrainAtCam) {
                 // Keep pivot high enough so near-hill camera rays don't cut through terrain.
                 constexpr float kMinRayClearance = 2.0f;
-                float basePivotZ = targetPos.z + pivotHeightFor(followedHeight_) + mountedOffset;
+                float basePivotZ = targetPos.z + followedPivotHeight() + mountedOffset;
                 float rayClearance = basePivotZ - *terrainAtCam;
                 if (rayClearance < kMinRayClearance) {
                     desiredLift = std::clamp(kMinRayClearance - rayClearance, 0.0f, 1.4f);
@@ -1912,7 +1915,7 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
         // are not relevant for camera pivoting.
         cachedPivotLift_ = 0.0f;
     }
-    glm::vec3 pivot = targetPos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset + pivotLift);
+    glm::vec3 pivot = targetPos + glm::vec3(0.0f, 0.0f, followedPivotHeight() + mountedOffset + pivotLift);
 
     // Camera direction from yaw/pitch (already computed as forward3D)
     glm::vec3 camDir = -f.forward3D;  // Camera looks at pivot, so it's behind
@@ -2288,19 +2291,29 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
         // not answer does not snap the camera.
         float height = 0.0f;
         if (characterRenderer->getInstanceHeight(playerInstanceId, height) && height > 0.01f) {
-            if (std::abs(height - followedHeight_) > 0.01f) {
+            // The head bone, which is what the pivot is placed against. A
+            // skeleton that does not name one leaves this zero and falls back
+            // to the height.
+            float headZ = 0.0f;
+            if (!characterRenderer->getInstanceKeyBonePivotZ(playerInstanceId, kKeyBoneHead, headZ)) {
+                headZ = 0.0f;
+            }
+            if (std::abs(height - followedHeight_) > 0.01f ||
+                std::abs(headZ - followedHeadZ_) > 0.01f) {
                 // Said when it changes, which is when a character is first
-                // drawn and whenever its model does. Two numbers settle
-                // whether the camera is pivoting where it should, and neither
-                // was knowable from outside: a report of "still too high" can
-                // mean the height was never measured, or that it was and the
-                // proportion is wrong, and these tell the two apart.
+                // drawn and whenever its model does. These numbers settle
+                // whether the camera is pivoting where it should, and none of
+                // them was knowable from outside: a report of "still too high"
+                // can mean nothing was measured, or that it was and the
+                // proportion is wrong, and they tell the two apart.
                 LOG_WARNING("Camera pivot: character is ", height,
-                            " tall, pivoting at ", pivotHeightFor(height),
+                            " tall with its head bone at ", headZ,
+                            ", pivoting at ", pivotHeightFor(pivotHeight_, height, headZ),
                             " (setting ", pivotHeight_, " against a ",
-                            kPivotReferenceHeight, " reference)");
+                            kPivotReferenceHeadZ, " head reference)");
             }
             followedHeight_ = height;
+            followedHeadZ_ = headZ;
         }
 
         // Hide only on first-person *intent* (the user's zoom), not on a
@@ -2555,7 +2568,7 @@ void CameraController::update(float deltaTime) {
 
             // Pivot point at upper chest/neck
             float mountedOffset = mounted_ ? mountHeightOffset_ : 0.0f;
-            glm::vec3 pivot = targetPos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset);
+            glm::vec3 pivot = targetPos + glm::vec3(0.0f, 0.0f, followedPivotHeight() + mountedOffset);
 
             // Camera direction from yaw/pitch
             glm::vec3 camDir = -forward3D;
@@ -3287,7 +3300,7 @@ void CameraController::reset() {
             currentDistance = userTargetDistance;
             collisionDistance = currentDistance;
             float mountedOffset = mounted_ ? mountHeightOffset_ : 0.0f;
-            glm::vec3 pivot = spawnPos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset);
+            glm::vec3 pivot = spawnPos + glm::vec3(0.0f, 0.0f, followedPivotHeight() + mountedOffset);
             glm::vec3 camDir = -forward3D;
             glm::vec3 camPos = pivot + camDir * currentDistance;
             smoothedCamPos = camPos;
@@ -3429,7 +3442,7 @@ void CameraController::reset() {
         collisionDistance = currentDistance;
 
         float mountedOffset = mounted_ ? mountHeightOffset_ : 0.0f;
-        glm::vec3 pivot = spawnPos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset);
+        glm::vec3 pivot = spawnPos + glm::vec3(0.0f, 0.0f, followedPivotHeight() + mountedOffset);
         glm::vec3 camDir = -forward3D;
         glm::vec3 camPos = pivot + camDir * currentDistance;
         smoothedCamPos = camPos;
@@ -3468,7 +3481,7 @@ void CameraController::teleportTo(const glm::vec3& pos) {
         camera->setRotation(yaw, pitch);
         glm::vec3 forward3D = camera->getForward();
         float mountedOffset = mounted_ ? mountHeightOffset_ : 0.0f;
-        glm::vec3 pivot = pos + glm::vec3(0.0f, 0.0f, pivotHeightFor(followedHeight_) + mountedOffset);
+        glm::vec3 pivot = pos + glm::vec3(0.0f, 0.0f, followedPivotHeight() + mountedOffset);
         glm::vec3 camDir = -forward3D;
         glm::vec3 camPos = pivot + camDir * currentDistance;
         smoothedCamPos = camPos;

@@ -480,14 +480,33 @@ public:
     ///
     /// pivotHeight_ is a distance in metres, and a metre is a different part
     /// of a gnome than it is of a tauren: at a fixed 1.6 the camera orbited a
-    /// point above a short character's head and zoomed into thin air. The
-    /// setting is read as a proportion of the height it was chosen against -
-    /// a night elf, who stands about that - and applied to whoever is actually
-    /// being followed.
-    [[nodiscard]] float pivotHeightFor(float characterHeight) const {
-        if (characterHeight <= 0.01f) return pivotHeight_;
-        const float share = pivotHeight_ / kPivotReferenceHeight;
-        return std::clamp(characterHeight * share, 0.2f, 3.0f);
+    /// point above a short character's head and zoomed into thin air.
+    ///
+    /// Scaling it by total height was not enough. Measured against the head
+    /// bone afterwards, it put the pivot between 81% and 92% of the way up to
+    /// the head for every race in the game - and at 126% for a gnome female
+    /// and 132% for a gnome male, a quarter of a metre above the bone, on a
+    /// character 1.3 tall. A gnome's head and hair are 40% of its height
+    /// where everyone else's are 15%, so its box says nothing about where its
+    /// face is. The setting is read as a proportion of the head bone it was
+    /// chosen against and applied to the head bone of whoever is being
+    /// followed. Height stays as the fallback, for a skeleton with no head
+    /// bone in it.
+    ///
+    /// Static and given the setting, so the arithmetic can be checked against
+    /// the measured models without standing a camera up.
+    [[nodiscard]] static float pivotHeightFor(float setting, float characterHeight,
+                                              float headBoneZ) {
+        if (headBoneZ > 0.01f) {
+            return std::clamp(headBoneZ * (setting / kPivotReferenceHeadZ), 0.2f, 3.0f);
+        }
+        if (characterHeight <= 0.01f) return setting;
+        return std::clamp(characterHeight * (setting / kPivotReferenceHeight), 0.2f, 3.0f);
+    }
+
+    /// The pivot for whoever is being followed right now.
+    [[nodiscard]] float followedPivotHeight() const {
+        return pivotHeightFor(pivotHeight_, followedHeight_, followedHeadZ_);
     }
 private:
     static constexpr float PIVOT_HEIGHT_DEFAULT = 1.6f;
@@ -501,10 +520,19 @@ private:
     /// gnome's, the point of the change, but quietly raised a night elf's from
     /// 1.60 to 1.83. Against the real figure the tall races keep what they had.
     static constexpr float kPivotReferenceHeight = 2.13f;
+    /// Where the head bone sits on the character the default was chosen
+    /// against - a human male's is at 1.843 - so that camera stays exactly
+    /// where it was and only the ones the metre was wrong for move. Against
+    /// it a night elf female goes 1.72 -> 1.77, a tauren male 1.75 -> 1.64,
+    /// and a gnome male 1.00 -> 0.65.
+    static constexpr float kPivotReferenceHeadZ = 1.843f;
     float pivotHeight_ = PIVOT_HEIGHT_DEFAULT;  // User-configurable pivot height
     /// The followed character's height, refreshed as it is followed. Zero
     /// until something has been measured, which reads as the old behaviour.
     float followedHeight_ = 0.0f;
+    /// The followed character's head bone in model Z, zero until measured or
+    /// if its skeleton names no head.
+    float followedHeadZ_ = 0.0f;
     static constexpr float CAM_SPHERE_RADIUS = 0.32f;  // Keep camera farther from geometry to avoid clipping-through surfaces
     static constexpr float CAM_EPSILON = 0.22f;        // Extra wall offset to avoid near-plane clipping artifacts
     static constexpr float COLLISION_FOCUS_RADIUS_THIRD_PERSON = 20.0f;  // Reduced for performance
