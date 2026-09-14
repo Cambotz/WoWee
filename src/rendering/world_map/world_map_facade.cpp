@@ -662,6 +662,17 @@ int WorldMapFacade::zoneAtMapPoint(float u, float v) const {
     auto& d = *impl_;
     if (!d.data.hasZmpData()) return -1;
 
+    // Only a continent map has zones laid out on it to point at.
+    //
+    // Without this the lookup ran at every level, projecting the cursor through
+    // whichever continent was last open - so the zoomed-out world and cosmic
+    // maps answered with zones of a continent that is not on screen. The
+    // interface names whatever comes back, so hovering a globe labelled it
+    // Hillsbrad Foothills, and clicking went through the same lookup and zoomed
+    // into a zone nobody had pointed at.
+    const ViewLevel level = d.viewState.currentLevel();
+    if (level != ViewLevel::CONTINENT && level != ViewLevel::ZONE) return -1;
+
     const int continentIdx = d.viewState.continentIdx();
     if (continentIdx < 0) return -1;
 
