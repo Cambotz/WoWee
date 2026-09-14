@@ -2288,6 +2288,18 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
         // not answer does not snap the camera.
         float height = 0.0f;
         if (characterRenderer->getInstanceHeight(playerInstanceId, height) && height > 0.01f) {
+            if (std::abs(height - followedHeight_) > 0.01f) {
+                // Said when it changes, which is when a character is first
+                // drawn and whenever its model does. Two numbers settle
+                // whether the camera is pivoting where it should, and neither
+                // was knowable from outside: a report of "still too high" can
+                // mean the height was never measured, or that it was and the
+                // proportion is wrong, and these tell the two apart.
+                LOG_WARNING("Camera pivot: character is ", height,
+                            " tall, pivoting at ", pivotHeightFor(height),
+                            " (setting ", pivotHeight_, " against a ",
+                            kPivotReferenceHeight, " reference)");
+            }
             followedHeight_ = height;
         }
 

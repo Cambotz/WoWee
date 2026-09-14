@@ -491,10 +491,16 @@ public:
     }
 private:
     static constexpr float PIVOT_HEIGHT_DEFAULT = 1.6f;
-    /// The height PIVOT_HEIGHT_DEFAULT was chosen against, so that the default
-    /// still puts the pivot exactly where it always did for a character of
-    /// that size and only moves it for the ones it was wrong for.
-    static constexpr float kPivotReferenceHeight = 2.0f;
+    /// The height PIVOT_HEIGHT_DEFAULT was chosen against, so the default puts
+    /// the pivot exactly where it always did for a character of that size and
+    /// only moves it for the ones it was wrong for.
+    ///
+    /// Measured off the models rather than guessed: a human male stands 2.13
+    /// in bind pose, a night elf 2.29, a tauren 2.33, a gnome 1.17. Guessed at
+    /// two metres this put every pivot at 80% of height - which lowered a
+    /// gnome's, the point of the change, but quietly raised a night elf's from
+    /// 1.60 to 1.83. Against the real figure the tall races keep what they had.
+    static constexpr float kPivotReferenceHeight = 2.13f;
     float pivotHeight_ = PIVOT_HEIGHT_DEFAULT;  // User-configurable pivot height
     /// The followed character's height, refreshed as it is followed. Zero
     /// until something has been measured, which reads as the old behaviour.
