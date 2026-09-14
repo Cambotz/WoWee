@@ -22,6 +22,9 @@ struct MapFolderEntry {
     const char* displayName;  // UI display name
 };
 
+/// Above this is a view the interface assembles, not a map the game has.
+static constexpr uint32_t kFirstUiOnlyMapId = UINT32_MAX - 15;
+
 static constexpr MapFolderEntry kMapFolders[] = {
     // Special UI-only views (no DBC MapID - sentinel values)
     { UINT32_MAX,     "World",        "World"            },
@@ -81,6 +84,24 @@ int folderToMapId(const std::string& folder) {
         if (match) return static_cast<int>(mapFolder.mapId);
     }
     return -1;
+}
+
+bool isUiOnlyMapFolder(const std::string& folder) {
+    for (const auto& mapFolder : kMapFolders) {
+        if (mapFolder.mapId < kFirstUiOnlyMapId) continue;
+        const char* entry = mapFolder.folder;
+        if (folder.size() != std::char_traits<char>::length(entry)) continue;
+        bool match = true;
+        for (size_t j = 0; j < folder.size(); j++) {
+            if (std::tolower(static_cast<unsigned char>(folder[j])) !=
+                std::tolower(static_cast<unsigned char>(entry[j]))) {
+                match = false;
+                break;
+            }
+        }
+        if (match) return true;
+    }
+    return false;
 }
 
 const char* mapDisplayName(uint32_t mapId) {

@@ -210,3 +210,43 @@ TEST_CASE("resolveCosmicClick: returns NONE for unknown mapId",
     auto result = resolveCosmicClick(9999);
     REQUIRE(result.action == MapResolveAction::NONE);
 }
+
+// ── UI-only views ────────────────────────────────────────────
+//
+// "World" and "Cosmic" are views the interface assembles out of the other
+// maps; the game has no such maps. They are carried in the folder table under
+// sentinel ids, and those sentinels are UINT32_MAX and UINT32_MAX-1 - which
+// cast to int are -1 and -2. folderToMapId answers -1 for "unknown", so
+// "World" and "not a map at all" came back byte-for-byte the same, and every
+// zoom-out of the world map reported data missing that was never there.
+
+TEST_CASE("the world and cosmic views are not maps, and say so",
+          "[world_map][map_resolver]") {
+    CHECK(isUiOnlyMapFolder("World"));
+    CHECK(isUiOnlyMapFolder("Cosmic"));
+    // Case-insensitive, like every other lookup in this table.
+    CHECK(isUiOnlyMapFolder("world"));
+    CHECK(isUiOnlyMapFolder("COSMIC"));
+}
+
+TEST_CASE("a real map is not a UI-only view", "[world_map][map_resolver]") {
+    for (const char* folder : {"Azeroth", "Kalimdor", "Expansion01", "Northrend"}) {
+        INFO(folder);
+        CHECK_FALSE(isUiOnlyMapFolder(folder));
+        // And it resolves to a map id that is not the not-found answer.
+        CHECK(folderToMapId(folder) >= 0);
+    }
+}
+
+TEST_CASE("a folder nobody has heard of is neither", "[world_map][map_resolver]") {
+    CHECK_FALSE(isUiOnlyMapFolder("NoSuchPlace"));
+    CHECK(folderToMapId("NoSuchPlace") == -1);
+}
+
+TEST_CASE("the world view and an unknown folder answer the same map id",
+          "[world_map][map_resolver]") {
+    // The collision itself, pinned: this is why the two needed telling apart by
+    // something other than the number.
+    CHECK(folderToMapId("World") == folderToMapId("NoSuchPlace"));
+    CHECK(isUiOnlyMapFolder("World") != isUiOnlyMapFolder("NoSuchPlace"));
+}

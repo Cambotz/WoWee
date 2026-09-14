@@ -1147,24 +1147,24 @@ void WorldMapFacade::Impl::renderImGuiOverlay(const glm::vec3& playerRenderPos,
                     std::string regionFolder = mapIdToFolder(region.mapId);
 
                     // Draw highlight texture covering the full map area
-                    if (zoneHighlightLayer && !regionFolder.empty()) {
-                        ImTextureID hlTex = zoneHighlightLayer->getHighlightTexture(regionFolder);
-                        if (hlTex) {
-                            drawList->AddImage(hlTex,
-                                ImVec2(imgMin.x, imgMin.y),
-                                ImVec2(imgMin.x + displayW, imgMin.y + displayH),
-                                ImVec2(0, 0), ImVec2(1, 1),
-                                IM_COL32(255, 255, 255, 180));
-                        } else {
-                            drawList->AddRectFilled(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
-                                                    IM_COL32(255, 215, 0, 25));
-                        }
+                    // The shipped glow is the highlight where there is one.
+                    // Drawn under a box as well, the box is a second highlight
+                    // in a shape the art does not agree with.
+                    ImTextureID hlTex = (zoneHighlightLayer && !regionFolder.empty())
+                        ? zoneHighlightLayer->getHighlightTexture(regionFolder)
+                        : ImTextureID(0);
+                    if (hlTex) {
+                        drawList->AddImage(hlTex,
+                            ImVec2(imgMin.x, imgMin.y),
+                            ImVec2(imgMin.x + displayW, imgMin.y + displayH),
+                            ImVec2(0, 0), ImVec2(1, 1),
+                            IM_COL32(255, 255, 255, 180));
                     } else {
                         drawList->AddRectFilled(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
                                                 IM_COL32(255, 215, 0, 25));
+                        drawList->AddRect(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
+                                          IM_COL32(255, 215, 0, 100), 0, 0, 1.5f);
                     }
-                    drawList->AddRect(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
-                                      IM_COL32(255, 215, 0, 100), 0, 0, 1.5f);
 
                     ImFont* font = ImGui::GetFont();
                     ImVec2 labelSz = font->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, 0.0f,
@@ -1375,24 +1375,28 @@ void WorldMapFacade::Impl::renderImGuiOverlay(const glm::vec3& playerRenderPos,
                         hlY = imgMin.y;          // flush top
                     }
 
-                    if (zoneHighlightLayer) {
-                        ImTextureID hlTex = zoneHighlightLayer->getHighlightTexture(cosmicKey, cosmicPath);
-                        if (hlTex) {
-                            drawList->AddImage(hlTex,
-                                ImVec2(hlX, hlY),
-                                ImVec2(hlX + hlW, hlY + hlH),
-                                ImVec2(0, 0), ImVec2(1, 1),
-                                IM_COL32(255, 255, 255, 180));
-                        } else {
-                            drawList->AddRectFilled(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
-                                                    IM_COL32(255, 215, 0, 25));
-                        }
+                    // The glow the game ships is the highlight. A box drawn
+                    // over it as well is a second, squarer highlight that the
+                    // art already disagrees with - and it was drawn whether or
+                    // not the glow loaded, so the one thing on screen that was
+                    // not aligned to the globe was always there.
+                    ImTextureID hlTex = zoneHighlightLayer
+                        ? zoneHighlightLayer->getHighlightTexture(cosmicKey, cosmicPath)
+                        : ImTextureID(0);
+                    if (hlTex) {
+                        drawList->AddImage(hlTex,
+                            ImVec2(hlX, hlY),
+                            ImVec2(hlX + hlW, hlY + hlH),
+                            ImVec2(0, 0), ImVec2(1, 1),
+                            IM_COL32(255, 255, 255, 180));
                     } else {
+                        // Nothing shipped to draw, so the region says where it
+                        // is the only way left.
                         drawList->AddRectFilled(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
                                                 IM_COL32(255, 215, 0, 25));
+                        drawList->AddRect(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
+                                          IM_COL32(255, 215, 0, 100), 0, 0, 1.5f);
                     }
-                    drawList->AddRect(ImVec2(rx0, ry0), ImVec2(rx1, ry1),
-                                      IM_COL32(255, 215, 0, 100), 0, 0, 1.5f);
 
                     ImFont* font = ImGui::GetFont();
                     ImVec2 labelSz = font->CalcTextSizeA(ImGui::GetFontSize(), FLT_MAX, 0.0f,

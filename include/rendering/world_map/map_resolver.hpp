@@ -22,7 +22,18 @@ const char* mapIdToFolder(uint32_t mapId);
 
 /// Worldmap folder name → map ID (e.g. "Azeroth" → 0, "Northrend" → 571).
 /// Case-insensitive comparison. Returns -1 if unknown.
+///
+/// "World" and "Cosmic" are not maps and never were: they are views the
+/// interface assembles out of the other maps, and they answer -1 here like
+/// anything else with no map behind it. Ask isUiOnlyMapFolder to tell the two
+/// apart - they used to be indistinguishable, because the sentinel standing
+/// for them is UINT32_MAX and casting that to int gives exactly -1.
 int folderToMapId(const std::string& folder);
+
+/// Whether this folder names a view the interface builds rather than a map the
+/// game has. Nothing can be loaded for one, and nothing is wrong when nothing
+/// is.
+bool isUiOnlyMapFolder(const std::string& folder);
 
 /// Map ID → display name for UI (e.g. 0 → "Eastern Kingdoms", 571 → "Northrend").
 /// Returns nullptr if unknown.
