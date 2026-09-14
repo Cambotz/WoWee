@@ -63,7 +63,7 @@ What it leaves, and this is the part that fits the release style rather than fig
 
 **The player extracts on a desktop, as they do today, and copies `Data/` to the device.** The app
 is pointed at that directory with `WOW_DATA_PATH`. The extraction tooling
-(`tools/asset_pipeline_gui.py`, `asset_extract`) stays desktop-only and unchanged. It already
+(`wowee_assets`, `asset_extract`) stays desktop-only and unchanged. It already
 supports Linux, macOS and Windows, and it is the same artefact either way.
 
 The Android-specific question is *where* on the device, and scoped storage decides it:

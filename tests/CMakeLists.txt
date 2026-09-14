@@ -172,6 +172,14 @@ wowee_add_test(test_sell_count
 wowee_add_test(test_hill_climbing
     SOURCES test_movement_limits.cpp)
 
+# ── test_data_paths ─────────────────────────────────────────
+# Where the assets go, which the client and the asset manager have to agree on
+# and did not: one looked in a macOS-only place, the other wrote beside the
+# terminal's working directory. Also what counts as installed, since the
+# manifest is written last and a folder without one is a run that stopped.
+wowee_add_test(test_data_paths
+    SOURCES test_data_paths.cpp)
+
 # ── test_asset_profiles ─────────────────────────────────────
 # The asset sets on offer. Pinned because the upgrades used to be written per
 # base and so were only ever offered on Wrath, and because the plan's ordering

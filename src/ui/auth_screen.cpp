@@ -402,6 +402,46 @@ void AuthScreen::renderProminentStatus(float screenW, float screenH) {
     ui_.setLayer(PaperLayer::Page);
 }
 
+namespace {
+
+/// One asset set that can be played with: a label to show and the id to set.
+struct AssetChoice {
+    std::string label;
+    std::string id;     ///< empty means "whatever the protocol expansion is"
+};
+
+/// Every asset set actually installed, in the order they should be offered.
+///
+/// Several games can be built into one Data folder, each under its own name,
+/// and which one to draw with is a choice worth making before logging in - a
+/// Wrath server played with Cataclysm's art is the whole point of building
+/// more than one. Only sets with a manifest are listed: an expansion the
+/// registry knows about but which was never extracted is not something anyone
+/// can choose.
+std::vector<AssetChoice> assetChoices(const game::ExpansionRegistry* registry) {
+    std::vector<AssetChoice> out;
+    if (registry == nullptr) return out;
+
+    const game::ExpansionProfile* active = registry->getActive();
+    out.push_back({active ? "Match protocol  (" + active->shortName + ")"
+                          : std::string("Match protocol"),
+                   std::string()});
+
+    for (const auto& candidate : registry->getAllProfiles()) {
+        if (!std::filesystem::exists(candidate.dataPath + "/manifest.json")) continue;
+        out.push_back({candidate.shortName + " assets", candidate.id});
+    }
+
+    const char* dataPathEnv = std::getenv("WOW_DATA_PATH");
+    const std::filesystem::path baseData = dataPathEnv ? dataPathEnv : "./Data";
+    if (std::filesystem::exists(baseData / "manifest.json")) {
+        out.push_back({"Legacy root Data", "legacy"});
+    }
+    return out;
+}
+
+}  // namespace
+
 void AuthScreen::renderCard(auth::AuthHandler& authHandler, float screenW, float screenH) {
     const PaperTheme& theme = ui_.theme();
     const auto px = [this](float units) { return ui_.px(units); };
@@ -441,8 +481,6 @@ void AuthScreen::renderCard(auth::AuthHandler& authHandler, float screenW, float
         advancedH += fieldRow + px(kRowGap);                 // address and port
         if (haveExpansions) {
             advancedH += fieldRow + px(kRowGap);             // expansion
-            advancedH += fieldRow + px(kRowGap);             // assets
-            if (!assetProfileId_.empty()) advancedH += smallRow + px(4);
         } else {
             advancedH += smallRow + px(kRowGap);             // the one line instead
         }
@@ -459,6 +497,17 @@ void AuthScreen::renderCard(auth::AuthHandler& authHandler, float screenW, float
     float contentH = titleBlockH;                            // title and its underline
     contentH += fieldRow + px(kRowGap);                      // account
     contentH += fieldRow + px(kRowGap);                      // password
+
+    // The assets row sits in the card itself rather than behind the disclosure,
+    // and only when there is more than one set installed - with a single set
+    // there is nothing to choose and the row is a question with one answer.
+    const std::vector<AssetChoice> assets = assetChoices(registry);
+    const bool chooseAssets = assets.size() > 2;
+    if (chooseAssets) {
+        contentH += fieldRow + px(kRowGap);
+        if (!assetProfileId_.empty()) contentH += smallRow + px(4);
+    }
+
     if (codeInMain) contentH += fieldRow + px(kRowGap);
     if (statusH > 0.0f) contentH += statusH + px(10);
     contentH += px(kButtonHeight) + px(kRowGap);
@@ -565,6 +614,32 @@ void AuthScreen::renderCard(auth::AuthHandler& authHandler, float screenW, float
         if (!securityPromptFocused_) {
             ui_.focus("pin");
             securityPromptFocused_ = true;
+        }
+    }
+
+    // ---- which assets ----------------------------------------------------
+    if (chooseAssets) {
+        int choice = 0;
+        for (int i = 0; i < static_cast<int>(assets.size()); ++i) {
+            if (assets[static_cast<size_t>(i)].id == assetProfileId_) { choice = i; break; }
+        }
+        std::vector<std::string> rows;
+        rows.reserve(assets.size());
+        for (const AssetChoice& one : assets) rows.push_back(one.label);
+
+        ui_.text(col.at(), "Assets", labelSize, theme.inkSoft);
+        col.gap(labelRow);
+        const auto [a, b] = col.row(px(kFieldHeight));
+        if (ui_.dropdown("assets", a, b, rows[static_cast<size_t>(choice)], rows, &choice)) {
+            assetProfileId_ = assets[static_cast<size_t>(choice)].id;
+            core::Application::getInstance().setAssetExpansionOverride(assetProfileId_);
+            core::Application::getInstance().reloadExpansionData();
+        }
+        col.gap(px(kRowGap));
+        if (!assetProfileId_.empty()) {
+            ui_.text(col.at(), "Cross-expansion DBC and model formats may differ.", smallSize,
+                     theme.pencil);
+            col.gap(smallRow + px(4));
         }
     }
 
@@ -696,49 +771,6 @@ void AuthScreen::renderCard(auth::AuthHandler& authHandler, float screenW, float
                 col.gap(px(kRowGap));
             }
 
-            // Assets. The rows are built alongside the ids they stand for,
-            // because only some expansions have data on disk and the index
-            // the dropdown reports means nothing without them.
-            const auto* protocolProfile = registry->getActive();
-            std::vector<std::string> rows2;
-            std::vector<std::string> ids;
-            rows2.emplace_back(protocolProfile
-                                   ? "Match protocol  (" + protocolProfile->shortName + ")"
-                                   : "Match protocol");
-            ids.emplace_back();
-            for (const auto& candidate : profiles) {
-                if (!std::filesystem::exists(candidate.dataPath + "/manifest.json")) continue;
-                rows2.push_back(candidate.shortName + " assets");
-                ids.push_back(candidate.id);
-            }
-            const char* dataPathEnv = std::getenv("WOW_DATA_PATH");
-            const std::filesystem::path baseData = dataPathEnv ? dataPathEnv : "./Data";
-            if (std::filesystem::exists(baseData / "manifest.json")) {
-                rows2.emplace_back("Legacy root Data");
-                ids.emplace_back("legacy");
-            }
-
-            int assetChoice = 0;
-            for (int i = 0; i < static_cast<int>(ids.size()); ++i)
-                if (ids[static_cast<size_t>(i)] == assetProfileId_) { assetChoice = i; break; }
-
-            ui_.text(col.at(), "Assets", labelSize, theme.inkSoft);
-            col.gap(labelRow);
-            {
-                const auto [a, b] = col.row(px(kFieldHeight));
-                if (ui_.dropdown("assets", a, b, rows2[static_cast<size_t>(assetChoice)], rows2,
-                                 &assetChoice)) {
-                    assetProfileId_ = ids[static_cast<size_t>(assetChoice)];
-                    app.setAssetExpansionOverride(assetProfileId_);
-                    app.reloadExpansionData();
-                }
-                col.gap(px(kRowGap));
-            }
-            if (!assetProfileId_.empty()) {
-                ui_.text(col.at(), "Cross-expansion DBC and model formats may differ.", smallSize,
-                         theme.pencil);
-                col.gap(smallRow + px(4));
-            }
         } else {
             ui_.text(col.at(), "Expansion: WotLK 3.3.5a (default)", smallSize, theme.pencil);
             col.gap(smallRow + px(kRowGap));

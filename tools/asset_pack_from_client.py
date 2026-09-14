@@ -12,7 +12,7 @@ vertices of leaf cards in 4.3.4, over a 512-square leaf atlas rather than a
 have this build a pack from it.
 
 The output is an ordinary pack folder - `pack.json` beside a `Data/` tree of
-game-relative paths - which is what tools/asset_pipeline_gui.py installs,
+game-relative paths - which is what the asset manager installs,
 orders and merges into the override directory. Nothing here writes into a game
 install; the pack is a folder, and activating it is a separate, reversible act.
 
@@ -399,7 +399,7 @@ def main() -> int:
 
     total = sum(e["bytes"] for e in entries.values())
     print(f"\nWrote {pack_dir} - {len(entries)} file(s), {total / 1048576:.1f} MB")
-    print("Install it with tools/asset_pipeline_gui.py (Packs tab), or copy its Data/ "
+    print("Install it with wowee_assets (\"Install a pack...\"), or copy its Data/ "
           "tree into\n<expansion>/override/ by hand. Both are reversible; neither "
           "touches the extracted assets.")
     return 0

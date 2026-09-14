@@ -4606,6 +4606,23 @@ void Application::render() {
 
     runRenderStage("endFrame", [&] { renderer->endFrame(); });
 
+    // A picture of the client, written once and then done with.
+    //
+    // What a screen looks like cannot be checked by reading the code that draws
+    // it - the login card in particular is measured before it is drawn, and a
+    // row counted in one place and not the other comes out as a sheet taller
+    // than what is on it, which nothing but looking will catch. The in-game
+    // screenshot key cannot reach the login screen, which is where that card is.
+    if (const char* shot = std::getenv("WOWEE_SCREENSHOT"); shot != nullptr) {
+        // Let the interface settle first: ImGui sizes much of its layout from
+        // what it measured last frame, and hides a window outright for its
+        // first frame or two while it fits itself.
+        if (++screenshotFrames_ == kScreenshotFrame) {
+            renderer->captureScreenshot(shot);
+            running = false;
+        }
+    }
+
     stageStatFrames_ += 1;
     reportStageTimes();
     renderingFrame_ = false;

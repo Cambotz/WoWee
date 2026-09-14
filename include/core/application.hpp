@@ -192,6 +192,11 @@ private:
     std::chrono::steady_clock::time_point stageStatsSince_{};
     int stageStatFrames_ = 0;
 
+    /// WOWEE_SCREENSHOT: frames drawn before the picture is taken, so the
+    /// interface has settled into what it will actually look like.
+    static constexpr int kScreenshotFrame = 30;
+    int screenshotFrames_ = 0;
+
     void setupUICallbacks();
     void spawnPlayerCharacter();
     // Re-spawn the in-world player model in place after a live appearance change

@@ -1,6 +1,6 @@
 /// WoWee Asset Manager - a native window for building this client's assets.
 ///
-///     wowee_assets [game folder] [a later client]
+///     wowee_assets [game folder] [a later client] [where to put it]
 ///
 /// Three questions in the order somebody actually has answers for: where is the
 /// game, what do you want it to look like, and go.
@@ -35,6 +35,7 @@
 // The implementation is already compiled into open_format_emitter.cpp.
 #include "stb_image_write.h"
 
+#include "core/data_paths.hpp"
 #include "core/local_time.hpp"
 #include "ui/imgui_theme.hpp"
 
@@ -162,6 +163,24 @@ void folderRow(App& app, const char* label, char* buffer, std::size_t size,
     ImGui::PopID();
 }
 
+/// The games already extracted into a folder, newest-looking first.
+///
+/// Read fresh rather than remembered: a build finishing, a pack being
+/// installed and somebody choosing a different folder all change it, and a
+/// cached answer is one that goes stale in each of those.
+std::vector<std::string> installedGames(const std::string& dataRoot) {
+    std::vector<std::string> out;
+    // Named as a player would say them where the name is known. An expansion
+    // built by something else, or by a later version of this, still counts as
+    // installed - it is in the folder and the client will offer it.
+    for (const std::string& id : wowee::core::installedExpansions(dataRoot)) {
+        const auto found = std::find_if(bases().begin(), bases().end(),
+                                        [&id](const Base& b) { return b.expansion == id; });
+        out.push_back(found != bases().end() ? found->name : id);
+    }
+    return out;
+}
+
 void drawGame(App& app) {
     ImGui::SeparatorText("1.  Where is your game?");
     folderRow(app, "The World of Warcraft folder you want to build from",
@@ -176,6 +195,30 @@ void drawGame(App& app) {
         ImGui::PopStyleColor();
     } else {
         dimmed("You can also drag the folder onto this window.");
+    }
+
+    ImGui::Spacing();
+    folderRow(app, "Where the assets should go", app.outputDir, sizeof(app.outputDir),
+              PickWhat::Folder, "Choose where to put the built assets",
+              app.picker, app.pendingPick, 4);
+
+    const std::vector<std::string> already = installedGames(app.outputDir);
+    if (already.empty()) {
+        dimmed("Nothing built here yet. This is where the client looks for its assets.");
+    } else {
+        // Several games can share one folder, each under its own name, and the
+        // client picks between them at its login screen. Saying what is already
+        // there is what makes that visible: otherwise a second game built into
+        // the same place looks like it overwrote the first.
+        std::string line = "Already here: " + already.front();
+        for (std::size_t i = 1; i < already.size(); ++i) line += ", " + already[i];
+        line += already.size() > 1
+                    ? ".  The client offers all of them at its login screen."
+                    : ".  Build another game into this same folder and you can choose "
+                      "between them when the client starts.";
+        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.35f, 0.78f, 0.45f, 1.0f));
+        wrapped(line.c_str());
+        ImGui::PopStyleColor();
     }
 }
 
@@ -308,11 +351,17 @@ void startPack(App& app, const std::string& profileId) {
     std::string out = app.outputDir;
     if (out.empty()) out = (fs::current_path() / "Data").string();
 
+    // A pack holds whatever is in the folder, which may be several games built
+    // one after another. Named after the last thing built, a pack of four games
+    // says it is one - and the person receiving it has no way to tell.
+    const std::vector<std::string> inside = installedGames(out);
+    const std::string name = inside.size() > 1 ? "universal" : profileId;
+
     const std::tm local = wowee::core::localTime(std::time(nullptr));
     char stamp[16];
     std::strftime(stamp, sizeof(stamp), "%Y%m%d", &local);
     const std::string dest =
-        (fs::path(out).parent_path() / ("wowee-" + profileId + "-" + stamp + ".zip")).string();
+        (fs::path(out).parent_path() / ("wowee-" + name + "-" + stamp + ".zip")).string();
 
     app.packing.store(true);
     app.packCancel.store(false);
@@ -320,9 +369,9 @@ void startPack(App& app, const std::string& profileId) {
         std::lock_guard<std::mutex> lock(app.packMutex);
         app.packNote = "Packing...";
     }
-    std::thread([&app, out, dest, profileId]() {
+    std::thread([&app, out, dest, name]() {
         PackResult result = writePack(
-            out, dest, profileId,
+            out, dest, name,
             [&app](std::size_t done, std::size_t total) {
                 std::lock_guard<std::mutex> lock(app.packMutex);
                 app.packNote = "Packing " + std::to_string(done) + " of " +
@@ -447,9 +496,17 @@ void drawRun(App& app) {
     }
     ImGui::EndDisabled();
 
+    // Whatever is in the folder, whether this session put it there or a run
+    // last week did. Gated on having built something now, a person who came
+    // back to send someone their assets found the button dead.
+    const std::vector<std::string> inside = installedGames(app.outputDir);
     ImGui::SameLine();
-    ImGui::BeginDisabled(busy || !app.started);
-    if (ImGui::Button("Save what I have as a pack", ImVec2(240, 32))) {
+    ImGui::BeginDisabled(busy || inside.empty());
+    const std::string save = inside.size() > 1
+                                 ? "Save all " + std::to_string(inside.size()) +
+                                       " as one pack"
+                                 : std::string("Save what I have as a pack");
+    if (ImGui::Button(save.c_str(), ImVec2(260, 32))) {
         startPack(app, profile.id);
     }
     ImGui::EndDisabled();
@@ -606,13 +663,19 @@ int main(int argc, char** argv) {
     ImGuiIO& io = ImGui::GetIO();
 
     App app;
-    const std::string defaultOut = (fs::current_path() / "Data").string();
+    // Where the client itself looks when nobody has said otherwise. Data/ beside
+    // the terminal's working directory was eight minutes of extraction the
+    // client would never find, with nothing on screen saying where it went.
+    const fs::path userData = wowee::core::userDataRoot();
+    const std::string defaultOut =
+        userData.empty() ? (fs::current_path() / "Data").string() : userData.string();
     std::snprintf(app.outputDir, sizeof(app.outputDir), "%s", defaultOut.c_str());
 
-    // The same two folders the window takes by drag and drop, for anyone who
+    // The same folders the window takes by drag and drop, for anyone who
     // already has the paths in a terminal.
     if (argc > 1) std::snprintf(app.gameDir, sizeof(app.gameDir), "%s", argv[1]);
     if (argc > 2) std::snprintf(app.secondDir, sizeof(app.secondDir), "%s", argv[2]);
+    if (argc > 3) std::snprintf(app.outputDir, sizeof(app.outputDir), "%s", argv[3]);
 
     // FRIZQT is what the game writes its interface in. A little larger than
     // ImGui's built-in face at the same nominal height, so it is asked for at a

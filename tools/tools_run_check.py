@@ -27,7 +27,7 @@ WHAT IS SKIPPED, AND WHY EACH
 
   * framexml_source, ownership_walk, opcode_map_utils - libraries, not sweeps.
     Running them does nothing and proves nothing.
-  * asset_pipeline_gui, m2_viewer, upscale_textures - tools that open a window
+  * m2_viewer, upscale_textures - tools that open a window
     or process assets. Not checks, and expensive.
   * gen_opcode_registry - a generator; running it writes files.
   * anything already in sweep_guard, which runs it and reads its number.
@@ -48,7 +48,7 @@ TOOLS = Path(__file__).resolve().parent
 #: Not sweeps: libraries, generators, and things that open a window.
 SKIP = {
     "framexml_source.py", "ownership_walk.py", "opcode_map_utils.py",
-    "asset_pipeline_gui.py", "m2_viewer.py", "upscale_textures.py",
+    "m2_viewer.py", "upscale_textures.py",
     "gen_opcode_registry.py", "tools_run_check.py", "sweep_guard.py",
 }
 

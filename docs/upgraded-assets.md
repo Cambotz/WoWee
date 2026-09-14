@@ -100,10 +100,10 @@ python3 tools/asset_pack_from_client.py \
     --against ~/Library/Application\ Support/wowee/Data/expansions/wotlk
 ```
 
-Or open `tools/asset_pipeline_gui.py`, add the folder on the Packs tab, order it
-against any other packs and rebuild. Either way the files land in the
-expansion's `override/` directory, which `AssetManager::resolveFile` reads
-before the manifest. The extraction itself is never touched, and
+`wowee_assets` installs a packed one - "Install a pack..." takes the `.zip`
+that program writes and unpacks it over the same tree. Either way the files
+land in the expansion's `override/` directory, which `AssetManager::resolveFile`
+reads before the manifest. The extraction itself is never touched, and
 `--uninstall` takes out exactly the files the pack listed.
 
 ## How it resolves, and why additions used to fail

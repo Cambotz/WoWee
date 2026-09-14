@@ -8,6 +8,8 @@
 #include "core/env.hpp"
 #include <cctype>
 #include <filesystem>
+
+#include "core/data_paths.hpp"
 #include <string>
 #include <SDL2/SDL.h>
 #ifdef __APPLE__
@@ -102,33 +104,24 @@ static wowee::core::LogLevel readLogLevelFromEnv() {
     return wowee::core::LogLevel::WARNING;
 }
 
-#ifdef __APPLE__
-static void selectMacUserDataPath() {
+/// Point the client at the per-user data directory, if an extraction is there.
+///
+/// Only when nobody has said otherwise, and only when that directory actually
+/// holds an extraction - so a first run with nothing installed still falls
+/// through to Data/ beside the executable, which is what a development tree
+/// and a portable install both want.
+///
+/// This was macOS only, which left the asset manager and the client with no
+/// agreed destination on Linux or Windows at all: the manager wrote wherever
+/// the terminal was and the client looked beside itself.
+static void selectUserDataPath() {
     if (std::getenv("WOW_DATA_PATH")) return;
 
-    const char* home = std::getenv("HOME");
-    if (!home || !*home) return;
+    const std::filesystem::path dataRoot = wowee::core::userDataRoot();
+    if (!wowee::core::holdsExtraction(dataRoot)) return;
 
-    namespace fs = std::filesystem;
-    const fs::path dataRoot = fs::path(home) / "Library/Application Support/Wowee/Data";
-    std::error_code ec;
-    bool hasManifest = fs::is_regular_file(dataRoot / "manifest.json", ec);
-
-    const fs::path expansions = dataRoot / "expansions";
-    if (!hasManifest && fs::is_directory(expansions, ec)) {
-        for (fs::directory_iterator it(expansions, ec), end; it != end && !ec; it.increment(ec)) {
-            if (fs::is_regular_file(it->path() / "manifest.json", ec)) {
-                hasManifest = true;
-                break;
-            }
-        }
-    }
-
-    if (hasManifest) {
-        wowee::core::setEnvVar("WOW_DATA_PATH", dataRoot.c_str(), /*overwrite=*/false);
-    }
+    wowee::core::setEnvVar("WOW_DATA_PATH", dataRoot.string().c_str(), /*overwrite=*/false);
 }
-#endif
 
 int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
 #ifdef __ANDROID__
@@ -199,7 +192,7 @@ int main([[maybe_unused]] int argc, [[maybe_unused]] char* argv[]) {
                 : executableDir;
         if (chdir(runtimeDir.c_str()) != 0) {}
     }
-    selectMacUserDataPath();
+    selectUserDataPath();
 #elif defined(__linux__)
     {
         char buf[4096];
