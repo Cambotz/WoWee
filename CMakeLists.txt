@@ -1830,6 +1830,12 @@ if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR AND SDL2_FOUND AND EXISTS ${IMGUI_D
     elseif(WIN32)
         target_sources(wowee_assets PRIVATE tools/asset_manager/folder_picker_win.cpp)
         target_link_libraries(wowee_assets PRIVATE ole32 shell32)
+        # SDL.h redefines main, and SDL2main is what supplies the WinMain that
+        # calls it. Without this the link ends at "undefined reference to
+        # WinMain" - which the client and the editor both already link for.
+        if(TARGET SDL2::SDL2main)
+            target_link_libraries(wowee_assets PRIVATE SDL2::SDL2main)
+        endif()
     else()
         target_sources(wowee_assets PRIVATE tools/asset_manager/folder_picker_none.cpp)
     endif()
