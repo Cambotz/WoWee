@@ -124,6 +124,30 @@ void SettingsPanel::renderSettingsGameplayTab(const std::function<void()>& saveC
     }
     drawSchemaCategory("Camera", saveCallback);
 
+    // What the pad does, said where the pad's settings are.
+    //
+    // Read off the table that actually performs it rather than written out
+    // again here, because a second copy of a scheme is wrong the moment
+    // either side moves - and a control scheme nobody can see is one nobody
+    // will find: nothing on screen would otherwise say that Back gives you a
+    // pointer, and there is nowhere else to look.
+    ImGui::Spacing();
+    ImGui::TextUnformatted(core::gamepad().describe().c_str());
+    if (ImGui::CollapsingHeader("What the controller does")) {
+        ImGui::BulletText("Left stick: walk and strafe");
+        ImGui::BulletText("Right stick: look around");
+        ImGui::BulletText("Triggers: zoom in and out");
+        std::size_t bindingCount = 0;
+        const PadBinding* bindings = padBindings(bindingCount);
+        for (std::size_t i = 0; i < bindingCount; ++i) {
+            const char* label = padButtonLabel(bindings[i].button);
+            if (label[0] == '\0') continue;
+            ImGui::BulletText("%s: %s", label, bindings[i].what);
+        }
+        ImGui::BulletText("B or Start: close a window, or the game menu");
+        ImGui::BulletText("Back: the pointer - then A clicks and X right-clicks");
+    }
+
     ImGui::Spacing();
     ImGui::SeparatorText("Minimap");
     drawSchemaCategory("Minimap", saveCallback);

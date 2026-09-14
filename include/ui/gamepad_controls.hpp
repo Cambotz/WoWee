@@ -63,6 +63,15 @@ struct PadBinding {
 /// modifier costs nothing and behaves exactly as it does on a keyboard.
 [[nodiscard]] const PadBinding* padBindings(std::size_t& count);
 
+/// What a player calls this button.
+///
+/// SDL maps every pad to an Xbox-shaped one, so these are the Xbox names - a
+/// PlayStation pad's cross is reported as A and is named A here. SDL's own
+/// strings are "a", "dpup", "leftshoulder", which is a protocol rather than
+/// something to put on a settings panel. Returns an empty string for a button
+/// nothing binds, which is how the settings panel knows not to list it.
+[[nodiscard]] const char* padButtonLabel(SDL_GameControllerButton button);
+
 /**
  * The controller, applied to the client, once a frame.
  *

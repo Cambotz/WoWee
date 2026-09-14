@@ -11,6 +11,7 @@
 
 #include <cmath>
 #include <set>
+#include <string>
 
 using wowee::core::axisFraction;
 using wowee::core::stickVector;
@@ -191,4 +192,23 @@ TEST_CASE("the pointer travels the same distance however the frame is cut") {
     float many = 0.0f;
     for (int i = 0; i < 10; ++i) many += wowee::ui::GamepadControls::pointerStep(0.6f, 0.0f, 0.02f).x;
     CHECK(many == Catch::Approx(oneStep).margin(0.001f));
+}
+
+TEST_CASE("every bound button has a name a player would recognise") {
+    // The settings panel lists the scheme off this table. A button with no
+    // label is silently dropped from that list, which is how a control scheme
+    // comes to be missing the one line someone was looking for.
+    std::size_t count = 0;
+    const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        INFO(bindings[i].what);
+        const char* label = wowee::ui::padButtonLabel(bindings[i].button);
+        REQUIRE(label != nullptr);
+        CHECK(label[0] != '\0');
+    }
+    // And the two that are not in the table, because they go through ImGui
+    // rather than through a scancode, are still named.
+    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_B)) == "B");
+    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_START)) == "Start");
+    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_BACK)) == "Back");
 }

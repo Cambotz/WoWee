@@ -66,8 +66,9 @@ void GamepadControls::reset() {
     for (std::size_t i = 0; i < heldMouseButtons_.size(); ++i) {
         if (!heldMouseButtons_[i]) continue;
         heldMouseButtons_[i] = false;
-        core::Input::getInstance().setVirtualMouseButton(static_cast<int>(i), false);
-        ImGui::GetIO().AddMouseButtonEvent(i == SDL_BUTTON_RIGHT ? 1 : 0, false);
+        const int button = static_cast<int>(i);
+        core::Input::getInstance().setVirtualMouseButton(button, false);
+        ImGui::GetIO().AddMouseButtonEvent(button == SDL_BUTTON_RIGHT ? 1 : 0, false);
     }
     if (escapeDown_) {
         ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
@@ -79,14 +80,14 @@ void GamepadControls::reset() {
 
 void GamepadControls::applyMovement(float x, float y) {
     // SDL's Y is positive downwards, and pushing the stick up means forward.
-    const bool forward = pushed(-y, kWalkThreshold, heldKeys_[SDL_SCANCODE_W]);
-    const bool back = pushed(y, kWalkThreshold, heldKeys_[SDL_SCANCODE_S]);
+    const bool forward = pushed(-y, kWalkThreshold, heldKeys_[static_cast<std::size_t>(SDL_SCANCODE_W)]);
+    const bool back = pushed(y, kWalkThreshold, heldKeys_[static_cast<std::size_t>(SDL_SCANCODE_S)]);
     // Q and E rather than A and D, as the on-screen stick does it: with no
     // right mouse button held this client turns the character on A and D and
     // strafes on Q and E, and a stick pushed sideways should sidestep rather
     // than swing the view - the right stick is what swings the view.
-    const bool left = pushed(-x, kStrafeThreshold, heldKeys_[SDL_SCANCODE_Q]);
-    const bool right = pushed(x, kStrafeThreshold, heldKeys_[SDL_SCANCODE_E]);
+    const bool left = pushed(-x, kStrafeThreshold, heldKeys_[static_cast<std::size_t>(SDL_SCANCODE_Q)]);
+    const bool right = pushed(x, kStrafeThreshold, heldKeys_[static_cast<std::size_t>(SDL_SCANCODE_E)]);
 
     holdKey(SDL_SCANCODE_W, forward);
     holdKey(SDL_SCANCODE_S, back);
@@ -220,7 +221,13 @@ void GamepadControls::applyButtons() {
 void GamepadControls::update(float deltaTime) {
     auto& pad = core::gamepad();
     ImGuiIO& io = ImGui::GetIO();
-    const bool live = enabled_ && pad.isConnected() && inWorld_;
+    // A pad is only read while the window has focus. SDL does not update a
+    // controller for an unfocused window unless it is told to, so whatever
+    // the stick last said stays said - and alt-tabbing mid-stride would leave
+    // the character walking north for as long as the player was away.
+    const bool focused =
+        !window_ || (SDL_GetWindowFlags(window_) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    const bool live = enabled_ && pad.isConnected() && inWorld_ && focused;
 
     // ImGui navigates its own windows with a pad, which is what the login and
     // character screens want and the opposite of what the world wants: in the
@@ -235,7 +242,11 @@ void GamepadControls::update(float deltaTime) {
 
     if (!pad.isConnected()) announced_ = false;
     if (!live) {
-        setPointerMode(false);
+        // Leaving the world, losing the pad or switching it off ends pointer
+        // mode; losing focus for a moment does not. Coming back from another
+        // window to find the pointer gone would be a small betrayal of the
+        // mode the player left it in.
+        if (!enabled_ || !pad.isConnected() || !inWorld_) setPointerMode(false);
         reset();
         return;
     }

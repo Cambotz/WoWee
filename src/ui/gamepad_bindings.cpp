@@ -34,6 +34,26 @@ constexpr PadBinding kBindings[] = {
 
 }  // namespace
 
+const char* padButtonLabel(SDL_GameControllerButton button) {
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_A:             return "A";
+        case SDL_CONTROLLER_BUTTON_B:             return "B";
+        case SDL_CONTROLLER_BUTTON_X:             return "X";
+        case SDL_CONTROLLER_BUTTON_Y:             return "Y";
+        case SDL_CONTROLLER_BUTTON_BACK:          return "Back";
+        case SDL_CONTROLLER_BUTTON_START:         return "Start";
+        case SDL_CONTROLLER_BUTTON_LEFTSTICK:     return "Left stick click";
+        case SDL_CONTROLLER_BUTTON_RIGHTSTICK:    return "Right stick click";
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return "Left bumper";
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "Right bumper";
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:       return "D-pad up";
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:     return "D-pad down";
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:     return "D-pad left";
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:    return "D-pad right";
+        default:                                  return "";
+    }
+}
+
 const PadBinding* padBindings(std::size_t& count) {
     count = sizeof(kBindings) / sizeof(kBindings[0]);
     return kBindings;
