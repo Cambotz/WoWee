@@ -1725,6 +1725,7 @@ endif()
 # ---- Tool: asset_extract (MPQ → loose files) ----
 if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR)
     add_executable(asset_extract
+        ${WOWEE_PLATFORM_SOURCES}
         tools/asset_extract/main.cpp
         tools/asset_extract/extractor.cpp
         tools/asset_extract/path_mapper.cpp
@@ -1784,6 +1785,9 @@ if(STORMLIB_LIBRARY AND STORMLIB_INCLUDE_DIR AND SDL2_FOUND AND EXISTS ${IMGUI_D
     target_link_libraries(imgui_sdlrenderer PUBLIC SDL2::SDL2)
 
     add_executable(wowee_assets
+        # The icon resource, so this is not a blank executable in Explorer and
+        # on the Start menu entry the installer makes for it. Empty off Windows.
+        ${WOWEE_PLATFORM_SOURCES}
         tools/asset_manager/main.cpp
         tools/asset_manager/profiles.cpp
         tools/asset_manager/install_scan.cpp
@@ -2499,6 +2503,14 @@ if(WIN32)
     set(CPACK_NSIS_PACKAGE_NAME "Wowee")
     set(CPACK_NSIS_INSTALL_ROOT "$PROGRAMFILES64")
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+
+    # The installer and uninstaller were NSIS's default icon, and the entry in
+    # Add or Remove Programs had none at all. Backslashes because NSIS reads
+    # these as Windows paths.
+    string(REPLACE "/" "\\\\" CPACK_NSIS_MUI_ICON
+           "${CMAKE_CURRENT_SOURCE_DIR}/assets/Wowee.ico")
+    set(CPACK_NSIS_MUI_UNIICON "${CPACK_NSIS_MUI_ICON}")
+    set(CPACK_NSIS_INSTALLED_ICON_NAME "bin\\\\wowee.exe")
     # Run wowee from bin/ so that ./assets/ resolves correctly.
     # SetOutPath sets the shortcut's working directory in NSIS.
     #
