@@ -1895,17 +1895,45 @@ void CameraController::updateOrbitCamera(float deltaTime, FrameInput& f,
 
             float desiredLift = 0.0f;
             if (terrainAtCam) {
-                // Keep pivot high enough so near-hill camera rays don't cut through terrain.
-                constexpr float kMinRayClearance = 2.0f;
-                float basePivotZ = targetPos.z + followedPivotHeight() + mountedOffset;
-                float rayClearance = basePivotZ - *terrainAtCam;
-                if (rayClearance < kMinRayClearance) {
-                    desiredLift = std::clamp(kMinRayClearance - rayClearance, 0.0f, 1.4f);
-                }
+                // Keep the camera high enough that its ray does not cut
+                // through a hill behind the character.
+                //
+                // Measured at the camera, which is the thing that has to
+                // clear the ground. It was measured at the pivot, against a
+                // fixed two metres above the terrain - and an absolute height
+                // undoes any attempt to place the pivot on the character, by
+                // exactly the amount that attempt moved it. On flat ground a
+                // gnome's pivot at 0.65 was lifted 1.35 and a human's at 1.60
+                // was lifted 0.40, both landing on 2.00 above the feet. Every
+                // race got the same pivot, every time, and which character was
+                // being followed made no difference to it.
+                //
+                // That is why zooming in on a gnome put them at the bottom of
+                // the frame: the camera was aiming at a point nearly twice
+                // their height, on level ground, with no hill in sight.
+                const float basePivotZ = targetPos.z + followedPivotHeight() + mountedOffset;
+                // The camera sits behind the character along the look
+                // direction, which carries the pitch with it.
+                desiredLift = terrainPivotLift(basePivotZ, (-f.forward3D).z,
+                                               currentDistance, *terrainAtCam);
             }
             // If character is already below local terrain sample, avoid lifting aggressively.
             if (terrainAtPivot && targetPos.z < *terrainAtPivot - 0.2f) {
                 desiredLift = 0.0f;
+            }
+            // Said when it starts and when it stops, because a lift is the
+            // camera being moved by the ground rather than by the player and
+            // there was no way to tell the two apart from outside. This one
+            // was applying on flat ground in every session ever played.
+            const bool lifting = desiredLift > 0.01f;
+            if (lifting != pivotLiftActive_) {
+                pivotLiftActive_ = lifting;
+                LOG_WARNING("Camera pivot: terrain lift ",
+                            lifting ? "on, raising the pivot by " : "off, was ",
+                            desiredLift, " (pivot ", followedPivotHeight(),
+                            " above the feet, ground at the camera ",
+                            terrainAtCam ? *terrainAtCam - targetPos.z : 0.0f,
+                            " relative to them)");
             }
             cachedPivotLift_ = desiredLift;
         }

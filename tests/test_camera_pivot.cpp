@@ -96,3 +96,67 @@ TEST_CASE("the pivot is clamped to something a camera can use") {
     CHECK(CameraController::pivotHeightFor(kDefault, 0.3f, 0.2f) >= 0.2f);
     CHECK(CameraController::pivotHeightFor(kDefault, 40.0f, 30.0f) <= 3.0f);
 }
+
+// ── the terrain lift ─────────────────────────────────────────
+//
+// The pivot the tests above choose was then raised again, by a rule written
+// as an absolute height above the ground. That is what made all of the work
+// above invisible on screen: it added back exactly what the pivot had moved.
+
+namespace {
+// A camera five metres back and pitched slightly down, which is what a player
+// has after a couple of notches of the wheel.
+constexpr float kBehind = 5.0f;
+constexpr float kSlightlyAbove = 0.2f;  // the vertical part of pivot -> camera
+}  // namespace
+
+TEST_CASE("flat ground lifts nobody, whatever their height") {
+    // The bug, stated as the thing it broke. Ground at the character's feet
+    // is zero here, so a lift of anything at all is the camera being moved by
+    // terrain that is not in the way.
+    for (const Race& race : {kGnomeMale, kGnomeFemale, kHumanMale, kNightElfFemale, kDwarfMale}) {
+        INFO(race.name);
+        const float pivotZ = pivot(race);
+        CHECK(CameraController::terrainPivotLift(pivotZ, kSlightlyAbove, kBehind, 0.0f)
+              == Catch::Approx(0.0f));
+    }
+}
+
+TEST_CASE("a hill behind the character raises the pivot") {
+    // Standing at the foot of a slope. The camera is at 2.6 here - a 1.6
+    // pivot plus a metre of pitch over five metres - so ground at 2.0 still
+    // clears it and only something higher is in the way.
+    const float pivotZ = pivot(kHumanMale);
+    CHECK(CameraController::terrainPivotLift(pivotZ, kSlightlyAbove, kBehind, 2.0f)
+          == Catch::Approx(0.0f));
+    const float lift = CameraController::terrainPivotLift(pivotZ, kSlightlyAbove, kBehind, 2.5f);
+    CHECK(lift > 0.0f);
+    // And never more than the cap, or the camera leaves the character behind.
+    CHECK(lift <= 1.4f);
+}
+
+TEST_CASE("the lift is what the clearance is short by") {
+    // Camera at 1.0, ground at 0.8, so it clears by 0.2 and wants 0.6.
+    const float lift = CameraController::terrainPivotLift(1.0f, 0.0f, 5.0f, 0.8f);
+    CHECK(lift == Catch::Approx(0.4f));
+}
+
+TEST_CASE("a steep hill does not lift a gnome further than a human") {
+    // Both are short of the same clearance by the same amount once the
+    // ground is far enough above them, so the cap holds them together - the
+    // lift is about the ground, not about the character.
+    const float gnome = CameraController::terrainPivotLift(pivot(kGnomeMale), 0.0f, kBehind, 6.0f);
+    const float human = CameraController::terrainPivotLift(pivot(kHumanMale), 0.0f, kBehind, 6.0f);
+    CHECK(gnome == Catch::Approx(human));
+    CHECK(gnome == Catch::Approx(1.4f));
+}
+
+TEST_CASE("looking up puts the camera near the ground, and lifts it") {
+    // Pitched up steeply the camera swings down behind the character, which
+    // is the other way it ends up in the dirt.
+    const float pivotZ = pivot(kHumanMale);
+    CHECK(CameraController::terrainPivotLift(pivotZ, -0.4f, kBehind, 0.0f) > 0.0f);
+    // The same pitch with the camera close in is fine, because it has not
+    // swung far.
+    CHECK(CameraController::terrainPivotLift(pivotZ, -0.4f, 1.0f, 0.0f) == Catch::Approx(0.0f));
+}

@@ -504,6 +504,35 @@ public:
         return std::clamp(characterHeight * (setting / kPivotReferenceHeight), 0.2f, 3.0f);
     }
 
+    /// How far the pivot has to rise for the camera to clear the ground.
+    ///
+    /// The camera sits behind the character along the look direction, so on a
+    /// slope it can end up inside the hill; raising the pivot raises it with
+    /// it. All four arguments are in world Z except the direction, which is
+    /// the vertical part of the unit vector from pivot to camera.
+    ///
+    /// Measured at the camera rather than at the pivot, and against a small
+    /// clearance rather than a fixed height above the terrain. The rule was
+    /// "keep the pivot two metres above the ground under the camera", which
+    /// is an absolute height and therefore undoes any attempt to put the
+    /// pivot on the character by exactly the amount that attempt moved it: on
+    /// flat ground a gnome's 0.65 was lifted by 1.35 and a human's 1.60 by
+    /// 0.40, and both ended up at 2.00 above the feet. It made no difference
+    /// which character was being followed, which is what made three separate
+    /// fixes to the pivot itself change nothing on screen.
+    ///
+    /// Static and given everything it uses, so the rule can be checked
+    /// against a gnome on flat ground without standing a world up.
+    [[nodiscard]] static float terrainPivotLift(float pivotZ, float camDirZ, float distance,
+                                                float terrainZAtCamera) {
+        constexpr float kMinCamClearance = 0.6f;
+        constexpr float kMaxLift = 1.4f;
+        const float camZ = pivotZ + camDirZ * distance;
+        const float clearance = camZ - terrainZAtCamera;
+        if (clearance >= kMinCamClearance) return 0.0f;
+        return std::clamp(kMinCamClearance - clearance, 0.0f, kMaxLift);
+    }
+
     /// The pivot for whoever is being followed right now.
     [[nodiscard]] float followedPivotHeight() const {
         return pivotHeightFor(pivotHeight_, followedHeight_, followedHeadZ_);
@@ -533,6 +562,9 @@ private:
     /// The followed character's head bone in model Z, zero until measured or
     /// if its skeleton names no head.
     float followedHeadZ_ = 0.0f;
+    /// Whether the terrain is currently raising the pivot, so that starting
+    /// and stopping is said once each rather than every frame.
+    bool pivotLiftActive_ = false;
     static constexpr float CAM_SPHERE_RADIUS = 0.32f;  // Keep camera farther from geometry to avoid clipping-through surfaces
     static constexpr float CAM_EPSILON = 0.22f;        // Extra wall offset to avoid near-plane clipping artifacts
     static constexpr float COLLISION_FOCUS_RADIUS_THIRD_PERSON = 20.0f;  // Reduced for performance
