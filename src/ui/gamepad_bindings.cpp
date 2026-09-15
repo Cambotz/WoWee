@@ -32,6 +32,10 @@ constexpr PadBinding kBindings[] = {
     {SDL_CONTROLLER_BUTTON_LEFTSHOULDER,  SDL_SCANCODE_LSHIFT,       "Hold: actions 7-12"},
     {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_SCANCODE_TAB,          "Target nearest enemy"},
     {SDL_CONTROLLER_BUTTON_LEFTSTICK,     SDL_SCANCODE_NUMLOCKCLEAR, "Autorun"},
+    // The last button every pad has and nothing was using. X sits the
+    // character down, and dives while swimming - both of them things a
+    // keyboard could do and a controller could not reach at all.
+    {SDL_CONTROLLER_BUTTON_RIGHTSTICK,    SDL_SCANCODE_X,            "Sit down, or dive"},
 };
 
 }  // namespace

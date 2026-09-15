@@ -133,7 +133,7 @@ TEST_CASE("the keys the pad holds are ones the client answers") {
     const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
     const std::set<int> answered = {
         SDL_SCANCODE_SPACE, SDL_SCANCODE_TAB, SDL_SCANCODE_NUMLOCKCLEAR,
-        SDL_SCANCODE_LSHIFT,
+        SDL_SCANCODE_LSHIFT, SDL_SCANCODE_X,
         SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_3,
         SDL_SCANCODE_4, SDL_SCANCODE_5, SDL_SCANCODE_6,
     };
