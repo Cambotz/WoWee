@@ -483,7 +483,17 @@ void drawRun(App& app) {
     if (ImGui::Button("Build my assets", ImVec2(180, 32))) {
         std::string out = app.outputDir;
         if (out.empty()) out = (fs::current_path() / "Data").string();
-        app.job.start(profile, app.gameDir, app.secondDir, out,
+        // The folder the scan found the archives in, not the one that was
+        // typed. They are usually the same and were assumed to be: when they
+        // were not - somebody chose the folder that has Data inside it, which
+        // is what the field asks for - the panel said "Found a game" from the
+        // scan and the extractor then said "No MPQ archives found in" the
+        // other path, having been handed the one nobody had checked.
+        const auto readFrom = [](const InstallScan& scan, const std::string& typed) {
+            return scan.dataDir.empty() ? typed : scan.dataDir;
+        };
+        app.job.start(profile, readFrom(app.gameScan, app.gameDir),
+                      readFrom(app.secondScan, app.secondDir), out,
                       haveBorrow(app), haveLater(app));
         app.started = true;
     }

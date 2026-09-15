@@ -1467,6 +1467,20 @@ wowee_add_test(test_camera
             ${CMAKE_SOURCE_DIR}/src/rendering/camera.cpp
             ${TEST_COMMON_SOURCES})
 
+# ── test_install_probe ───────────────────────────────────────
+# Which folder the archives are in, given whatever somebody pointed at. Links
+# the probe alone: it is deliberately free of the extractor and the MPQ
+# library, because the question is about directories.
+add_executable(test_install_probe
+    test_install_probe.cpp
+    ${CMAKE_SOURCE_DIR}/tools/asset_manager/install_probe.cpp)
+target_include_directories(test_install_probe PRIVATE ${TEST_INCLUDE_DIRS}
+    ${CMAKE_SOURCE_DIR}/tools/asset_manager)
+target_include_directories(test_install_probe SYSTEM PRIVATE ${TEST_SYSTEM_INCLUDE_DIRS})
+target_link_libraries(test_install_probe PRIVATE catch2_main)
+add_test(NAME install_probe COMMAND test_install_probe)
+register_test_target(test_install_probe)
+
 # ── test_gamepad ─────────────────────────────────────────────
 # The stick arithmetic and the binding table. The table sits in its own file
 # for exactly this reason: what applies it drives the camera and ImGui, and

@@ -471,10 +471,43 @@ static std::unordered_map<std::string, std::string> buildCaseMap(const std::stri
 }
 
 // Discover archive files with expansion-specific and locale-aware loading
-static std::vector<std::string> discoverArchives(const std::string& mpqDir,
+static std::vector<std::string> discoverArchives(const std::string& mpqDirIn,
                                                   const std::string& expansion,
                                                   const std::string& locale) {
     std::vector<std::string> result;
+
+    // The folder that was handed over, or the Data folder inside it.
+    //
+    // "Choose your World of Warcraft folder" is answered with the folder that
+    // has Data in it at least as often as with Data itself, and both are
+    // right. This read only the one it was given and reported no archives
+    // found, naming a path with a Data folder sitting in plain sight.
+    // Case-insensitively, because an unpacked repack may spell it `data`.
+    std::string mpqDir = mpqDirIn;
+    {
+        std::error_code ec;
+        bool hasArchive = false;
+        for (fs::directory_iterator it(mpqDir, ec), end; it != end && !ec; it.increment(ec)) {
+            if (toLowerStr(it->path().extension().string()) == ".mpq") {
+                hasArchive = true;
+                break;
+            }
+        }
+        if (!hasArchive) {
+            const std::string inner = findCaseInsensitiveDirectory(mpqDir, "Data");
+            if (!inner.empty()) {
+                const fs::path candidate = fs::path(mpqDir) / inner;
+                for (fs::directory_iterator it(candidate, ec), end; it != end && !ec;
+                     it.increment(ec)) {
+                    if (toLowerStr(it->path().extension().string()) == ".mpq") {
+                        mpqDir = candidate.string();
+                        std::cout << "Reading archives from " << mpqDir << "\n";
+                        break;
+                    }
+                }
+            }
+        }
+    }
 
     auto caseMap = buildCaseMap(mpqDir);
     std::string lowerLocale = toLowerStr(locale);
@@ -673,7 +706,32 @@ bool enumerateFilesImpl(const Extractor::Options& opts,
                                std::vector<std::string>& outFiles) {
     auto archives = discoverArchives(opts.mpqDir, opts.expansion, opts.locale);
     if (archives.empty()) {
+        // What is in there, since what is not in there has already been said
+        // and has never been enough to act on.
         std::cerr << "No MPQ archives found in: " << opts.mpqDir << "\n";
+        std::error_code ec;
+        int files = 0;
+        int folders = 0;
+        std::string examples;
+        for (fs::directory_iterator it(opts.mpqDir, ec), end; it != end && !ec;
+             it.increment(ec)) {
+            if (it->is_directory(ec)) {
+                ++folders;
+                if (examples.size() < 120) examples += "  " + it->path().filename().string() + "/";
+            } else {
+                ++files;
+            }
+        }
+        if (ec || (files == 0 && folders == 0)) {
+            std::cerr << "  That folder is empty or cannot be read.\n";
+        } else {
+            std::cerr << "  It holds " << files << " file(s) and " << folders
+                      << " folder(s):" << examples << "\n";
+            std::cerr << "  Point this at the folder holding the .mpq archives - the Data "
+                         "folder of a World of Warcraft installation, or the folder that "
+                         "has Data inside it. If the game is still in a .zip or an "
+                         "installer, unpack it first.\n";
+        }
         return false;
     }
 

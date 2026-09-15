@@ -1,6 +1,7 @@
 #include "install_scan.hpp"
 
 #include "casc.hpp"
+#include "install_probe.hpp"
 #include "../asset_extract/extractor.hpp"
 
 #include <algorithm>
@@ -49,14 +50,17 @@ InstallScan scanInstall(const std::string& path) {
         return out;
     }
 
-    // Somebody may hand over the game folder or the Data folder inside it, and
-    // both are the obvious thing to hand over. Accept either.
-    for (const fs::path& candidate : {root, root / "Data"}) {
-        if (!fs::is_directory(candidate, ec)) continue;
-        const int archives = countArchives(candidate);
+    // Somebody may hand over the game folder, the Data folder inside it, the
+    // folder they unpacked everything into with the game one level down, or
+    // any of those spelled with a different case. All of them are a reasonable
+    // answer to "choose your World of Warcraft folder", so this looks for the
+    // archives rather than insisting on one shape.
+    const DataDirProbe probe = findDataDir(path);
+    {
+        const int archives = probe.archives;
         if (archives > 0) {
             out.kind = InstallKind::Mpq;
-            out.dataDir = candidate.string();
+            out.dataDir = probe.dataDir;
             out.archiveCount = archives;
 
             // Which game it is, from the archives that are there. Worth saying
@@ -64,10 +68,17 @@ InstallScan scanInstall(const std::string& path) {
             // the folder they just chose, and a person who mis-picks it builds
             // the wrong thing for eight minutes before finding out.
             out.expansion = tools::Extractor::detectExpansion(out.dataDir);
+            // Where, not just how many. When the archives turn up somewhere
+            // other than the folder that was chosen - one level down, or in a
+            // Data folder spelled differently - the person needs to see which
+            // folder is being read, because that is the answer to "is it
+            // going to use the right copy".
+            const bool elsewhere = fs::path(out.dataDir) != root;
+            const std::string where = elsewhere ? " in " + out.dataDir : " here";
             out.note = out.expansion.empty()
-                           ? "Found " + std::to_string(archives) +
-                                 " archives here, but not which game they are from."
-                           : "Found a game here - " + std::to_string(archives) +
+                           ? "Found " + std::to_string(archives) + " archives" + where +
+                                 ", but not which game they are from."
+                           : "Found a game" + where + " - " + std::to_string(archives) +
                                  " archives, readable.";
             return out;
         }
@@ -83,8 +94,18 @@ InstallScan scanInstall(const std::string& path) {
     }
 
     out.kind = InstallKind::Unknown;
-    out.note = "No game archives in there. Choose the folder that has Data inside it, or "
-               "the Data folder itself.";
+    if (probe.packed > 0) {
+        // The likeliest reason for an empty-looking folder, and the one a
+        // person cannot be expected to guess from "no game archives here":
+        // the download is still a download.
+        out.note = "No game archives in there, but " + std::to_string(probe.packed) +
+                   " packed file(s) - a .zip, .rar or installer. Unpack the game first, "
+                   "then choose the folder that has Data inside it.";
+        return out;
+    }
+    out.note = "No game archives in " + std::to_string(probe.searched) +
+               " folder(s) here. Choose the folder that has Data inside it, or the Data "
+               "folder itself.";
     return out;
 }
 
