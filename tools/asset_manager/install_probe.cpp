@@ -4,6 +4,10 @@
 #include <cctype>
 #include <deque>
 #include <filesystem>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
 
 namespace wowee::assets {
 namespace {
