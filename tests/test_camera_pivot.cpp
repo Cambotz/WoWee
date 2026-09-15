@@ -118,17 +118,23 @@ TEST_CASE("flat ground lifts nobody, whatever their height") {
         INFO(race.name);
         const float pivotZ = pivot(race);
         CHECK(CameraController::terrainPivotLift(pivotZ, kSlightlyAbove, kBehind, 0.0f)
-              == Catch::Approx(0.0f));
+              == Catch::Approx(0.0f).margin(0.001f));
     }
 }
 
 TEST_CASE("a hill behind the character raises the pivot") {
     // Standing at the foot of a slope. The camera is at 2.6 here - a 1.6
-    // pivot plus a metre of pitch over five metres - so ground at 2.0 still
+    // pivot plus a metre of pitch over five metres - so ground at 1.9 still
     // clears it and only something higher is in the way.
+    //
+    // 1.9 rather than 2.0, which is the exact height at which the clearance
+    // equals the margin. A test that sits on a threshold is a test of the
+    // compiler's rounding: 2.6 - 2.0 came out a hundred-millionth under 0.6
+    // on Linux and a hundred-millionth over it on macOS, so this passed on
+    // one and failed on the other with nothing to choose between them.
     const float pivotZ = pivot(kHumanMale);
-    CHECK(CameraController::terrainPivotLift(pivotZ, kSlightlyAbove, kBehind, 2.0f)
-          == Catch::Approx(0.0f));
+    CHECK(CameraController::terrainPivotLift(pivotZ, kSlightlyAbove, kBehind, 1.9f)
+          == Catch::Approx(0.0f).margin(0.001f));
     const float lift = CameraController::terrainPivotLift(pivotZ, kSlightlyAbove, kBehind, 2.5f);
     CHECK(lift > 0.0f);
     // And never more than the cap, or the camera leaves the character behind.
@@ -158,5 +164,6 @@ TEST_CASE("looking up puts the camera near the ground, and lifts it") {
     CHECK(CameraController::terrainPivotLift(pivotZ, -0.4f, kBehind, 0.0f) > 0.0f);
     // The same pitch with the camera close in is fine, because it has not
     // swung far.
-    CHECK(CameraController::terrainPivotLift(pivotZ, -0.4f, 1.0f, 0.0f) == Catch::Approx(0.0f));
+    CHECK(CameraController::terrainPivotLift(pivotZ, -0.4f, 1.0f, 0.0f)
+          == Catch::Approx(0.0f).margin(0.001f));
 }
