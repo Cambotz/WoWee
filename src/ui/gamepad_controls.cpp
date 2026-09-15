@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <utility>
+#include <vector>
 
 namespace wowee {
 namespace ui {
@@ -47,23 +49,41 @@ void GamepadControls::setLookDegreesPerSecond(float degrees) {
     lookDegreesPerSecond_ = std::clamp(degrees, 30.0f, 720.0f);
 }
 
-void GamepadControls::holdKey(SDL_Scancode key, bool held) {
+void GamepadControls::holdKey(SDL_Scancode key, bool held, std::uint8_t source) {
     if (key <= SDL_SCANCODE_UNKNOWN || key >= SDL_NUM_SCANCODES) return;
     const auto i = static_cast<std::size_t>(key);
     // A key this is not holding is left alone. Two things can drive the same
     // virtual key - a phone's on-screen stick is the other - and whichever of
-    // them is idle must not switch the other one off.
-    if (!held && !heldKeys_[i]) return;
-    heldKeys_[i] = held;
-    core::Input::getInstance().setVirtualKey(key, held);
+    // them is idle must not switch the other one off. The same goes for the
+    // stick and the buttons here, which can both want W.
+    if (!held && (heldKeys_[i] & source) == 0) return;
+    heldKeys_[i] = held ? static_cast<std::uint8_t>(heldKeys_[i] | source)
+                        : static_cast<std::uint8_t>(heldKeys_[i] & ~source);
+    core::Input::getInstance().setVirtualKey(key, heldKeys_[i] != 0);
+}
+
+void GamepadControls::releaseKeys() {
+    for (std::size_t i = 0; i < heldKeys_.size(); ++i) {
+        if (heldKeys_[i] == 0) continue;
+        heldKeys_[i] = 0;
+        core::Input::getInstance().setVirtualKey(static_cast<SDL_Scancode>(i), false);
+    }
+    if (escapeDown_) {
+        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
+        escapeDown_ = false;
+    }
+    for (int key : imguiKeysDown_) ImGui::GetIO().AddKeyEvent(static_cast<ImGuiKey>(key), false);
+    imguiKeysDown_.clear();
+    // Forgotten as well as released, so a button still held when the pad is
+    // live again is looked up afresh rather than answered from before.
+    routes_.fill(ButtonRoute{});
+    buttonWasDown_.fill(false);
+    steering_ = false;
+    zoomRemainder_ = 0.0f;
 }
 
 void GamepadControls::reset() {
-    for (std::size_t i = 0; i < heldKeys_.size(); ++i) {
-        if (!heldKeys_[i]) continue;
-        heldKeys_[i] = false;
-        core::Input::getInstance().setVirtualKey(static_cast<SDL_Scancode>(i), false);
-    }
+    releaseKeys();
     for (std::size_t i = 0; i < heldMouseButtons_.size(); ++i) {
         if (!heldMouseButtons_[i]) continue;
         heldMouseButtons_[i] = false;
@@ -71,31 +91,28 @@ void GamepadControls::reset() {
         core::Input::getInstance().setVirtualMouseButton(button, false);
         ImGui::GetIO().AddMouseButtonEvent(button == SDL_BUTTON_RIGHT ? 1 : 0, false);
     }
-    if (escapeDown_) {
-        ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, false);
-        escapeDown_ = false;
-    }
-    steering_ = false;
-    zoomRemainder_ = 0.0f;
     touchTrail_.reset();
     touchClickButton_ = 0;
 }
 
 void GamepadControls::applyMovement(float x, float y) {
     // SDL's Y is positive downwards, and pushing the stick up means forward.
-    const bool forward = pushed(-y, kWalkThreshold, heldKeys_[static_cast<std::size_t>(SDL_SCANCODE_W)]);
-    const bool back = pushed(y, kWalkThreshold, heldKeys_[static_cast<std::size_t>(SDL_SCANCODE_S)]);
+    const auto stickHolds = [this](SDL_Scancode key) {
+        return (heldKeys_[static_cast<std::size_t>(key)] & kFromStick) != 0;
+    };
+    const bool forward = pushed(-y, kWalkThreshold, stickHolds(SDL_SCANCODE_W));
+    const bool back = pushed(y, kWalkThreshold, stickHolds(SDL_SCANCODE_S));
     // Q and E rather than A and D, as the on-screen stick does it: with no
     // right mouse button held this client turns the character on A and D and
     // strafes on Q and E, and a stick pushed sideways should sidestep rather
     // than swing the view - the right stick is what swings the view.
-    const bool left = pushed(-x, kStrafeThreshold, heldKeys_[static_cast<std::size_t>(SDL_SCANCODE_Q)]);
-    const bool right = pushed(x, kStrafeThreshold, heldKeys_[static_cast<std::size_t>(SDL_SCANCODE_E)]);
+    const bool left = pushed(-x, kStrafeThreshold, stickHolds(SDL_SCANCODE_Q));
+    const bool right = pushed(x, kStrafeThreshold, stickHolds(SDL_SCANCODE_E));
 
-    holdKey(SDL_SCANCODE_W, forward);
-    holdKey(SDL_SCANCODE_S, back);
-    holdKey(SDL_SCANCODE_Q, left);
-    holdKey(SDL_SCANCODE_E, right);
+    holdKey(SDL_SCANCODE_W, forward, kFromStick);
+    holdKey(SDL_SCANCODE_S, back, kFromStick);
+    holdKey(SDL_SCANCODE_Q, left, kFromStick);
+    holdKey(SDL_SCANCODE_E, right, kFromStick);
 
     // Facing follows the camera while the stick is pushed, which is what the
     // right mouse button does on a desktop. Without it the character walks
@@ -227,16 +244,65 @@ void GamepadControls::applyClicks() {
     // menu, so a pad without one cannot loot. Those two only count while the
     // pointer is up. Both channels are set once, from every source together,
     // so one source letting go cannot release a button another still holds.
-    const bool left = (pointerMode_ && pad.held(SDL_CONTROLLER_BUTTON_A)) ||
+    const bool left = (pointerMode_ && schemeHeld(SDL_CONTROLLER_BUTTON_A)) ||
                       touchClickButton_ == SDL_BUTTON_LEFT;
-    const bool right = (pointerMode_ && pad.held(SDL_CONTROLLER_BUTTON_X)) ||
+    const bool right = (pointerMode_ && schemeHeld(SDL_CONTROLLER_BUTTON_X)) ||
                        touchClickButton_ == SDL_BUTTON_RIGHT;
     holdMouseButton(SDL_BUTTON_LEFT, left);
     holdMouseButton(SDL_BUTTON_RIGHT, right);
 }
 
+bool GamepadControls::schemeHeld(SDL_GameControllerButton button) const {
+    if (button < 0 || button >= SDL_CONTROLLER_BUTTON_MAX) return false;
+    return core::gamepad().held(button) &&
+           routes_[static_cast<std::size_t>(button)].kind == PadKeyAnswer::Kind::Unbound;
+}
+
+void GamepadControls::routeButtons() {
+    const auto& pad = core::gamepad();
+    for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b) {
+        const auto button = static_cast<SDL_GameControllerButton>(b);
+        const auto i = static_cast<std::size_t>(b);
+        const bool down = pad.held(button);
+        const bool wasDown = buttonWasDown_[i];
+        buttonWasDown_[i] = down;
+        if (!down) {
+            routes_[i] = ButtonRoute{};
+            continue;
+        }
+        if (wasDown || !keyRouter_) continue;
+        const char* name = padKeyName(button);
+        if (name[0] == '\0') continue;
+
+        // Asked once, on the press. The interface may take the press outright
+        // - the key binding panel capturing it, or a binding script - and then
+        // nothing here acts on it.
+        const PadKeyAnswer answer = keyRouter_(name);
+        ButtonRoute route;
+        route.kind = answer.kind;
+        if (answer.kind == PadKeyAnswer::Kind::Command) {
+            route.key = padClientKeyFor(answer.command);
+            route.imguiKey = answer.imguiKey;
+            route.escape = answer.command == "TOGGLEGAMEMENU";
+            if (route.key == SDL_SCANCODE_UNKNOWN && route.imguiKey == 0 && !route.escape) {
+                // Bound to something the client does without a key it polls -
+                // opening chat, sheathing. The press does nothing rather than
+                // falling back to the default scheme, which would be the
+                // button doing what the player just bound it away from.
+                LOG_WARNING("Gamepad: ", name, " is bound to ", answer.command,
+                            ", which a controller cannot trigger yet");
+            }
+        }
+        routes_[i] = route;
+    }
+}
+
 void GamepadControls::applyButtons() {
     const auto& pad = core::gamepad();
+    // Worked out whole before any key is held, because two buttons can want
+    // the same key - X by default, and a D-pad bound to ACTIONBUTTON1 - and
+    // one of them letting go must not release the other.
+    std::array<bool, SDL_NUM_SCANCODES> wanted{};
     std::size_t count = 0;
     const PadBinding* bindings = padBindings(count);
     for (std::size_t i = 0; i < count; ++i) {
@@ -245,22 +311,53 @@ void GamepadControls::applyButtons() {
         // under the cursor every time a window was clicked.
         if (pointerMode_ && (bindings[i].button == SDL_CONTROLLER_BUTTON_A ||
                              bindings[i].button == SDL_CONTROLLER_BUTTON_X)) {
-            holdKey(bindings[i].key, false);
             continue;
         }
-        holdKey(bindings[i].key, pad.held(bindings[i].button));
+        if (schemeHeld(bindings[i].button)) wanted[static_cast<std::size_t>(bindings[i].key)] = true;
     }
 
     // Escape is the interface's, not the game's: it is read through
     // KeybindingManager, which asks ImGui. A virtual scancode never reaches
     // it, so this one goes on ImGui's own queue - once down, once up, because
     // ImGui counts the repeats itself.
-    const bool escape = pad.held(SDL_CONTROLLER_BUTTON_B) ||
-                        pad.held(SDL_CONTROLLER_BUTTON_START);
+    bool escape = schemeHeld(SDL_CONTROLLER_BUTTON_B) || schemeHeld(SDL_CONTROLLER_BUTTON_START);
+    // The panels KeybindingManager answers ask ImGui too, for the same reason.
+    std::vector<int> imguiWanted;
+
+    for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b) {
+        const ButtonRoute& route = routes_[static_cast<std::size_t>(b)];
+        if (route.kind != PadKeyAnswer::Kind::Command) continue;
+        if (!pad.held(static_cast<SDL_GameControllerButton>(b))) continue;
+        if (route.key != SDL_SCANCODE_UNKNOWN) wanted[static_cast<std::size_t>(route.key)] = true;
+        if (route.escape) escape = true;
+        if (route.imguiKey != 0 &&
+            std::find(imguiWanted.begin(), imguiWanted.end(), route.imguiKey) == imguiWanted.end()) {
+            imguiWanted.push_back(route.imguiKey);
+        }
+    }
+
+    for (std::size_t k = 0; k < wanted.size(); ++k) {
+        if (!wanted[k] && (heldKeys_[k] & kFromButtons) == 0) continue;
+        holdKey(static_cast<SDL_Scancode>(k), wanted[k], kFromButtons);
+    }
+
     if (escape != escapeDown_) {
         ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape, escape);
         escapeDown_ = escape;
     }
+
+    ImGuiIO& io = ImGui::GetIO();
+    for (int key : imguiKeysDown_) {
+        if (std::find(imguiWanted.begin(), imguiWanted.end(), key) == imguiWanted.end()) {
+            io.AddKeyEvent(static_cast<ImGuiKey>(key), false);
+        }
+    }
+    for (int key : imguiWanted) {
+        if (std::find(imguiKeysDown_.begin(), imguiKeysDown_.end(), key) == imguiKeysDown_.end()) {
+            io.AddKeyEvent(static_cast<ImGuiKey>(key), true);
+        }
+    }
+    imguiKeysDown_ = std::move(imguiWanted);
 }
 
 void GamepadControls::update(float deltaTime) {
@@ -272,7 +369,16 @@ void GamepadControls::update(float deltaTime) {
     // the character walking north for as long as the player was away.
     const bool focused =
         !window_ || (SDL_GetWindowFlags(window_) & SDL_WINDOW_INPUT_FOCUS) != 0;
-    const bool live = enabled_ && pad.isConnected() && inWorld_ && focused;
+    // Two tiers, because a pad is not only a way to play: it is the only
+    // input device some players have in front of them.
+    //
+    // The world's controls - the sticks, the action buttons, every key -
+    // belong to the world. The touchpad does not: a login screen is a screen
+    // with buttons on it, and a trackpad that goes dead until the player is
+    // already in the world is dead exactly where someone holding a pad needs
+    // it, with no way to press Login at all.
+    const bool usable = enabled_ && pad.isConnected() && focused;
+    const bool live = usable && inWorld_;
 
     // ImGui navigates its own windows with a pad, which is what the login and
     // character screens want and the opposite of what the world wants: in the
@@ -286,15 +392,18 @@ void GamepadControls::update(float deltaTime) {
     }
 
     if (!pad.isConnected()) announced_ = false;
-    if (!live) {
-        // Leaving the world, losing the pad or switching it off ends pointer
-        // mode; losing focus for a moment does not. Coming back from another
-        // window to find the pointer gone would be a small betrayal of the
-        // mode the player left it in.
-        if (!enabled_ || !pad.isConnected() || !inWorld_) setPointerMode(false);
+    if (!usable) {
+        // Losing the pad or switching it off ends pointer mode; losing focus
+        // for a moment does not. Coming back from another window to find the
+        // pointer gone would be a small betrayal of the mode the player left
+        // it in.
+        if (!enabled_ || !pad.isConnected()) setPointerMode(false);
         reset();
         return;
     }
+    // Pointer mode is the right stick's, and the right stick is the world's.
+    // The touchpad below needs no mode.
+    if (!inWorld_) setPointerMode(false);
 
     if (!announced_) {
         announced_ = true;
@@ -310,19 +419,29 @@ void GamepadControls::update(float deltaTime) {
                                       : "");
     }
 
-    // Typing takes precedence over everything. The chat box is reached with a
-    // keyboard, and a stick nudged while typing should not walk the character
-    // out of town.
-    if (io.WantTextInput) {
-        reset();
+    // Typing takes the keys, not the pointer. A stick nudged while typing
+    // should not walk the character out of town - but a finger sliding on the
+    // touchpad should still move the cursor, which is what it does on the
+    // laptop this is being typed on, and at the login screen the box being
+    // typed into is the very thing a pointer is needed to leave.
+    const bool typing = io.WantTextInput;
+
+    if (!live || typing) {
+        releaseKeys();
+        applyTouchpad();
+        applyClicks();
         return;
     }
+
+    // Bindings first. A button the player has bound is no longer the default
+    // scheme's, and that includes Back's pointer below and B's Escape.
+    routeButtons();
 
     // Back switches the right stick between the view and the pointer. On its
     // edge rather than while held: it is a mode, and a mode that lasted only
     // as long as a thumb could hold a button would be no use for buying from
     // a vendor.
-    const bool toggle = pad.held(SDL_CONTROLLER_BUTTON_BACK);
+    const bool toggle = schemeHeld(SDL_CONTROLLER_BUTTON_BACK);
     if (toggle && !pointerToggleWasDown_) {
         setPointerMode(!pointerMode_);
         // At warning, because the two modes look identical apart from the

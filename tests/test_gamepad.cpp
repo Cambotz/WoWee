@@ -10,6 +10,7 @@
 #include "ui/gamepad_controls.hpp"
 
 #include <cmath>
+#include <map>
 #include <set>
 #include <string>
 
@@ -251,4 +252,66 @@ TEST_CASE("a touchpad slide moves the pointer the same distance in every directi
 
     // No window, nowhere to move.
     CHECK(wowee::ui::GamepadControls::touchStep(glm::vec2(1.0f, 1.0f), 0.0f).x == Catch::Approx(0.0f));
+}
+
+TEST_CASE("every pad button has a binding name of its own") {
+    // The names are saved in bindings.cfg and compared as strings, so two
+    // buttons sharing one would be bound together.
+    std::set<std::string> names;
+    for (int b = 0; b < SDL_CONTROLLER_BUTTON_TOUCHPAD; ++b) {
+        INFO(b);
+        const std::string name = wowee::ui::padKeyName(static_cast<SDL_GameControllerButton>(b));
+        REQUIRE_FALSE(name.empty());
+        CHECK(name.rfind("PAD", 0) == 0);
+        CHECK(names.insert(name).second);
+    }
+    // The touchpad click is the pointer's, and is not bindable.
+    CHECK(std::string(wowee::ui::padKeyName(SDL_CONTROLLER_BUTTON_TOUCHPAD)).empty());
+    // Retail's spelling.
+    CHECK(std::string(wowee::ui::padKeyName(SDL_CONTROLLER_BUTTON_A)) == "PAD1");
+    CHECK(std::string(wowee::ui::padKeyName(SDL_CONTROLLER_BUTTON_Y)) == "PAD4");
+    CHECK(std::string(wowee::ui::padKeyName(SDL_CONTROLLER_BUTTON_DPAD_UP)) == "PADDUP");
+    CHECK(std::string(wowee::ui::padKeyName(SDL_CONTROLLER_BUTTON_START)) == "PADFORWARD");
+}
+
+TEST_CASE("a button bound to a command the client polls presses the key it polls") {
+    const SDL_Scancode bar[] = {
+        SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_3, SDL_SCANCODE_4,
+        SDL_SCANCODE_5, SDL_SCANCODE_6, SDL_SCANCODE_7, SDL_SCANCODE_8,
+        SDL_SCANCODE_9, SDL_SCANCODE_0, SDL_SCANCODE_MINUS, SDL_SCANCODE_EQUALS,
+    };
+    for (int i = 0; i < 12; ++i) {
+        const std::string command = "ACTIONBUTTON" + std::to_string(i + 1);
+        INFO(command);
+        CHECK(wowee::ui::padClientKeyFor(command) == bar[i]);
+    }
+    CHECK(wowee::ui::padClientKeyFor("MOVEFORWARD") == SDL_SCANCODE_W);
+    CHECK(wowee::ui::padClientKeyFor("JUMP") == SDL_SCANCODE_SPACE);
+    // A command the interface performs has no key: its script runs instead.
+    CHECK(wowee::ui::padClientKeyFor("TOGGLEFRIENDSTAB") == SDL_SCANCODE_UNKNOWN);
+    CHECK(wowee::ui::padClientKeyFor("") == SDL_SCANCODE_UNKNOWN);
+}
+
+TEST_CASE("binding a button to what the default scheme gave it changes nothing") {
+    // A player who binds X to ACTIONBUTTON1 in the panel has asked for what X
+    // already did, and must get the same key rather than a different one.
+    const std::map<SDL_GameControllerButton, std::string> sameCommand = {
+        {SDL_CONTROLLER_BUTTON_A,             "JUMP"},
+        {SDL_CONTROLLER_BUTTON_X,             "ACTIONBUTTON1"},
+        {SDL_CONTROLLER_BUTTON_Y,             "ACTIONBUTTON2"},
+        {SDL_CONTROLLER_BUTTON_DPAD_UP,       "ACTIONBUTTON3"},
+        {SDL_CONTROLLER_BUTTON_DPAD_RIGHT,    "ACTIONBUTTON4"},
+        {SDL_CONTROLLER_BUTTON_DPAD_DOWN,     "ACTIONBUTTON5"},
+        {SDL_CONTROLLER_BUTTON_DPAD_LEFT,     "ACTIONBUTTON6"},
+        {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, "TARGETNEARESTENEMY"},
+        {SDL_CONTROLLER_BUTTON_LEFTSTICK,     "TOGGLEAUTORUN"},
+    };
+    std::size_t count = 0;
+    const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        const auto it = sameCommand.find(bindings[i].button);
+        if (it == sameCommand.end()) continue;
+        INFO(bindings[i].what);
+        CHECK(wowee::ui::padClientKeyFor(it->second) == bindings[i].key);
+    }
 }

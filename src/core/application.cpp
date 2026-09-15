@@ -68,6 +68,7 @@
 #include "ui/touch_controls.hpp"
 #include "ui/gamepad_controls.hpp"
 #include "core/gamepad.hpp"
+#include "addons/lua_api_registrations.hpp"
 #include "core/data_paths.hpp"
 #include "ui/ui_services.hpp"
 #include "auth/auth_handler.hpp"
@@ -243,6 +244,23 @@ bool Application::initialize() {
     {
         auto& pad = core::gamepad();
         pad.init();
+        // What a button is bound to is the interface's to say, and the
+        // interface is built after this - so the router asks for it on each
+        // press rather than holding on to it.
+        ui::gamepadControls().setKeyRouter([this](const char* padKey) {
+            ui::PadKeyAnswer answer;
+            auto* engine = addonManager_ ? addonManager_->getLuaEngine() : nullptr;
+            if (!engine) return answer;
+            auto outcome = engine->dispatchPadKey(padKey);
+            if (outcome.taken) {
+                answer.kind = ui::PadKeyAnswer::Kind::Taken;
+            } else if (!outcome.command.empty()) {
+                answer.kind = ui::PadKeyAnswer::Kind::Command;
+                answer.imguiKey = addons::clientImGuiKeyForBinding(outcome.command);
+                answer.command = std::move(outcome.command);
+            }
+            return answer;
+        });
         // A mapping file for a pad SDL does not already know. Beside the
         // installed data first, because that is the directory a player can
         // reach without a terminal, then beside the binary for a checkout.
@@ -1776,6 +1794,7 @@ void Application::shutdown() {
     LOG_DEBUG("Shutting down application...");
 
     // Before the window, whose destructor takes SDL down with it.
+    ui::gamepadControls().setKeyRouter(nullptr);
     core::gamepad().shutdown();
 
     // Hide the window immediately so the OS doesn't think the app is frozen

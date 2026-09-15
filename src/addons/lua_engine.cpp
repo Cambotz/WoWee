@@ -9762,7 +9762,11 @@ std::string LuaEngine::bindingCommandFor(int sdlKeycode, bool shift, bool ctrl,
     if (shift) key = "SHIFT-" + key;
     if (ctrl)  key = "CTRL-"  + key;
     if (alt)   key = "ALT-"   + key;
+    return bindingCommandForKey(key);
+}
 
+std::string LuaEngine::bindingCommandForKey(const std::string& key) {
+    if (!L_ || key.empty()) return "";
     // Which command the key runs, and then the command's script - both asked
     // of the interface's own tables rather than restated here. GetBindingAction
     // already honours SetBinding, so a key the player rebound in game answers
@@ -9790,7 +9794,11 @@ bool LuaEngine::dispatchBindingKey(int sdlKeycode, bool shift, bool ctrl,
     // Left alone if the client performs it. Not "already handled, so skip the
     // work" - running it as well would undo it.
     if (clientActsOnBinding(command)) return false;
+    return runBindingScript(command, down);
+}
 
+bool LuaEngine::runBindingScript(const std::string& command, bool down) {
+    if (!L_) return false;
     lua_getglobal(L_, "__WoweeBindingScripts");
     if (!lua_istable(L_, -1)) { lua_pop(L_, 1); return false; }
     lua_getfield(L_, -1, command.c_str());
@@ -9805,6 +9813,46 @@ bool LuaEngine::dispatchBindingKey(int sdlKeycode, bool shift, bool ctrl,
     }
     lua_pop(L_, 1);
     return true;
+}
+
+LuaEngine::PadKeyOutcome LuaEngine::dispatchPadKey(const char* padKey) {
+    PadKeyOutcome outcome;
+    if (!L_ || !padKey || !*padKey) return outcome;
+
+    // The key binding panel, while one of its rows is waiting for a key - and
+    // only then. Every other frame that listens for keys is a dialog reading
+    // Escape, Enter and digits, and a pad button given to one of those would
+    // be swallowed doing nothing: B would stop closing them.
+    //
+    // Asked in Lua, because "waiting" is the panel's own field and not
+    // something the widget tree knows about.
+    const ui::Widget* top = topKeyboardFrame();
+    if (top && top->name == "KeyBindingFrame") {
+        bool waiting = false;
+        if (luaL_loadstring(L_, "return KeyBindingFrame ~= nil and KeyBindingFrame.selected ~= nil") == 0 &&
+            lua_pcall(L_, 0, 1, 0) == 0) {
+            waiting = lua_toboolean(L_, -1) != 0;
+        }
+        lua_pop(L_, 1);  // the answer, or the error in its place
+        if (waiting) {
+            callFrameScript(top->id, "OnKeyDown", padKey);
+            outcome.taken = true;
+            return outcome;
+        }
+    }
+
+    const std::string command = bindingCommandForKey(padKey);
+    if (command.empty()) return outcome;
+    if (clientActsOnBinding(command)) {
+        outcome.command = command;
+        return outcome;
+    }
+    // Taken whether or not a script ran. A button bound to a command with no
+    // script doing nothing is right; falling back to the default scheme would
+    // be the button doing what the player bound it away from.
+    (void)runBindingScript(command, true);
+    outcome.taken = true;
+    return outcome;
 }
 
 /// The topmost frame that is both visible and listening for keys.

@@ -68,4 +68,11 @@ void registerActionLuaAPI(lua_State* L);
 /// the key reads as dead. Consulted before running a binding.
 bool clientActsOnBinding(const std::string& command);
 
+/// The ImGui key the client listens on for a binding command, when it is one
+/// of the panels KeybindingManager answers; 0 (ImGuiKey_None) otherwise.
+///
+/// A controller button bound to one of those has to press that key, since the
+/// manager asks ImGui rather than the binding table.
+int clientImGuiKeyForBinding(const std::string& command);
+
 } // namespace wowee::addons

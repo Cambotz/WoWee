@@ -1759,6 +1759,15 @@ bool clientActsOnBinding(const std::string& command) {
     return false;
 }
 
+int clientImGuiKeyForBinding(const std::string& command) {
+    for (const auto& live : kLiveBindings) {
+        if (command != live.command) continue;
+        return static_cast<int>(
+            wowee::ui::KeybindingManager::getInstance().getKeyForAction(live.action));
+    }
+    return 0;
+}
+
 // GetBindingKey(command) → key1, key2 (or nil)
 static int lua_GetBindingKey(lua_State* L) {
     seedBindingDefaults();

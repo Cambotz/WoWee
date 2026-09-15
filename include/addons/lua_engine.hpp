@@ -194,6 +194,21 @@ public:
     /// apart is what lets a declined key be told from an unbound one.
     std::string bindingCommandFor(int sdlKeycode, bool shift, bool ctrl,
                                   bool alt);
+    /// The command a key holds, by WoW's name for it - "SHIFT-1", "PAD3" - or
+    /// empty.
+    std::string bindingCommandForKey(const std::string& key);
+
+    /// A controller button, by its binding name.
+    ///
+    /// Given to the key binding panel while it is waiting for a key, which is
+    /// the only way a button can be bound: the panel learns keys from
+    /// OnKeyDown. Otherwise looked up as a binding - run here when the
+    /// interface performs the command, handed back when the client does.
+    struct PadKeyOutcome {
+        bool taken = false;   ///< the panel captured it, or a binding script ran
+        std::string command;  ///< a command the client performs itself, else empty
+    };
+    PadKeyOutcome dispatchPadKey(const char* padKey);
     /// Whether an edit box currently has focus, so the client knows not to
     /// treat the same keystrokes as movement.
     ///
@@ -284,6 +299,8 @@ private:
 
     /// The frame a typed key belongs to - see dispatchFrameKey.
     [[nodiscard]] const ui::Widget* topKeyboardFrame() const;
+    /// Runs a binding command's script. False when it has none, or it failed.
+    bool runBindingScript(const std::string& command, bool down);
 
     void callFrameScript(uint32_t wid, const char* script, const char* arg = nullptr);
     /// The same, with a number. A handler that compares its argument against

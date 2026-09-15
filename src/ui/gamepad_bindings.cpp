@@ -54,6 +54,69 @@ const char* padButtonLabel(SDL_GameControllerButton button) {
     }
 }
 
+const char* padKeyName(SDL_GameControllerButton button) {
+    switch (button) {
+        case SDL_CONTROLLER_BUTTON_A:             return "PAD1";
+        case SDL_CONTROLLER_BUTTON_B:             return "PAD2";
+        case SDL_CONTROLLER_BUTTON_X:             return "PAD3";
+        case SDL_CONTROLLER_BUTTON_Y:             return "PAD4";
+        case SDL_CONTROLLER_BUTTON_BACK:          return "PADBACK";
+        case SDL_CONTROLLER_BUTTON_GUIDE:         return "PADSYSTEM";
+        case SDL_CONTROLLER_BUTTON_START:         return "PADFORWARD";
+        case SDL_CONTROLLER_BUTTON_LEFTSTICK:     return "PADLSTICK";
+        case SDL_CONTROLLER_BUTTON_RIGHTSTICK:    return "PADRSTICK";
+        case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return "PADLSHOULDER";
+        case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "PADRSHOULDER";
+        case SDL_CONTROLLER_BUTTON_DPAD_UP:       return "PADDUP";
+        case SDL_CONTROLLER_BUTTON_DPAD_DOWN:     return "PADDDOWN";
+        case SDL_CONTROLLER_BUTTON_DPAD_LEFT:     return "PADDLEFT";
+        case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:    return "PADDRIGHT";
+        case SDL_CONTROLLER_BUTTON_MISC1:         return "PADSOCIAL";
+        case SDL_CONTROLLER_BUTTON_PADDLE1:       return "PADPADDLE1";
+        case SDL_CONTROLLER_BUTTON_PADDLE2:       return "PADPADDLE2";
+        case SDL_CONTROLLER_BUTTON_PADDLE3:       return "PADPADDLE3";
+        case SDL_CONTROLLER_BUTTON_PADDLE4:       return "PADPADDLE4";
+        default:                                  return "";
+    }
+}
+
+SDL_Scancode padClientKeyFor(const std::string& command) {
+    // The poll sites' own keys: movement and jumping in the camera controller,
+    // the action bar, Tab and Print Screen in GameScreen. The order of the
+    // action buttons is the bar's slot order.
+    static constexpr struct {
+        const char* command;
+        SDL_Scancode key;
+    } kPolled[] = {
+        {"MOVEFORWARD",        SDL_SCANCODE_W},
+        {"MOVEBACKWARD",       SDL_SCANCODE_S},
+        {"TURNLEFT",           SDL_SCANCODE_A},
+        {"TURNRIGHT",          SDL_SCANCODE_D},
+        {"STRAFELEFT",         SDL_SCANCODE_Q},
+        {"STRAFERIGHT",        SDL_SCANCODE_E},
+        {"JUMP",               SDL_SCANCODE_SPACE},
+        {"TOGGLEAUTORUN",      SDL_SCANCODE_NUMLOCKCLEAR},
+        {"TARGETNEARESTENEMY", SDL_SCANCODE_TAB},
+        {"SCREENSHOT",         SDL_SCANCODE_PRINTSCREEN},
+        {"ACTIONBUTTON1",      SDL_SCANCODE_1},
+        {"ACTIONBUTTON2",      SDL_SCANCODE_2},
+        {"ACTIONBUTTON3",      SDL_SCANCODE_3},
+        {"ACTIONBUTTON4",      SDL_SCANCODE_4},
+        {"ACTIONBUTTON5",      SDL_SCANCODE_5},
+        {"ACTIONBUTTON6",      SDL_SCANCODE_6},
+        {"ACTIONBUTTON7",      SDL_SCANCODE_7},
+        {"ACTIONBUTTON8",      SDL_SCANCODE_8},
+        {"ACTIONBUTTON9",      SDL_SCANCODE_9},
+        {"ACTIONBUTTON10",     SDL_SCANCODE_0},
+        {"ACTIONBUTTON11",     SDL_SCANCODE_MINUS},
+        {"ACTIONBUTTON12",     SDL_SCANCODE_EQUALS},
+    };
+    for (const auto& polled : kPolled) {
+        if (command == polled.command) return polled.key;
+    }
+    return SDL_SCANCODE_UNKNOWN;
+}
+
 const PadBinding* padBindings(std::size_t& count) {
     count = sizeof(kBindings) / sizeof(kBindings[0]);
     return kBindings;
