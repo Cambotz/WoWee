@@ -1,5 +1,7 @@
 #include "ui/gamepad_controls.hpp"
 
+#include "core/gamepad.hpp"
+
 namespace wowee {
 namespace ui {
 
@@ -34,7 +36,12 @@ constexpr PadBinding kBindings[] = {
 
 }  // namespace
 
-const char* padButtonLabel(SDL_GameControllerButton button) {
+namespace {
+
+/// The names an Xbox pad puts on its buttons, which is the shape SDL resolves
+/// every other pad to and so the fallback for anything with no names of its
+/// own.
+const char* xboxLabel(SDL_GameControllerButton button) {
     switch (button) {
         case SDL_CONTROLLER_BUTTON_A:             return "A";
         case SDL_CONTROLLER_BUTTON_B:             return "B";
@@ -50,8 +57,99 @@ const char* padButtonLabel(SDL_GameControllerButton button) {
         case SDL_CONTROLLER_BUTTON_DPAD_DOWN:     return "D-pad down";
         case SDL_CONTROLLER_BUTTON_DPAD_LEFT:     return "D-pad left";
         case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:    return "D-pad right";
+        case SDL_CONTROLLER_BUTTON_MISC1:         return "Share";
+        // SDL names the paddles by where they sit on the back of the pad
+        // rather than by the letters on them: 1 is upper left, 2 upper right,
+        // 3 lower left, 4 lower right. An Elite pad prints P1, P3, P2, P4 in
+        // that order, which is why these read out of sequence.
+        case SDL_CONTROLLER_BUTTON_PADDLE1:       return "Paddle P1";
+        case SDL_CONTROLLER_BUTTON_PADDLE2:       return "Paddle P3";
+        case SDL_CONTROLLER_BUTTON_PADDLE3:       return "Paddle P2";
+        case SDL_CONTROLLER_BUTTON_PADDLE4:       return "Paddle P4";
+        case SDL_CONTROLLER_BUTTON_TOUCHPAD:      return "Touchpad";
         default:                                  return "";
     }
+}
+
+}  // namespace
+
+const char* padButtonLabel(SDL_GameControllerButton button, core::Gamepad::Kind kind) {
+    using Kind = core::Gamepad::Kind;
+    // Only what differs. The face buttons are read by position - see the hint
+    // set where the subsystem starts - so the button named here is always the
+    // same button under the same thumb, whatever is printed on it.
+    switch (kind) {
+        case Kind::PlayStation:
+            switch (button) {
+                case SDL_CONTROLLER_BUTTON_A:             return "Cross";
+                case SDL_CONTROLLER_BUTTON_B:             return "Circle";
+                case SDL_CONTROLLER_BUTTON_X:             return "Square";
+                case SDL_CONTROLLER_BUTTON_Y:             return "Triangle";
+                case SDL_CONTROLLER_BUTTON_BACK:          return "Share";
+                case SDL_CONTROLLER_BUTTON_START:         return "Options";
+                case SDL_CONTROLLER_BUTTON_GUIDE:         return "PS button";
+                case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return "L1";
+                case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "R1";
+                case SDL_CONTROLLER_BUTTON_LEFTSTICK:     return "L3";
+                case SDL_CONTROLLER_BUTTON_RIGHTSTICK:    return "R3";
+                case SDL_CONTROLLER_BUTTON_MISC1:         return "Microphone";
+                default: break;
+            }
+            break;
+        case Kind::Nintendo:
+            // Nintendo prints its letters the other way round: the bottom
+            // button is B and the right one is A, the left is Y and the top
+            // is X. Read by position and named by what is printed there, so
+            // the button a player is told to press is the one under their
+            // thumb.
+            switch (button) {
+                case SDL_CONTROLLER_BUTTON_A:             return "B";
+                case SDL_CONTROLLER_BUTTON_B:             return "A";
+                case SDL_CONTROLLER_BUTTON_X:             return "Y";
+                case SDL_CONTROLLER_BUTTON_Y:             return "X";
+                case SDL_CONTROLLER_BUTTON_BACK:          return "Minus";
+                case SDL_CONTROLLER_BUTTON_START:         return "Plus";
+                case SDL_CONTROLLER_BUTTON_GUIDE:         return "Home";
+                case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return "L";
+                case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "R";
+                case SDL_CONTROLLER_BUTTON_LEFTSTICK:     return "Left stick click";
+                case SDL_CONTROLLER_BUTTON_RIGHTSTICK:    return "Right stick click";
+                case SDL_CONTROLLER_BUTTON_MISC1:         return "Capture";
+                default: break;
+            }
+            break;
+        case Kind::SteamDeck:
+            // Xbox letters on the face, and four buttons on the back that
+            // SDL reports in its own geometric order - upper left, upper
+            // right, lower left, lower right - which on a Deck is L4, R4, L5,
+            // R5.
+            switch (button) {
+                case SDL_CONTROLLER_BUTTON_BACK:          return "View";
+                case SDL_CONTROLLER_BUTTON_START:         return "Menu";
+                case SDL_CONTROLLER_BUTTON_GUIDE:         return "Steam";
+                case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:  return "L1";
+                case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER: return "R1";
+                case SDL_CONTROLLER_BUTTON_LEFTSTICK:     return "L3";
+                case SDL_CONTROLLER_BUTTON_RIGHTSTICK:    return "R3";
+                case SDL_CONTROLLER_BUTTON_PADDLE1:       return "L4";
+                case SDL_CONTROLLER_BUTTON_PADDLE2:       return "R4";
+                case SDL_CONTROLLER_BUTTON_PADDLE3:       return "L5";
+                case SDL_CONTROLLER_BUTTON_PADDLE4:       return "R5";
+                case SDL_CONTROLLER_BUTTON_MISC1:         return "Quick access";
+                default: break;
+            }
+            break;
+        case Kind::Luna:
+            if (button == SDL_CONTROLLER_BUTTON_MISC1) return "Microphone";
+            break;
+        case Kind::Xbox:
+        case Kind::Stadia:
+        case Kind::Shield:
+        case Kind::Virtual:
+        case Kind::Unknown:
+            break;
+    }
+    return xboxLabel(button);
 }
 
 const char* padKeyName(SDL_GameControllerButton button) {
@@ -115,6 +213,37 @@ SDL_Scancode padClientKeyFor(const std::string& command) {
         if (command == polled.command) return polled.key;
     }
     return SDL_SCANCODE_UNKNOWN;
+}
+
+namespace {
+
+// The buttons only some pads carry, offered to the pads that have them.
+//
+// Four paddles and a share button are worth a great deal to a client whose
+// action bar has twelve slots and whose pad reaches six of them without a
+// modifier: a Steam Deck's four back buttons, or an Elite pad's, take the
+// next four slots with nothing held down. Bound by SDL's own geometric order
+// - upper left, upper right, lower left, lower right - so the top pair are
+// the two nearest the index fingers on every pad that has them.
+//
+// Nothing here is in the base table, because a button that is not on the pad
+// is a row in a settings list that does not exist and a key that can never be
+// pressed.
+constexpr PadBinding kExtras[] = {
+    {SDL_CONTROLLER_BUTTON_PADDLE1, SDL_SCANCODE_7,          "Action 7"},
+    {SDL_CONTROLLER_BUTTON_PADDLE2, SDL_SCANCODE_8,          "Action 8"},
+    {SDL_CONTROLLER_BUTTON_PADDLE3, SDL_SCANCODE_9,          "Action 9"},
+    {SDL_CONTROLLER_BUTTON_PADDLE4, SDL_SCANCODE_0,          "Action 10"},
+    // The share, capture and microphone buttons are all one button to SDL,
+    // and on every pad that has one it is the button for keeping a moment.
+    {SDL_CONTROLLER_BUTTON_MISC1,   SDL_SCANCODE_PRINTSCREEN, "Screenshot"},
+};
+
+}  // namespace
+
+const PadBinding* padExtraBindings(std::size_t& count) {
+    count = sizeof(kExtras) / sizeof(kExtras[0]);
+    return kExtras;
 }
 
 const PadBinding* padBindings(std::size_t& count) {

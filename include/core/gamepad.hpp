@@ -100,6 +100,31 @@ public:
         glm::vec2 position{0.0f};
     };
 
+    /// Which family of pad this is, for the names on its buttons and for the
+    /// few extras only some of them have.
+    ///
+    /// SDL resolves every pad to one shape, so this changes no behaviour that
+    /// all of them share: it decides what a button is *called* - the same
+    /// button is A on an Xbox pad, Cross on a PlayStation one and B on a
+    /// Switch one - and which of the extra buttons are there to be used.
+    enum class Kind {
+        Unknown,
+        Xbox,
+        PlayStation,
+        Nintendo,
+        SteamDeck,
+        Luna,
+        Stadia,
+        Shield,
+        Virtual,
+    };
+    [[nodiscard]] Kind kind() const { return kind_; }
+
+    /// Whether this pad actually has a button. SDL's mapping says so, which
+    /// is how the paddles and the share button are offered only to the pads
+    /// that have them rather than bound into the air on the ones that do not.
+    [[nodiscard]] bool hasButton(SDL_GameControllerButton button) const;
+
     /// Whether the pad has a touch surface. PlayStation pads do; most others
     /// do not, and read as no finger down.
     [[nodiscard]] bool hasTouchpad() const { return touchFingers_ > 0; }
@@ -137,7 +162,12 @@ private:
     /// disconnect, so unplugging the second pad of two leaves the first live.
     void openFirstAvailable();
 
+    /// Works out the family from SDL's own type, falling back to the USB
+    /// vendor and product for the pads SDL has no type for.
+    [[nodiscard]] static Kind kindOf(SDL_GameController* pad);
+
     SDL_GameController* pad_ = nullptr;
+    Kind kind_ = Kind::Unknown;
     SDL_JoystickID instanceId_ = -1;
     std::string name_;
 
@@ -150,6 +180,9 @@ private:
     std::array<TouchFinger, kTouchFingers> touch_{};
     /// How many of those the connected pad actually tracks.
     int touchFingers_ = 0;
+    /// Which of the pad's touch surfaces is the pointer's - the right-hand
+    /// one, where there is more than one.
+    int touchpad_ = 0;
 
     glm::vec2 leftStick_{0.0f};
     glm::vec2 rightStick_{0.0f};

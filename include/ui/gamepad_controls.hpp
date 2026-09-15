@@ -35,6 +35,8 @@
  */
 
 #include <SDL2/SDL.h>
+
+#include "core/gamepad.hpp"
 #include <glm/glm.hpp>
 
 #include <algorithm>
@@ -80,7 +82,15 @@ struct PadBinding {
 /// strings are "a", "dpup", "leftshoulder", which is a protocol rather than
 /// something to put on a settings panel. Returns an empty string for a button
 /// nothing binds, which is how the settings panel knows not to list it.
-[[nodiscard]] const char* padButtonLabel(SDL_GameControllerButton button);
+[[nodiscard]] const char* padButtonLabel(SDL_GameControllerButton button,
+                                         core::Gamepad::Kind kind);
+
+/// The buttons only some pads have, and what they do when they are there.
+///
+/// Paddles and the share button. Applied only when SDL says the pad in hand
+/// actually has the button, so nothing here is bound into the air on a pad
+/// without them.
+[[nodiscard]] const PadBinding* padExtraBindings(std::size_t& count);
 
 /// The name WoW's binding tables give a pad button - "PAD1", "PADDUP",
 /// "PADLSHOULDER" - or an empty string for one that cannot be bound.

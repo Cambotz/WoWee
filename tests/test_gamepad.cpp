@@ -195,6 +195,86 @@ TEST_CASE("the pointer travels the same distance however the frame is cut") {
     CHECK(many == Catch::Approx(oneStep).margin(0.001f));
 }
 
+TEST_CASE("the extras are extra, and reach the rest of the bar") {
+    // The base scheme reaches six action slots without a modifier. A pad with
+    // four back buttons should reach four more with nothing held, which is
+    // most of what a paddle is for.
+    std::size_t baseCount = 0;
+    const wowee::ui::PadBinding* base = wowee::ui::padBindings(baseCount);
+    std::size_t extraCount = 0;
+    const wowee::ui::PadBinding* extras = wowee::ui::padExtraBindings(extraCount);
+    REQUIRE(extraCount > 0);
+
+    std::set<int> buttons;
+    std::set<int> keys;
+    for (std::size_t i = 0; i < baseCount; ++i) {
+        buttons.insert(static_cast<int>(base[i].button));
+        keys.insert(static_cast<int>(base[i].key));
+    }
+    for (std::size_t i = 0; i < extraCount; ++i) {
+        INFO(extras[i].what);
+        // Nothing here may repeat the base: a button bound twice runs
+        // whichever line is later, and a key bound twice is a wasted button.
+        CHECK(buttons.insert(static_cast<int>(extras[i].button)).second);
+        CHECK(keys.insert(static_cast<int>(extras[i].key)).second);
+        CHECK(extras[i].what[0] != '\0');
+    }
+
+    // Slots 7 to 10 of the main bar, which the base scheme cannot reach at all.
+    int paddleSlots = 0;
+    for (std::size_t i = 0; i < extraCount; ++i) {
+        const SDL_Scancode key = extras[i].key;
+        if (key == SDL_SCANCODE_7 || key == SDL_SCANCODE_8 ||
+            key == SDL_SCANCODE_9 || key == SDL_SCANCODE_0) {
+            ++paddleSlots;
+        }
+    }
+    CHECK(paddleSlots == 4);
+}
+
+TEST_CASE("a pad is told what its own buttons are called") {
+    using Kind = wowee::core::Gamepad::Kind;
+    using wowee::ui::padButtonLabel;
+
+    // The same button under the same thumb, named as that pad prints it.
+    // Nintendo is the one that matters: its letters are laid out the other
+    // way round, so the bottom button - the one this client jumps on - is
+    // printed B, and telling a Switch player to press A would send them to
+    // the button that closes windows.
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_A, Kind::Xbox)) == "A");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_A, Kind::PlayStation)) == "Cross");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_A, Kind::Nintendo)) == "B");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_B, Kind::Nintendo)) == "A");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_X, Kind::Nintendo)) == "Y");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_Y, Kind::Nintendo)) == "X");
+
+    // The Deck keeps the Xbox letters and adds four on the back.
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_A, Kind::SteamDeck)) == "A");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_PADDLE1, Kind::SteamDeck)) == "L4");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_PADDLE2, Kind::SteamDeck)) == "R4");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_PADDLE3, Kind::SteamDeck)) == "L5");
+    CHECK(std::string(padButtonLabel(SDL_CONTROLLER_BUTTON_PADDLE4, Kind::SteamDeck)) == "R5");
+
+    // A pad SDL has no family for still gets a name for every button, or the
+    // settings panel would list a scheme with holes in it.
+    for (const Kind kind : {Kind::Unknown, Kind::Xbox, Kind::PlayStation, Kind::Nintendo,
+                            Kind::SteamDeck, Kind::Luna, Kind::Stadia, Kind::Shield,
+                            Kind::Virtual}) {
+        std::size_t count = 0;
+        const wowee::ui::PadBinding* rows = wowee::ui::padBindings(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            INFO(static_cast<int>(kind) << " " << rows[i].what);
+            CHECK(padButtonLabel(rows[i].button, kind)[0] != '\0');
+        }
+        std::size_t extras = 0;
+        const wowee::ui::PadBinding* extraRows = wowee::ui::padExtraBindings(extras);
+        for (std::size_t i = 0; i < extras; ++i) {
+            INFO(static_cast<int>(kind) << " " << extraRows[i].what);
+            CHECK(padButtonLabel(extraRows[i].button, kind)[0] != '\0');
+        }
+    }
+}
+
 TEST_CASE("every bound button has a name a player would recognise") {
     // The settings panel lists the scheme off this table. A button with no
     // label is silently dropped from that list, which is how a control scheme
@@ -203,15 +283,19 @@ TEST_CASE("every bound button has a name a player would recognise") {
     const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
     for (std::size_t i = 0; i < count; ++i) {
         INFO(bindings[i].what);
-        const char* label = wowee::ui::padButtonLabel(bindings[i].button);
+        const char* label = wowee::ui::padButtonLabel(bindings[i].button,
+                                                     wowee::core::Gamepad::Kind::Xbox);
         REQUIRE(label != nullptr);
         CHECK(label[0] != '\0');
     }
     // And the two that are not in the table, because they go through ImGui
     // rather than through a scancode, are still named.
-    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_B)) == "B");
-    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_START)) == "Start");
-    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_BACK)) == "Back");
+    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_B,
+                                               wowee::core::Gamepad::Kind::Xbox)) == "B");
+    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_START,
+                                               wowee::core::Gamepad::Kind::Xbox)) == "Start");
+    CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_BACK,
+                                               wowee::core::Gamepad::Kind::Xbox)) == "Back");
 }
 
 TEST_CASE("a finger landing on the touchpad does not move the pointer") {

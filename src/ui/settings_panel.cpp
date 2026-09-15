@@ -144,15 +144,39 @@ void SettingsPanel::renderSettingsGameplayTab(const std::function<void()>& saveC
         ImGui::BulletText("Left stick: walk and strafe");
         ImGui::BulletText("Right stick: look around");
         ImGui::BulletText("Triggers: zoom in and out");
+        // Named as the pad in hand names them: the same button is A on an
+        // Xbox pad, Cross on a PlayStation one and B on a Switch one, and a
+        // list that says A to someone holding a Switch pad is a list that
+        // sends them to the wrong button.
+        const auto kind = core::gamepad().kind();
+        const auto listRow = [kind](const PadBinding& binding) {
+            const char* label = padButtonLabel(binding.button, kind);
+            if (label[0] == '\0') return;
+            ImGui::BulletText("%s: %s", label, binding.what);
+        };
         std::size_t bindingCount = 0;
         const PadBinding* bindings = padBindings(bindingCount);
-        for (std::size_t i = 0; i < bindingCount; ++i) {
-            const char* label = padButtonLabel(bindings[i].button);
-            if (label[0] == '\0') continue;
-            ImGui::BulletText("%s: %s", label, bindings[i].what);
+        for (std::size_t i = 0; i < bindingCount; ++i) listRow(bindings[i]);
+        // And the ones only some pads have, listed only when this pad has
+        // them. A row for a paddle on a pad with no paddles is a promise the
+        // hardware cannot keep.
+        std::size_t extraCount = 0;
+        const PadBinding* extras = padExtraBindings(extraCount);
+        for (std::size_t i = 0; i < extraCount; ++i) {
+            if (!core::gamepad().hasButton(extras[i].button)) continue;
+            listRow(extras[i]);
         }
-        ImGui::BulletText("B or Start: close a window, or the game menu");
-        ImGui::BulletText("Back: the pointer - then A clicks and X right-clicks");
+        ImGui::BulletText("%s or %s: close a window, or the game menu",
+                          padButtonLabel(SDL_CONTROLLER_BUTTON_B, kind),
+                          padButtonLabel(SDL_CONTROLLER_BUTTON_START, kind));
+        ImGui::BulletText("%s: the pointer - then %s clicks and %s right-clicks",
+                          padButtonLabel(SDL_CONTROLLER_BUTTON_BACK, kind),
+                          padButtonLabel(SDL_CONTROLLER_BUTTON_A, kind),
+                          padButtonLabel(SDL_CONTROLLER_BUTTON_X, kind));
+        if (core::gamepad().hasTouchpad()) {
+            ImGui::BulletText("Touchpad: a trackpad - click it, or with two "
+                              "fingers to right-click");
+        }
     }
 
     ImGui::Spacing();

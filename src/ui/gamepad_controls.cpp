@@ -316,6 +316,17 @@ void GamepadControls::applyButtons() {
         if (schemeHeld(bindings[i].button)) wanted[static_cast<std::size_t>(bindings[i].key)] = true;
     }
 
+    // The paddles and the share button, on the pads that have them. No test
+    // for whether this pad does: a button it has not got is never held, and
+    // asking SDL once a frame per button to learn the same thing is work for
+    // nothing. The listing in the settings panel asks, because a row there is
+    // a promise.
+    std::size_t extraCount = 0;
+    const PadBinding* extras = padExtraBindings(extraCount);
+    for (std::size_t i = 0; i < extraCount; ++i) {
+        if (schemeHeld(extras[i].button)) wanted[static_cast<std::size_t>(extras[i].key)] = true;
+    }
+
     // Escape is the interface's, not the game's: it is read through
     // KeybindingManager, which asks ImGui. A virtual scancode never reaches
     // it, so this one goes on ImGui's own queue - once down, once up, because
@@ -410,10 +421,23 @@ void GamepadControls::update(float deltaTime) {
         // Once per connection, at warning, because a player who has plugged a
         // pad in and is wondering whether the client saw it has exactly one
         // place to look, and that log is warnings only.
+        const auto kind = pad.kind();
+        const auto name = [kind](SDL_GameControllerButton button) {
+            return padButtonLabel(button, kind);
+        };
         LOG_WARNING("Gamepad: ", pad.describe(),
-                    " - left stick moves, right stick looks, triggers zoom, "
-                    "A jumps, B closes, X/Y and the D-pad are actions 1-6, "
-                    "hold LB for 7-12, RB targets, L3 autoruns, Back gives you a pointer",
+                    " - left stick moves, right stick looks, triggers zoom, ",
+                    name(SDL_CONTROLLER_BUTTON_A), " jumps, ",
+                    name(SDL_CONTROLLER_BUTTON_B), " closes, ",
+                    name(SDL_CONTROLLER_BUTTON_X), "/", name(SDL_CONTROLLER_BUTTON_Y),
+                    " and the D-pad are actions 1-6, hold ",
+                    name(SDL_CONTROLLER_BUTTON_LEFTSHOULDER), " for 7-12, ",
+                    name(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER), " targets, ",
+                    name(SDL_CONTROLLER_BUTTON_LEFTSTICK), " autoruns, ",
+                    name(SDL_CONTROLLER_BUTTON_BACK), " gives you a pointer",
+                    pad.hasButton(SDL_CONTROLLER_BUTTON_PADDLE1)
+                        ? ", the back buttons are actions 7-10"
+                        : "",
                     pad.hasTouchpad() ? ", and the touchpad is a trackpad - click it, or click "
                                         "with two fingers to right-click"
                                       : "");

@@ -3,6 +3,8 @@
 #include "core/logger.hpp"
 
 #include <algorithm>
+#include <cctype>
+#include <string>
 #include <cmath>
 
 namespace wowee {
@@ -44,6 +46,16 @@ bool Gamepad::init() {
     // The subsystem is asked for separately from video, because a client that
     // cannot talk to controllers must still start. SDL_INIT_GAMECONTROLLER
     // brings the joystick and event subsystems with it.
+    // Face buttons by position, not by the letters printed on them.
+    //
+    // SDL's default is to report them by label, and a Nintendo pad's labels
+    // are laid out the other way round: its A is where an Xbox pad's B is.
+    // So the button this client calls A - the one that jumps - would have
+    // been the right-hand button on a Switch pad and the bottom one
+    // everywhere else, which is backwards from every game those players have
+    // used. Positional here, and named per pad where a name is shown.
+    SDL_SetHint(SDL_HINT_GAMECONTROLLER_USE_BUTTON_LABELS, "0");
+
     if (SDL_InitSubSystem(SDL_INIT_GAMECONTROLLER) != 0) {
         LOG_WARNING("Gamepad: SDL's controller subsystem would not start: ", SDL_GetError(),
                     " - controllers will not be seen this session");
@@ -92,6 +104,65 @@ void Gamepad::openFirstAvailable() {
     }
 }
 
+namespace {
+
+/// Lowercased, for a name compare that does not care how the driver wrote it.
+std::string toLower(const std::string& text) {
+    std::string out = text;
+    std::transform(out.begin(), out.end(), out.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    return out;
+}
+
+}  // namespace
+
+Gamepad::Kind Gamepad::kindOf(SDL_GameController* pad) {
+    if (!pad) return Kind::Unknown;
+    // The Steam Deck has no type of its own in SDL, so it is recognised the
+    // only way left: Valve's USB vendor and the Deck's own product id. It
+    // matters because the Deck has four back buttons where most pads have
+    // none, and because "A" on it means the Xbox A rather than the Nintendo
+    // one.
+    constexpr Uint16 kValve = 0x28DE;
+    constexpr Uint16 kSteamDeck = 0x1205;
+    if (SDL_GameControllerGetVendor(pad) == kValve &&
+        SDL_GameControllerGetProduct(pad) == kSteamDeck) {
+        return Kind::SteamDeck;
+    }
+    // And by name, because the Deck reaches SDL by more than one road: its
+    // own driver gives Valve's ids, and the kernel's virtual pad gives a name
+    // and little else. Neither is reliable on its own and the cost of asking
+    // both is one string compare, once, when a pad is plugged in.
+    if (const char* padName = SDL_GameControllerName(pad); padName) {
+        const std::string lower = toLower(padName);
+        if (lower.find("steam deck") != std::string::npos) return Kind::SteamDeck;
+    }
+    switch (SDL_GameControllerGetType(pad)) {
+        case SDL_CONTROLLER_TYPE_XBOX360:
+        case SDL_CONTROLLER_TYPE_XBOXONE:
+            return Kind::Xbox;
+        case SDL_CONTROLLER_TYPE_PS3:
+        case SDL_CONTROLLER_TYPE_PS4:
+        case SDL_CONTROLLER_TYPE_PS5:
+            return Kind::PlayStation;
+        case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_PRO:
+        case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_LEFT:
+        case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_RIGHT:
+        case SDL_CONTROLLER_TYPE_NINTENDO_SWITCH_JOYCON_PAIR:
+            return Kind::Nintendo;
+        case SDL_CONTROLLER_TYPE_AMAZON_LUNA:  return Kind::Luna;
+        case SDL_CONTROLLER_TYPE_GOOGLE_STADIA: return Kind::Stadia;
+        case SDL_CONTROLLER_TYPE_NVIDIA_SHIELD: return Kind::Shield;
+        case SDL_CONTROLLER_TYPE_VIRTUAL:       return Kind::Virtual;
+        default:                                return Kind::Unknown;
+    }
+}
+
+bool Gamepad::hasButton(SDL_GameControllerButton button) const {
+    if (!pad_ || button < 0 || button >= kButtonCount) return false;
+    return SDL_GameControllerHasButton(pad_, button) == SDL_TRUE;
+}
+
 void Gamepad::openDevice(int joystickIndex) {
     if (pad_) return;
     SDL_GameController* opened = SDL_GameControllerOpen(joystickIndex);
@@ -104,10 +175,20 @@ void Gamepad::openDevice(int joystickIndex) {
     instanceId_ = joystick ? SDL_JoystickInstanceID(joystick) : -1;
     const char* padName = SDL_GameControllerName(pad_);
     name_ = padName ? padName : "controller";
+    kind_ = kindOf(pad_);
     current_.fill(false);
     touch_.fill(TouchFinger{});
-    touchFingers_ = SDL_GameControllerGetNumTouchpads(pad_) > 0
-                        ? std::clamp(SDL_GameControllerGetNumTouchpadFingers(pad_, 0), 0, kTouchFingers)
+    // Which touch surface to point with, when there is more than one.
+    //
+    // A PlayStation pad has one and this is 0. A Steam Deck has two, and the
+    // right-hand one is the one a thumb points with - the left is where its
+    // owner has put a scroll wheel or a d-pad. SDL numbers them left to
+    // right, so the last is the right-hand one.
+    const int touchpads = SDL_GameControllerGetNumTouchpads(pad_);
+    touchpad_ = touchpads > 0 ? touchpads - 1 : 0;
+    touchFingers_ = touchpads > 0
+                        ? std::clamp(SDL_GameControllerGetNumTouchpadFingers(pad_, touchpad_),
+                                     0, kTouchFingers)
                         : 0;
     LOG_INFO("Gamepad: ", name_, " connected", hasTouchpad() ? ", with a touchpad" : "");
 }
@@ -117,6 +198,7 @@ void Gamepad::closeDevice() {
     LOG_INFO("Gamepad: ", name_, " disconnected");
     SDL_GameControllerClose(pad_);
     pad_ = nullptr;
+    kind_ = Kind::Unknown;
     instanceId_ = -1;
     name_.clear();
     // Zeroed rather than left as it was. A pad unplugged mid-stride would
@@ -125,6 +207,7 @@ void Gamepad::closeDevice() {
     current_.fill(false);
     touch_.fill(TouchFinger{});
     touchFingers_ = 0;
+    touchpad_ = 0;
     leftStick_ = glm::vec2(0.0f);
     rightStick_ = glm::vec2(0.0f);
     leftTrigger_ = 0.0f;
@@ -185,7 +268,8 @@ void Gamepad::update() {
         float y = 0.0f;
         float pressure = 0.0f;
         const bool read = f < touchFingers_ &&
-                          SDL_GameControllerGetTouchpadFinger(pad_, 0, f, &state, &x, &y, &pressure) == 0;
+                          SDL_GameControllerGetTouchpadFinger(pad_, touchpad_, f, &state, &x, &y,
+                                                              &pressure) == 0;
         finger.down = read && state != 0;
         if (finger.down) finger.position = glm::vec2(x, y);
     }
