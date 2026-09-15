@@ -2,6 +2,9 @@
 
 #include "core/gamepad.hpp"
 
+#include <span>
+#include <string>
+
 namespace wowee {
 namespace ui {
 
