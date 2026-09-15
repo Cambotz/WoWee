@@ -1785,7 +1785,20 @@ static int lua_GetBindingKey(lua_State* L) {
     return 2;
 }
 
-// GetBindingAction(key) → command (or nil)
+// GetBindingAction(key) → command, or "" for a key that holds nothing
+//
+// Empty rather than nil, which is what the real client answers and what the
+// interface is written against. Blizzard's key binding panel reads it as
+//
+//     local oldAction = GetBindingAction(keyPressed, KeyBindingFrame.mode);
+//     if ( oldAction ~= "" and oldAction ~= KeyBindingFrame.selected ) then
+//         local key1, key2 = GetBindingKey(oldAction, ...)
+//
+// and nil is not equal to "", so a nil sent the panel into that branch with
+// nil in hand: "bad argument #1 to 'GetBindingKey' (string expected, got
+// nil)", thrown out of OnKeyDown before the new binding was ever set. Every
+// attempt to bind a key that was not already bound to something failed that
+// way - a controller button being the case where that is always true.
 static int lua_GetBindingAction(lua_State* L) {
     seedBindingDefaults();
     const std::string key = luaL_checkstring(L, 1);
@@ -1795,7 +1808,7 @@ static int lua_GetBindingAction(lua_State* L) {
             return 1;
         }
     }
-    lua_pushnil(L);
+    lua_pushstring(L, "");
     return 1;
 }
 

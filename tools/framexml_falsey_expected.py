@@ -68,6 +68,19 @@ EXPECTED = {
     # empty string says "not known" at the guarded site and keeps the stable
     # window up at the unguarded one.
     "GetStablePetFoodTypes",
+    # The real client answers "" for a key that holds nothing, and the game's
+    # own key binding panel is written against exactly that:
+    #     local oldAction = GetBindingAction(keyPressed, KeyBindingFrame.mode);
+    #     if ( oldAction ~= "" and oldAction ~= KeyBindingFrame.selected ) then
+    #         local key1, key2 = GetBindingKey(oldAction, ...)
+    # nil is not equal to "", so answering nil sent every press of an unheld
+    # key into that branch holding nil and threw out of OnKeyDown before the
+    # binding was set - which is what made it impossible to bind a controller
+    # button, a button being always unheld. The three sites this sweep matches
+    # are CoinPickupFrame's `if ( ... GetBindingAction(key) )`, and all three
+    # do nothing with the answer but RunBinding it; RunBinding of "" finds no
+    # script and returns. True where nothing was meant, and nothing happens.
+    "GetBindingAction",
 }
 
 
