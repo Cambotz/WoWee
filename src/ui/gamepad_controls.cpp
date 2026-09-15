@@ -307,17 +307,15 @@ void GamepadControls::applyButtons() {
     // the same key - X by default, and a D-pad bound to ACTIONBUTTON1 - and
     // one of them letting go must not release the other.
     std::array<bool, SDL_NUM_SCANCODES> wanted{};
-    std::size_t count = 0;
-    const PadBinding* bindings = padBindings(count);
-    for (std::size_t i = 0; i < count; ++i) {
+    for (const PadBinding& row : padBindings()) {
         // A and X are the pointer's two clicks while it is up. Jumping and
         // casting from the same press would fire a spell at whatever was
         // under the cursor every time a window was clicked.
-        if (pointerMode_ && (bindings[i].button == SDL_CONTROLLER_BUTTON_A ||
-                             bindings[i].button == SDL_CONTROLLER_BUTTON_X)) {
+        if (pointerMode_ && (row.button == SDL_CONTROLLER_BUTTON_A ||
+                             row.button == SDL_CONTROLLER_BUTTON_X)) {
             continue;
         }
-        if (schemeHeld(bindings[i].button)) wanted[static_cast<std::size_t>(bindings[i].key)] = true;
+        if (schemeHeld(row.button)) wanted[static_cast<std::size_t>(row.key)] = true;
     }
 
     // The paddles and the share button, on the pads that have them. No test
@@ -325,10 +323,8 @@ void GamepadControls::applyButtons() {
     // asking SDL once a frame per button to learn the same thing is work for
     // nothing. The listing in the settings panel asks, because a row there is
     // a promise.
-    std::size_t extraCount = 0;
-    const PadBinding* extras = padExtraBindings(extraCount);
-    for (std::size_t i = 0; i < extraCount; ++i) {
-        if (schemeHeld(extras[i].button)) wanted[static_cast<std::size_t>(extras[i].key)] = true;
+    for (const PadBinding& row : padExtraBindings()) {
+        if (schemeHeld(row.button)) wanted[static_cast<std::size_t>(row.key)] = true;
     }
 
     // Escape is the interface's, not the game's: it is read through

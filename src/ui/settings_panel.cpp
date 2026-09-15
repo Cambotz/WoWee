@@ -154,17 +154,13 @@ void SettingsPanel::renderSettingsGameplayTab(const std::function<void()>& saveC
             if (label[0] == '\0') return;
             ImGui::BulletText("%s: %s", label, binding.what);
         };
-        std::size_t bindingCount = 0;
-        const PadBinding* bindings = padBindings(bindingCount);
-        for (std::size_t i = 0; i < bindingCount; ++i) listRow(bindings[i]);
+        for (const PadBinding& row : padBindings()) listRow(row);
         // And the ones only some pads have, listed only when this pad has
         // them. A row for a paddle on a pad with no paddles is a promise the
         // hardware cannot keep.
-        std::size_t extraCount = 0;
-        const PadBinding* extras = padExtraBindings(extraCount);
-        for (std::size_t i = 0; i < extraCount; ++i) {
-            if (!core::gamepad().hasButton(extras[i].button)) continue;
-            listRow(extras[i]);
+        for (const PadBinding& row : padExtraBindings()) {
+            if (!core::gamepad().hasButton(row.button)) continue;
+            listRow(row);
         }
         ImGui::BulletText("%s or %s: close a window, or the game menu",
                           padButtonLabel(SDL_CONTROLLER_BUTTON_B, kind),

@@ -12,6 +12,7 @@
 #include <cmath>
 #include <map>
 #include <set>
+#include <span>
 #include <string>
 
 using wowee::core::axisFraction;
@@ -84,13 +85,12 @@ TEST_CASE("a trigger rests at nothing and pulls to one") {
 }
 
 TEST_CASE("no button is given two jobs and no job two buttons") {
-    std::size_t count = 0;
-    const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
-    REQUIRE(count > 0);
+    const auto bindings = wowee::ui::padBindings();
+    REQUIRE(!bindings.empty());
 
     std::set<int> buttons;
     std::set<int> keys;
-    for (std::size_t i = 0; i < count; ++i) {
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
         const auto& binding = bindings[i];
         INFO(binding.what);
         // A button bound twice runs whichever line is later and looks like a
@@ -112,11 +112,10 @@ TEST_CASE("the scheme reaches the whole action bar") {
     // Six slots on the pad and six more behind the shift the left bumper
     // holds. Without the modifier in the table the other six are unreachable,
     // which is the kind of gap that is only noticed at level 40.
-    std::size_t count = 0;
-    const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
+    const auto bindings = wowee::ui::padBindings();
     int actionKeys = 0;
     bool hasModifier = false;
-    for (std::size_t i = 0; i < count; ++i) {
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
         const SDL_Scancode key = bindings[i].key;
         if (key >= SDL_SCANCODE_1 && key <= SDL_SCANCODE_6) ++actionKeys;
         if (key == SDL_SCANCODE_LSHIFT) hasModifier = true;
@@ -129,15 +128,14 @@ TEST_CASE("the keys the pad holds are ones the client answers") {
     // The client polls these by scancode. A binding to a key nothing reads is
     // a button that does nothing, and the table is the only place that would
     // say so.
-    std::size_t count = 0;
-    const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
+    const auto bindings = wowee::ui::padBindings();
     const std::set<int> answered = {
         SDL_SCANCODE_SPACE, SDL_SCANCODE_TAB, SDL_SCANCODE_NUMLOCKCLEAR,
         SDL_SCANCODE_LSHIFT, SDL_SCANCODE_X,
         SDL_SCANCODE_1, SDL_SCANCODE_2, SDL_SCANCODE_3,
         SDL_SCANCODE_4, SDL_SCANCODE_5, SDL_SCANCODE_6,
     };
-    for (std::size_t i = 0; i < count; ++i) {
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
         INFO(bindings[i].what);
         CHECK(answered.count(static_cast<int>(bindings[i].key)) == 1);
     }
@@ -199,19 +197,17 @@ TEST_CASE("the extras are extra, and reach the rest of the bar") {
     // The base scheme reaches six action slots without a modifier. A pad with
     // four back buttons should reach four more with nothing held, which is
     // most of what a paddle is for.
-    std::size_t baseCount = 0;
-    const wowee::ui::PadBinding* base = wowee::ui::padBindings(baseCount);
-    std::size_t extraCount = 0;
-    const wowee::ui::PadBinding* extras = wowee::ui::padExtraBindings(extraCount);
-    REQUIRE(extraCount > 0);
+    const auto base = wowee::ui::padBindings();
+    const auto extras = wowee::ui::padExtraBindings();
+    REQUIRE(!extras.empty());
 
     std::set<int> buttons;
     std::set<int> keys;
-    for (std::size_t i = 0; i < baseCount; ++i) {
+    for (std::size_t i = 0; i < base.size(); ++i) {
         buttons.insert(static_cast<int>(base[i].button));
         keys.insert(static_cast<int>(base[i].key));
     }
-    for (std::size_t i = 0; i < extraCount; ++i) {
+    for (std::size_t i = 0; i < extras.size(); ++i) {
         INFO(extras[i].what);
         // Nothing here may repeat the base: a button bound twice runs
         // whichever line is later, and a key bound twice is a wasted button.
@@ -222,7 +218,7 @@ TEST_CASE("the extras are extra, and reach the rest of the bar") {
 
     // Slots 7 to 10 of the main bar, which the base scheme cannot reach at all.
     int paddleSlots = 0;
-    for (std::size_t i = 0; i < extraCount; ++i) {
+    for (std::size_t i = 0; i < extras.size(); ++i) {
         const SDL_Scancode key = extras[i].key;
         if (key == SDL_SCANCODE_7 || key == SDL_SCANCODE_8 ||
             key == SDL_SCANCODE_9 || key == SDL_SCANCODE_0) {
@@ -260,15 +256,12 @@ TEST_CASE("a pad is told what its own buttons are called") {
     for (const Kind kind : {Kind::Unknown, Kind::Xbox, Kind::PlayStation, Kind::Nintendo,
                             Kind::SteamDeck, Kind::Luna, Kind::Stadia, Kind::Shield,
                             Kind::Virtual}) {
-        std::size_t count = 0;
-        const wowee::ui::PadBinding* rows = wowee::ui::padBindings(count);
-        for (std::size_t i = 0; i < count; ++i) {
-            INFO(static_cast<int>(kind) << " " << rows[i].what);
-            CHECK(padButtonLabel(rows[i].button, kind)[0] != '\0');
+        for (const wowee::ui::PadBinding& row : wowee::ui::padBindings()) {
+            INFO(static_cast<int>(kind) << " " << row.what);
+            CHECK(padButtonLabel(row.button, kind)[0] != '\0');
         }
-        std::size_t extras = 0;
-        const wowee::ui::PadBinding* extraRows = wowee::ui::padExtraBindings(extras);
-        for (std::size_t i = 0; i < extras; ++i) {
+        const auto extraRows = wowee::ui::padExtraBindings();
+        for (std::size_t i = 0; i < extraRows.size(); ++i) {
             INFO(static_cast<int>(kind) << " " << extraRows[i].what);
             CHECK(padButtonLabel(extraRows[i].button, kind)[0] != '\0');
         }
@@ -279,9 +272,8 @@ TEST_CASE("every bound button has a name a player would recognise") {
     // The settings panel lists the scheme off this table. A button with no
     // label is silently dropped from that list, which is how a control scheme
     // comes to be missing the one line someone was looking for.
-    std::size_t count = 0;
-    const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
-    for (std::size_t i = 0; i < count; ++i) {
+    const auto bindings = wowee::ui::padBindings();
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
         INFO(bindings[i].what);
         const char* label = wowee::ui::padButtonLabel(bindings[i].button,
                                                      wowee::core::Gamepad::Kind::Xbox);
@@ -390,9 +382,8 @@ TEST_CASE("binding a button to what the default scheme gave it changes nothing")
         {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, "TARGETNEARESTENEMY"},
         {SDL_CONTROLLER_BUTTON_LEFTSTICK,     "TOGGLEAUTORUN"},
     };
-    std::size_t count = 0;
-    const wowee::ui::PadBinding* bindings = wowee::ui::padBindings(count);
-    for (std::size_t i = 0; i < count; ++i) {
+    const auto bindings = wowee::ui::padBindings();
+    for (std::size_t i = 0; i < bindings.size(); ++i) {
         const auto it = sameCommand.find(bindings[i].button);
         if (it == sameCommand.end()) continue;
         INFO(bindings[i].what);
@@ -408,17 +399,16 @@ TEST_CASE("a row's command and its key say the same thing") {
     // binding, and if that answers a different key from the one the row
     // presses directly, the same button does two different things depending
     // on whether the player has ever opened the Key Bindings panel.
-    const auto check = [](const wowee::ui::PadBinding* rows, std::size_t count) {
-        for (std::size_t i = 0; i < count; ++i) {
-            const char* command = rows[i].command;
+    const auto check = [](std::span<const wowee::ui::PadBinding> rows) {
+        for (const wowee::ui::PadBinding& row : rows) {
+            const char* command = row.command;
             if (!command || !*command) continue;
-            INFO(rows[i].what << " is " << command);
-            CHECK(wowee::ui::padClientKeyFor(command) == rows[i].key);
+            INFO(row.what << " is " << command);
+            CHECK(wowee::ui::padClientKeyFor(command) == row.key);
         }
     };
-    std::size_t count = 0;
-    check(wowee::ui::padBindings(count), count);
-    check(wowee::ui::padExtraBindings(count), count);
+    check(wowee::ui::padBindings());
+    check(wowee::ui::padExtraBindings());
 }
 
 TEST_CASE("the rows with no command are the ones the interface has no word for") {
@@ -427,12 +417,10 @@ TEST_CASE("the rows with no command are the ones the interface has no word for")
     // else a pad does has a name in the binding table and belongs in it, and
     // a row that quietly loses its command would vanish from the Key Bindings
     // panel without anything else noticing.
-    std::size_t count = 0;
-    const wowee::ui::PadBinding* rows = wowee::ui::padBindings(count);
     std::set<int> commandless;
-    for (std::size_t i = 0; i < count; ++i) {
-        if (rows[i].command == nullptr || rows[i].command[0] == '\0') {
-            commandless.insert(static_cast<int>(rows[i].button));
+    for (const wowee::ui::PadBinding& row : wowee::ui::padBindings()) {
+        if (row.command == nullptr || row.command[0] == '\0') {
+            commandless.insert(static_cast<int>(row.button));
         }
     }
     CHECK(commandless.count(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) == 1);
@@ -441,10 +429,9 @@ TEST_CASE("the rows with no command are the ones the interface has no word for")
 
     // And every extra has one: a paddle is an action slot and the share
     // button is a screenshot, both of which the interface can name.
-    const wowee::ui::PadBinding* extras = wowee::ui::padExtraBindings(count);
-    for (std::size_t i = 0; i < count; ++i) {
-        INFO(extras[i].what);
-        REQUIRE(extras[i].command != nullptr);
-        CHECK(extras[i].command[0] != '\0');
+    for (const wowee::ui::PadBinding& row : wowee::ui::padExtraBindings()) {
+        INFO(row.what);
+        REQUIRE(row.command != nullptr);
+        CHECK(row.command[0] != '\0');
     }
 }

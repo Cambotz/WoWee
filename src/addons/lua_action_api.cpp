@@ -9,6 +9,8 @@
 #include "ui/framexml_takeover.hpp"
 #include "ui/keybinding_manager.hpp"
 #include "ui/gamepad_controls.hpp"
+
+#include <span>
 #include "core/config_paths.hpp"
 #include <array>
 #include <cctype>
@@ -1724,21 +1726,18 @@ void seedBindingDefaults() {
     //
     // Second rather than first, so the keyboard's key is still the one shown
     // where only one fits.
-    const auto seedPad = [&keys](const wowee::ui::PadBinding* rows, std::size_t count) {
-        for (std::size_t i = 0; i < count; ++i) {
-            const char* command = rows[i].command;
+    const auto seedPad = [&keys](std::span<const wowee::ui::PadBinding> rows) {
+        for (const wowee::ui::PadBinding& row : rows) {
+            const char* command = row.command;
             if (!command || !*command) continue;
-            const char* padKey = wowee::ui::padKeyName(rows[i].button);
+            const char* padKey = wowee::ui::padKeyName(row.button);
             if (!padKey || !*padKey) continue;
             auto& pair = keys[command];
             if (pair[1].empty()) pair[1] = padKey;
         }
     };
-    std::size_t count = 0;
-    const wowee::ui::PadBinding* rows = wowee::ui::padBindings(count);
-    seedPad(rows, count);
-    rows = wowee::ui::padExtraBindings(count);
-    seedPad(rows, count);
+    seedPad(wowee::ui::padBindings());
+    seedPad(wowee::ui::padExtraBindings());
 }
 
 /// The command list the emitter built, or zero if bindings.xml never loaded.

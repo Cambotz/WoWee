@@ -41,6 +41,7 @@
 
 #include <algorithm>
 #include <array>
+#include <span>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -87,7 +88,12 @@ struct PadBinding {
 /// six sit on the face and the pad, and the left bumper is held to reach the
 /// other six: the client already reads shift as "the bottom-left bar", so the
 /// modifier costs nothing and behaves exactly as it does on a keyboard.
-[[nodiscard]] const PadBinding* padBindings(std::size_t& count);
+/// Returned as a span rather than a pointer and an out-parameter: the count
+/// travelling separately is a trap, and it sprang - `check(padExtraBindings(n),
+/// n)` reads n before the call that sets it under one compiler and after it
+/// under another, so the five extras were walked as ten and the test
+/// segfaulted on Linux x86-64 while passing everywhere else.
+[[nodiscard]] std::span<const PadBinding> padBindings();
 
 /// What a player calls this button.
 ///
@@ -104,7 +110,7 @@ struct PadBinding {
 /// Paddles and the share button. Applied only when SDL says the pad in hand
 /// actually has the button, so nothing here is bound into the air on a pad
 /// without them.
-[[nodiscard]] const PadBinding* padExtraBindings(std::size_t& count);
+[[nodiscard]] std::span<const PadBinding> padExtraBindings();
 
 /// The name WoW's binding tables give a pad button - "PAD1", "PADDUP",
 /// "PADLSHOULDER" - or an empty string for one that cannot be bound.

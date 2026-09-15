@@ -245,15 +245,9 @@ constexpr PadBinding kExtras[] = {
 
 }  // namespace
 
-const PadBinding* padExtraBindings(std::size_t& count) {
-    count = sizeof(kExtras) / sizeof(kExtras[0]);
-    return kExtras;
-}
+std::span<const PadBinding> padExtraBindings() { return kExtras; }
 
-const PadBinding* padBindings(std::size_t& count) {
-    count = sizeof(kBindings) / sizeof(kBindings[0]);
-    return kBindings;
-}
+std::span<const PadBinding> padBindings() { return kBindings; }
 
 }  // namespace ui
 }  // namespace wowee
