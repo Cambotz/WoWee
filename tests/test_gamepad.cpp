@@ -399,3 +399,52 @@ TEST_CASE("binding a button to what the default scheme gave it changes nothing")
         CHECK(wowee::ui::padClientKeyFor(it->second) == bindings[i].key);
     }
 }
+
+TEST_CASE("a row's command and its key say the same thing") {
+    // The scheme's rows now carry the interface's name for what they do, so
+    // that the binding table can be seeded from this one table rather than a
+    // second copy of it. The two halves of a row have to agree: the command
+    // is looked up through padClientKeyFor when the press arrives as a
+    // binding, and if that answers a different key from the one the row
+    // presses directly, the same button does two different things depending
+    // on whether the player has ever opened the Key Bindings panel.
+    const auto check = [](const wowee::ui::PadBinding* rows, std::size_t count) {
+        for (std::size_t i = 0; i < count; ++i) {
+            const char* command = rows[i].command;
+            if (!command || !*command) continue;
+            INFO(rows[i].what << " is " << command);
+            CHECK(wowee::ui::padClientKeyFor(command) == rows[i].key);
+        }
+    };
+    std::size_t count = 0;
+    check(wowee::ui::padBindings(count), count);
+    check(wowee::ui::padExtraBindings(count), count);
+}
+
+TEST_CASE("the rows with no command are the ones the interface has no word for") {
+    // Three: the bumper that is only a modifier, the button that raises the
+    // pointer, and the stick click that sits the character down. Everything
+    // else a pad does has a name in the binding table and belongs in it, and
+    // a row that quietly loses its command would vanish from the Key Bindings
+    // panel without anything else noticing.
+    std::size_t count = 0;
+    const wowee::ui::PadBinding* rows = wowee::ui::padBindings(count);
+    std::set<int> commandless;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (rows[i].command == nullptr || rows[i].command[0] == '\0') {
+            commandless.insert(static_cast<int>(rows[i].button));
+        }
+    }
+    CHECK(commandless.count(SDL_CONTROLLER_BUTTON_LEFTSHOULDER) == 1);
+    CHECK(commandless.count(SDL_CONTROLLER_BUTTON_RIGHTSTICK) == 1);
+    CHECK(commandless.size() == 2);
+
+    // And every extra has one: a paddle is an action slot and the share
+    // button is a screenshot, both of which the interface can name.
+    const wowee::ui::PadBinding* extras = wowee::ui::padExtraBindings(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        INFO(extras[i].what);
+        REQUIRE(extras[i].command != nullptr);
+        CHECK(extras[i].command[0] != '\0');
+    }
+}

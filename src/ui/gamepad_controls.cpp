@@ -244,9 +244,13 @@ void GamepadControls::applyClicks() {
     // menu, so a pad without one cannot loot. Those two only count while the
     // pointer is up. Both channels are set once, from every source together,
     // so one source letting go cannot release a button another still holds.
-    const bool left = (pointerMode_ && schemeHeld(SDL_CONTROLLER_BUTTON_A)) ||
+    // held rather than schemeHeld: while the pointer is up these two are the
+    // pointer's, whatever they are bound to. The default scheme's own entries
+    // for them live in the binding table now, so asking whether they are
+    // still unbound would answer no and leave the pointer with no click.
+    const bool left = (pointerMode_ && pad.held(SDL_CONTROLLER_BUTTON_A)) ||
                       touchClickButton_ == SDL_BUTTON_LEFT;
-    const bool right = (pointerMode_ && schemeHeld(SDL_CONTROLLER_BUTTON_X)) ||
+    const bool right = (pointerMode_ && pad.held(SDL_CONTROLLER_BUTTON_X)) ||
                        touchClickButton_ == SDL_BUTTON_RIGHT;
     holdMouseButton(SDL_BUTTON_LEFT, left);
     holdMouseButton(SDL_BUTTON_RIGHT, right);
@@ -336,9 +340,19 @@ void GamepadControls::applyButtons() {
     std::vector<int> imguiWanted;
 
     for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b) {
+        const auto button = static_cast<SDL_GameControllerButton>(b);
+        // The pointer's two clicks outrank whatever the button is bound to,
+        // for as long as the pointer is up. A and X are the click and the
+        // right click there, and the defaults now sit in the binding table
+        // like any other binding - so without this, raising the pointer and
+        // clicking would jump and cast as well.
+        if (pointerMode_ && (button == SDL_CONTROLLER_BUTTON_A ||
+                             button == SDL_CONTROLLER_BUTTON_X)) {
+            continue;
+        }
         const ButtonRoute& route = routes_[static_cast<std::size_t>(b)];
         if (route.kind != PadKeyAnswer::Kind::Command) continue;
-        if (!pad.held(static_cast<SDL_GameControllerButton>(b))) continue;
+        if (!pad.held(button)) continue;
         if (route.key != SDL_SCANCODE_UNKNOWN) wanted[static_cast<std::size_t>(route.key)] = true;
         if (route.escape) escape = true;
         if (route.imguiKey != 0 &&

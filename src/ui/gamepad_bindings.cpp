@@ -18,20 +18,20 @@ namespace {
 // a key, is every key one the client actually polls - are questions about the
 // data alone.
 constexpr PadBinding kBindings[] = {
-    {SDL_CONTROLLER_BUTTON_A,             SDL_SCANCODE_SPACE,        "Jump"},
-    {SDL_CONTROLLER_BUTTON_X,             SDL_SCANCODE_1,            "Action 1"},
-    {SDL_CONTROLLER_BUTTON_Y,             SDL_SCANCODE_2,            "Action 2"},
-    {SDL_CONTROLLER_BUTTON_DPAD_UP,       SDL_SCANCODE_3,            "Action 3"},
-    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT,    SDL_SCANCODE_4,            "Action 4"},
-    {SDL_CONTROLLER_BUTTON_DPAD_DOWN,     SDL_SCANCODE_5,            "Action 5"},
-    {SDL_CONTROLLER_BUTTON_DPAD_LEFT,     SDL_SCANCODE_6,            "Action 6"},
+    {SDL_CONTROLLER_BUTTON_A,             SDL_SCANCODE_SPACE,        "Jump", "JUMP"},
+    {SDL_CONTROLLER_BUTTON_X,             SDL_SCANCODE_1,            "Action 1", "ACTIONBUTTON1"},
+    {SDL_CONTROLLER_BUTTON_Y,             SDL_SCANCODE_2,            "Action 2", "ACTIONBUTTON2"},
+    {SDL_CONTROLLER_BUTTON_DPAD_UP,       SDL_SCANCODE_3,            "Action 3", "ACTIONBUTTON3"},
+    {SDL_CONTROLLER_BUTTON_DPAD_RIGHT,    SDL_SCANCODE_4,            "Action 4", "ACTIONBUTTON4"},
+    {SDL_CONTROLLER_BUTTON_DPAD_DOWN,     SDL_SCANCODE_5,            "Action 5", "ACTIONBUTTON5"},
+    {SDL_CONTROLLER_BUTTON_DPAD_LEFT,     SDL_SCANCODE_6,            "Action 6", "ACTIONBUTTON6"},
     // Shift is not an action of its own: the client already reads it as "the
     // bottom-left bar", which is where actions 7 to 12 live on a keyboard
     // too. So the modifier costs nothing to implement and behaves exactly as
     // a player expects it to.
     {SDL_CONTROLLER_BUTTON_LEFTSHOULDER,  SDL_SCANCODE_LSHIFT,       "Hold: actions 7-12"},
-    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_SCANCODE_TAB,          "Target nearest enemy"},
-    {SDL_CONTROLLER_BUTTON_LEFTSTICK,     SDL_SCANCODE_NUMLOCKCLEAR, "Autorun"},
+    {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, SDL_SCANCODE_TAB,          "Target nearest enemy", "TARGETNEARESTENEMY"},
+    {SDL_CONTROLLER_BUTTON_LEFTSTICK,     SDL_SCANCODE_NUMLOCKCLEAR, "Autorun", "TOGGLEAUTORUN"},
     // The last button every pad has and nothing was using. X sits the
     // character down, and dives while swimming - both of them things a
     // keyboard could do and a controller could not reach at all.
@@ -234,13 +234,13 @@ namespace {
 // is a row in a settings list that does not exist and a key that can never be
 // pressed.
 constexpr PadBinding kExtras[] = {
-    {SDL_CONTROLLER_BUTTON_PADDLE1, SDL_SCANCODE_7,          "Action 7"},
-    {SDL_CONTROLLER_BUTTON_PADDLE2, SDL_SCANCODE_8,          "Action 8"},
-    {SDL_CONTROLLER_BUTTON_PADDLE3, SDL_SCANCODE_9,          "Action 9"},
-    {SDL_CONTROLLER_BUTTON_PADDLE4, SDL_SCANCODE_0,          "Action 10"},
+    {SDL_CONTROLLER_BUTTON_PADDLE1, SDL_SCANCODE_7,          "Action 7", "ACTIONBUTTON7"},
+    {SDL_CONTROLLER_BUTTON_PADDLE2, SDL_SCANCODE_8,          "Action 8", "ACTIONBUTTON8"},
+    {SDL_CONTROLLER_BUTTON_PADDLE3, SDL_SCANCODE_9,          "Action 9", "ACTIONBUTTON9"},
+    {SDL_CONTROLLER_BUTTON_PADDLE4, SDL_SCANCODE_0,          "Action 10", "ACTIONBUTTON10"},
     // The share, capture and microphone buttons are all one button to SDL,
     // and on every pad that has one it is the button for keeping a moment.
-    {SDL_CONTROLLER_BUTTON_MISC1,   SDL_SCANCODE_PRINTSCREEN, "Screenshot"},
+    {SDL_CONTROLLER_BUTTON_MISC1,   SDL_SCANCODE_PRINTSCREEN, "Screenshot", "SCREENSHOT"},
 };
 
 }  // namespace

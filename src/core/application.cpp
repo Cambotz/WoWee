@@ -1712,6 +1712,7 @@ void Application::run() {
         // those into a press. Applied after that read, every button would be
         // one frame late and a tap of one could be missed entirely.
         core::gamepad().update();
+        namePadKeysForInterface();
         ui::gamepadControls().setInWorld(state == AppState::IN_GAME);
         ui::gamepadControls().setWindow(window ? window->getSDLWindow() : nullptr);
         if (renderer && renderer->getCameraController()) {
@@ -1788,6 +1789,46 @@ void Application::run() {
     }
 
     LOG_INFO("Main loop ended");
+}
+
+void Application::namePadKeysForInterface() {
+    // What the interface calls the pad's buttons, in the pad's own words.
+    //
+    // FrameXML reads a key's display name out of _G["KEY_"..key], and 3.3.5
+    // predates controllers entirely - so with the pad's defaults now in the
+    // binding table, the Key Bindings panel showed rows reading "PAD3" where
+    // the thing in the player's hands says Square. The names come from the
+    // same table the settings panel lists, so a Switch pad reads Y where a
+    // PlayStation one reads Square.
+    //
+    // Written when the pad changes rather than every frame: it is a dozen
+    // globals, and the only thing that moves them is a different controller.
+    auto& pad = core::gamepad();
+    const auto kind = pad.isConnected() ? pad.kind() : core::Gamepad::Kind::Unknown;
+    if (kind == padKeyNamesFor_) return;
+    padKeyNamesFor_ = kind;
+    if (!pad.isConnected()) return;
+    auto* engine = addonManager_ ? addonManager_->getLuaEngine() : nullptr;
+    if (!engine) {
+        // Tried again next frame: the interface is built after the pad is
+        // opened, and this is worth nothing until it exists.
+        padKeyNamesFor_ = core::Gamepad::Kind::Unknown;
+        return;
+    }
+
+    std::string code;
+    for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b) {
+        const auto button = static_cast<SDL_GameControllerButton>(b);
+        const char* key = ui::padKeyName(button);
+        const char* label = ui::padButtonLabel(button, kind);
+        if (!key || !*key || !label || !*label) continue;
+        code += "KEY_";
+        code += key;
+        code += " = \"";
+        code += label;
+        code += "\"\n";
+    }
+    if (!code.empty()) engine->executeString(code);
 }
 
 void Application::shutdown() {

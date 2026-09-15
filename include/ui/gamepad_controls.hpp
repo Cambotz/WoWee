@@ -63,6 +63,20 @@ struct PadBinding {
     SDL_GameControllerButton button;
     SDL_Scancode key;      ///< what core::Input is told is held
     const char* what;      ///< what a person reads on the settings panel
+    /// The interface's own name for what this does - "ACTIONBUTTON3" - or ""
+    /// where there is none.
+    ///
+    /// These are seeded into the binding table so the game's own Key Bindings
+    /// panel shows the pad's defaults beside the keyboard's, which is where a
+    /// player looks to find out what a button does and the only place they
+    /// can change it. Here rather than in a list of their own, because a
+    /// second copy of this mapping would be wrong the moment either side
+    /// moved.
+    ///
+    /// Empty for the three the interface has no command for: the bumper that
+    /// is only a modifier, the button that raises the pointer, and the stick
+    /// click that sits the character down.
+    const char* command = "";
 };
 
 /// The default scheme, in the order it should be read.

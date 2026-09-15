@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/window.hpp"
+#include "core/gamepad.hpp"
 #include "ui/unit_portrait.hpp"
 #include "ui/widget_renderer.hpp"
 #include "core/input.hpp"
@@ -69,6 +70,10 @@ public:
     bool initialize();
     void run();
     void shutdown();
+
+    /// Tells the interface what the connected pad calls its own buttons, so
+    /// the Key Bindings panel reads Square rather than PAD3. Once per pad.
+    void namePadKeysForInterface();
 
     /// Tell the stall watchdog we are alive. Call from long synchronous work that
     /// keeps presenting frames itself (e.g. the world load) so it is not mistaken
@@ -218,6 +223,9 @@ private:
     static Application* instance;
 
     game::GameServices gameServices_;
+    /// The pad family the interface's key names were written for.
+    core::Gamepad::Kind padKeyNamesFor_ = core::Gamepad::Kind::Unknown;
+
     std::unique_ptr<Window> window;
     std::unique_ptr<rendering::Renderer> renderer;
     std::unique_ptr<ui::UIManager> uiManager;
