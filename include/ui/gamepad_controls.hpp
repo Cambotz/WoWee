@@ -28,6 +28,10 @@
  * real one - warped, so that everything which asks where the pointer is gets
  * the truth, from ImGui down to the client's own picking - and only the button
  * press is synthesised.
+ *
+ * A pad with a touchpad also gets it as a trackpad, in either mode: a slide
+ * moves the same pointer, a click is a left click, and a click with two
+ * fingers down is a right click.
  */
 
 #include <SDL2/SDL.h>
@@ -72,6 +76,32 @@ struct PadBinding {
 /// nothing binds, which is how the settings panel knows not to list it.
 [[nodiscard]] const char* padButtonLabel(SDL_GameControllerButton button);
 
+/// A finger on the touchpad, followed from one frame to the next.
+///
+/// The pointer moves by how far the finger slides, not to where it lands, so
+/// the frame a finger comes down is worth nothing. Otherwise lifting at the
+/// right edge and landing at the left would throw the pointer across the
+/// window, which is the opposite of how a trackpad is used.
+class TouchTrail {
+public:
+    /// This frame's reading. Returns the slide since the last frame, in the
+    /// touchpad's own 0-1 units, or zero if the finger has just landed or is
+    /// not down.
+    [[nodiscard]] glm::vec2 follow(bool down, glm::vec2 position) {
+        const glm::vec2 slide = (down && wasDown_) ? position - last_ : glm::vec2(0.0f);
+        wasDown_ = down;
+        last_ = position;
+        return slide;
+    }
+
+    /// Forgets the finger, so the next reading counts as a landing.
+    void reset() { wasDown_ = false; }
+
+private:
+    bool wasDown_ = false;
+    glm::vec2 last_{0.0f};
+};
+
 /**
  * The controller, applied to the client, once a frame.
  *
@@ -110,6 +140,18 @@ public:
         const float clamped = std::min(magnitude, 1.0f);
         const float speed = clamped * clamped * kPointerPointsPerSecond;
         return glm::vec2(stickX / magnitude, stickY / magnitude) * (speed * deltaTime);
+    }
+
+    /// How far the pointer travels for a slide across the touchpad.
+    ///
+    /// A slide the full width of the touchpad crosses the full width of the
+    /// window. SDL reports both axes as 0 to 1 although the touchpad is about
+    /// twice as wide as it is tall, so the vertical slide is scaled by that
+    /// ratio to make the same finger travel move the pointer the same distance
+    /// in every direction.
+    [[nodiscard]] static glm::vec2 touchStep(glm::vec2 slide, float windowWidth) {
+        if (windowWidth <= 0.0f) return glm::vec2(0.0f);
+        return glm::vec2(slide.x * windowWidth, slide.y * windowWidth / kTouchpadAspect);
     }
 
     /// Reads the pad and applies it. Call once a frame, before Input::update,
@@ -159,6 +201,11 @@ private:
     void holdMouseButton(int button, bool held);
     /// Turns the pointer on or off, putting the cursor somewhere sensible.
     void setPointerMode(bool on);
+    /// The touchpad, as a trackpad: a slide moves the pointer.
+    void applyTouchpad();
+    /// Both mouse buttons, from every control that clicks: A and X while the
+    /// pointer is up, and the touchpad in either mode.
+    void applyClicks();
 
     rendering::CameraController* camera_ = nullptr;
     SDL_Window* window_ = nullptr;
@@ -176,6 +223,11 @@ private:
     /// Which mouse buttons this is holding, so letting go clears those and
     /// only those. Index is SDL's, which is one-based.
     std::array<bool, 8> heldMouseButtons_{};
+    TouchTrail touchTrail_;
+    /// The mouse button a touchpad click is holding, or 0. Chosen when the
+    /// click goes down and kept until it comes up, so lifting the second
+    /// finger mid-click does not swap the right button for the left.
+    int touchClickButton_ = 0;
     bool enabled_ = true;
     bool steering_ = false;
     bool invertLook_ = false;
@@ -208,6 +260,9 @@ private:
     /// and a half, which is about as slow as a pointer can be before it feels
     /// broken.
     static constexpr float kPointerPointsPerSecond = 900.0f;
+    /// Width over height of a DualShock 4 touchpad (1920 by 943 in its own
+    /// units). A DualSense's is slightly squarer, not enough to show.
+    static constexpr float kTouchpadAspect = 2.0f;
 };
 
 /// The one instance, reached the way the touch controls are.

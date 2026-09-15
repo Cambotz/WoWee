@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace wowee {
 namespace ui {
@@ -76,6 +77,8 @@ void GamepadControls::reset() {
     }
     steering_ = false;
     zoomRemainder_ = 0.0f;
+    touchTrail_.reset();
+    touchClickButton_ = 0;
 }
 
 void GamepadControls::applyMovement(float x, float y) {
@@ -147,11 +150,10 @@ void GamepadControls::holdMouseButton(int button, bool held) {
 void GamepadControls::setPointerMode(bool on) {
     if (pointerMode_ == on) return;
     pointerMode_ = on;
-    if (!on) {
-        holdMouseButton(SDL_BUTTON_LEFT, false);
-        holdMouseButton(SDL_BUTTON_RIGHT, false);
-        return;
-    }
+    // Nothing is released here. Every path that turns the pointer off either
+    // resets all held buttons or goes on to applyClicks, which stops counting
+    // A and X - and a release here would drop a click the touchpad still holds.
+    if (!on) return;
     // Starts where the pointer already is rather than at the middle of the
     // screen, so turning it on twice does not throw away where it was left.
     int x = 0;
@@ -182,12 +184,55 @@ void GamepadControls::applyPointer(float deltaTime) {
         pointerY_ = std::clamp(pointerY_ + step.y, 0.0f, static_cast<float>(h - 1));
         SDL_WarpMouseInWindow(window_, static_cast<int>(pointerX_), static_cast<int>(pointerY_));
     }
+}
+
+void GamepadControls::applyTouchpad() {
+    const auto& finger = core::gamepad().touch(0);
+    // Followed every frame, before anything can return, so a finger that
+    // was down while there was no window is not read as one long slide.
+    const glm::vec2 slide = touchTrail_.follow(finger.down, finger.position);
+    if (!window_ || (slide.x == 0.0f && slide.y == 0.0f)) return;
+
+    int w = 0;
+    int h = 0;
+    SDL_GetWindowSize(window_, &w, &h);
+    if (w <= 0 || h <= 0) return;
+
+    // Starts from where the cursor really is. The touchpad works outside
+    // pointer mode too, so the stored position can be stale - left from the
+    // last time the stick moved it, with a real mouse used since.
+    int x = 0;
+    int y = 0;
+    SDL_GetMouseState(&x, &y);
+    if (std::abs(x - static_cast<int>(pointerX_)) > 1 || std::abs(y - static_cast<int>(pointerY_)) > 1) {
+        pointerX_ = static_cast<float>(x);
+        pointerY_ = static_cast<float>(y);
+    }
+    const glm::vec2 step = touchStep(slide, static_cast<float>(w));
+    pointerX_ = std::clamp(pointerX_ + step.x, 0.0f, static_cast<float>(w - 1));
+    pointerY_ = std::clamp(pointerY_ + step.y, 0.0f, static_cast<float>(h - 1));
+    SDL_WarpMouseInWindow(window_, static_cast<int>(pointerX_), static_cast<int>(pointerY_));
+}
+
+void GamepadControls::applyClicks() {
+    const auto& pad = core::gamepad();
+    if (!pad.held(SDL_CONTROLLER_BUTTON_TOUCHPAD)) {
+        touchClickButton_ = 0;
+    } else if (touchClickButton_ == 0) {
+        touchClickButton_ = pad.touch(1).down ? SDL_BUTTON_RIGHT : SDL_BUTTON_LEFT;
+    }
 
     // A is the click, as it is on every console, and X is the right click -
     // which in this game opens a corpse, uses a door and brings up a unit's
-    // menu, so a pad without one cannot loot.
-    holdMouseButton(SDL_BUTTON_LEFT, pad.held(SDL_CONTROLLER_BUTTON_A));
-    holdMouseButton(SDL_BUTTON_RIGHT, pad.held(SDL_CONTROLLER_BUTTON_X));
+    // menu, so a pad without one cannot loot. Those two only count while the
+    // pointer is up. Both channels are set once, from every source together,
+    // so one source letting go cannot release a button another still holds.
+    const bool left = (pointerMode_ && pad.held(SDL_CONTROLLER_BUTTON_A)) ||
+                      touchClickButton_ == SDL_BUTTON_LEFT;
+    const bool right = (pointerMode_ && pad.held(SDL_CONTROLLER_BUTTON_X)) ||
+                       touchClickButton_ == SDL_BUTTON_RIGHT;
+    holdMouseButton(SDL_BUTTON_LEFT, left);
+    holdMouseButton(SDL_BUTTON_RIGHT, right);
 }
 
 void GamepadControls::applyButtons() {
@@ -259,7 +304,10 @@ void GamepadControls::update(float deltaTime) {
         LOG_WARNING("Gamepad: ", pad.describe(),
                     " - left stick moves, right stick looks, triggers zoom, "
                     "A jumps, B closes, X/Y and the D-pad are actions 1-6, "
-                    "hold LB for 7-12, RB targets, L3 autoruns, Back gives you a pointer");
+                    "hold LB for 7-12, RB targets, L3 autoruns, Back gives you a pointer",
+                    pad.hasTouchpad() ? ", and the touchpad is a trackpad - click it, or click "
+                                        "with two fingers to right-click"
+                                      : "");
     }
 
     // Typing takes precedence over everything. The chat box is reached with a
@@ -294,6 +342,8 @@ void GamepadControls::update(float deltaTime) {
     } else {
         applyLook(pad.rightStick().x, pad.rightStick().y, deltaTime);
     }
+    applyTouchpad();
+    applyClicks();
     applyButtons();
 }
 

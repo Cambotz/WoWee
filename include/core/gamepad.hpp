@@ -93,6 +93,20 @@ public:
     /// same reasoning would be one more thing to keep in step.
     [[nodiscard]] bool held(SDL_GameControllerButton button) const;
 
+    /// One finger on the pad's touch surface. Position runs 0 to 1 across and
+    /// down from the top-left corner, as SDL reports it.
+    struct TouchFinger {
+        bool down = false;
+        glm::vec2 position{0.0f};
+    };
+
+    /// Whether the pad has a touch surface. PlayStation pads do; most others
+    /// do not, and read as no finger down.
+    [[nodiscard]] bool hasTouchpad() const { return touchFingers_ > 0; }
+    /// The first or second finger on the touch surface. A finger the pad
+    /// cannot track reads as not down.
+    [[nodiscard]] const TouchFinger& touch(int finger) const;
+
     /// How much of each stick counts as rest. A worn stick that no longer
     /// centres needs a wider one, which is why this is a setting and not a
     /// constant.
@@ -129,6 +143,13 @@ private:
 
     static constexpr int kButtonCount = SDL_CONTROLLER_BUTTON_MAX;
     std::array<bool, kButtonCount> current_{};
+
+    /// The first touch surface's fingers. Two, because that is what a
+    /// PlayStation pad tracks, and a two-finger click is the right click.
+    static constexpr int kTouchFingers = 2;
+    std::array<TouchFinger, kTouchFingers> touch_{};
+    /// How many of those the connected pad actually tracks.
+    int touchFingers_ = 0;
 
     glm::vec2 leftStick_{0.0f};
     glm::vec2 rightStick_{0.0f};

@@ -105,7 +105,11 @@ void Gamepad::openDevice(int joystickIndex) {
     const char* padName = SDL_GameControllerName(pad_);
     name_ = padName ? padName : "controller";
     current_.fill(false);
-    LOG_INFO("Gamepad: ", name_, " connected");
+    touch_.fill(TouchFinger{});
+    touchFingers_ = SDL_GameControllerGetNumTouchpads(pad_) > 0
+                        ? std::clamp(SDL_GameControllerGetNumTouchpadFingers(pad_, 0), 0, kTouchFingers)
+                        : 0;
+    LOG_INFO("Gamepad: ", name_, " connected", hasTouchpad() ? ", with a touchpad" : "");
 }
 
 void Gamepad::closeDevice() {
@@ -119,6 +123,8 @@ void Gamepad::closeDevice() {
     // otherwise leave its last reading standing, and the character would walk
     // north until something else stopped them.
     current_.fill(false);
+    touch_.fill(TouchFinger{});
+    touchFingers_ = 0;
     leftStick_ = glm::vec2(0.0f);
     rightStick_ = glm::vec2(0.0f);
     leftTrigger_ = 0.0f;
@@ -171,11 +177,29 @@ void Gamepad::update() {
         axisFraction(SDL_GameControllerGetAxis(pad_, SDL_CONTROLLER_AXIS_TRIGGERLEFT)), kTriggerDeadzone);
     rightTrigger_ = triggerFraction(
         axisFraction(SDL_GameControllerGetAxis(pad_, SDL_CONTROLLER_AXIS_TRIGGERRIGHT)), kTriggerDeadzone);
+
+    for (int f = 0; f < kTouchFingers; ++f) {
+        TouchFinger& finger = touch_[static_cast<std::size_t>(f)];
+        Uint8 state = 0;
+        float x = 0.0f;
+        float y = 0.0f;
+        float pressure = 0.0f;
+        const bool read = f < touchFingers_ &&
+                          SDL_GameControllerGetTouchpadFinger(pad_, 0, f, &state, &x, &y, &pressure) == 0;
+        finger.down = read && state != 0;
+        if (finger.down) finger.position = glm::vec2(x, y);
+    }
 }
 
 bool Gamepad::held(SDL_GameControllerButton button) const {
     if (button < 0 || button >= kButtonCount) return false;
     return current_[static_cast<std::size_t>(button)];
+}
+
+const Gamepad::TouchFinger& Gamepad::touch(int finger) const {
+    static const TouchFinger kNone{};
+    if (finger < 0 || finger >= kTouchFingers) return kNone;
+    return touch_[static_cast<std::size_t>(finger)];
 }
 
 void Gamepad::setStickDeadzone(float fraction) {

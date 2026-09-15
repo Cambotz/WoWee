@@ -402,8 +402,13 @@ core, and reproduction steps.
 
 ## License and references
 
-WoWee source code is available under the [MIT License](LICENSE). World of
-Warcraft and its assets are property of Blizzard Entertainment, Inc.
+WoWee source code is available under the [MIT License with an additional
+restriction](LICENSE): it may not be used, in whole or in part, as the basis
+for or a component of a commercial video game or other commercial game
+product without written permission. Original music and audio assets are not
+covered by the MIT terms at all and are reserved - see [LICENSE](LICENSE) and
+[NOTICE](NOTICE). World of Warcraft and its assets are property of Blizzard
+Entertainment, Inc.
 
 - [WoWDev Wiki](https://wowdev.wiki/) - file-format documentation
 - [TrinityCore](https://github.com/TrinityCore/TrinityCore) - server reference

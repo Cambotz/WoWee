@@ -616,6 +616,10 @@ end
 -- of them were short - the About block said it needed 42 where four lines of
 -- that font are 58 - which is how the client's name and the author's line
 -- ended up drawn over the Okay and Cancel buttons.
+--
+-- The page is full: it ends at 427 of the 428 the container has. A block that
+-- grows takes the room from another one rather than from the bottom, and the
+-- layout test says so the moment it does not.
 -- The root panel is laid out by hand rather than generated, so the anchors
 -- below carry the room each block needs as a "needs N" note. A test reads
 -- those and checks nothing is placed inside anything else - which is how a
@@ -639,7 +643,7 @@ rootTitle:SetPoint("TOPLEFT", 16, -16) -- needs 22
 rootTitle:SetText(ROOT)
 
 local blurb = root:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-blurb:SetPoint("TOPLEFT", 16, -48) -- needs 44
+blurb:SetPoint("TOPLEFT", 16, -42) -- needs 44
 blurb:SetWidth(CONTENT_WIDTH)
 blurb:SetJustifyH("LEFT")
 blurb:SetJustifyV("TOP")
@@ -648,7 +652,7 @@ blurb:SetText("This client's own settings, under the headings below. "
     .. "there when you opened the panel.")
 
 local elsewhere = root:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-elsewhere:SetPoint("TOPLEFT", 16, -244) -- needs 15
+elsewhere:SetPoint("TOPLEFT", 16, -235) -- needs 15
 elsewhere:SetText("In the game's own panels")
 
 local elsewhereRule = root:CreateTexture(nil, "ARTWORK")
@@ -656,10 +660,10 @@ elsewhereRule:SetTexture("Interface\\Buttons\\WHITE8X8")
 elsewhereRule:SetVertexColor(0.5, 0.42, 0.22, 0.7)
 elsewhereRule:SetWidth(CONTENT_WIDTH)
 elsewhereRule:SetHeight(1)
-elsewhereRule:SetPoint("TOPLEFT", 16, -262) -- needs 2
+elsewhereRule:SetPoint("TOPLEFT", 16, -253) -- needs 2
 
 local elsewhereText = root:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-elsewhereText:SetPoint("TOPLEFT", 16, -272) -- needs 72
+elsewhereText:SetPoint("TOPLEFT", 16, -263) -- needs 72
 elsewhereText:SetWidth(CONTENT_WIDTH)
 elsewhereText:SetJustifyH("LEFT")
 elsewhereText:SetJustifyV("TOP")
@@ -705,7 +709,7 @@ elsewhereText:SetText(table.concat(elsewhereLines, "\n"))
 -- What this build is. The version comes from the client rather than being
 -- written here, where it would go stale the first time a tag was cut.
 local aboutTitle = root:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-aboutTitle:SetPoint("TOPLEFT", 16, -352) -- needs 15
+aboutTitle:SetPoint("TOPLEFT", 16, -341) -- needs 15
 aboutTitle:SetText("About")
 
 local aboutRule = root:CreateTexture(nil, "ARTWORK")
@@ -713,15 +717,22 @@ aboutRule:SetTexture("Interface\\Buttons\\WHITE8X8")
 aboutRule:SetVertexColor(0.5, 0.42, 0.22, 0.7)
 aboutRule:SetWidth(CONTENT_WIDTH)
 aboutRule:SetHeight(1)
-aboutRule:SetPoint("TOPLEFT", 16, -370) -- needs 2
+aboutRule:SetPoint("TOPLEFT", 16, -359) -- needs 2
 
 local aboutText = root:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-aboutText:SetPoint("TOPLEFT", 16, -380) -- needs 44
+aboutText:SetPoint("TOPLEFT", 16, -369) -- needs 58
 aboutText:SetWidth(CONTENT_WIDTH)
 aboutText:SetJustifyH("LEFT")
 aboutText:SetJustifyV("TOP")
+-- The terms, on the page a player actually opens.
+--
+-- They were in LICENSE and nowhere else, and the README went on saying plain
+-- MIT for two months after the restriction was added. A licence nobody is
+-- shown is one nobody knows about, and this is the one screen in the client
+-- that says what this software is.
 aboutText:SetText("WoWee, a World of Warcraft client\n"
     .. (WoweeVersion and WoweeVersion() or "") .. "\n"
+    .. "MIT, less commercial game use. See LICENSE.\n"
     .. "Kelsi Davis  ..  |cff66b3ffgithub.com/Kelsidavis/WoWee|r")
 
 -- Find a setting without knowing which panel it is on.
@@ -731,7 +742,7 @@ aboutText:SetText("WoWee, a World of Warcraft client\n"
 -- reported missing. Typing here lists what matches and, more to the point,
 -- says which panel each one is on.
 local searchTitle = root:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-searchTitle:SetPoint("TOPLEFT", 16, -96) -- needs 15
+searchTitle:SetPoint("TOPLEFT", 16, -90) -- needs 15
 searchTitle:SetText("Find a setting")
 
 local searchRule = root:CreateTexture(nil, "ARTWORK")
@@ -739,10 +750,10 @@ searchRule:SetTexture("Interface\\Buttons\\WHITE8X8")
 searchRule:SetVertexColor(0.5, 0.42, 0.22, 0.7)
 searchRule:SetWidth(CONTENT_WIDTH)
 searchRule:SetHeight(1)
-searchRule:SetPoint("TOPLEFT", 16, -114) -- needs 2
+searchRule:SetPoint("TOPLEFT", 16, -108) -- needs 2
 
 local searchBox = CreateFrame("EditBox", "WoweeOptionsSearchBox", root, "InputBoxTemplate")
-searchBox:SetPoint("TOPLEFT", 22, -122) -- needs 22
+searchBox:SetPoint("TOPLEFT", 22, -116) -- needs 22
 searchBox:SetWidth(280)
 searchBox:SetHeight(20)
 searchBox:SetAutoFocus(false)
@@ -751,7 +762,7 @@ searchBox:SetAutoFocus(false)
 -- headless runner cannot enumerate a frame's regions.
 local searchResults = root:CreateFontString("WoweeOptionsSearchResults",
                                            "ARTWORK", "GameFontHighlightSmall")
-searchResults:SetPoint("TOPLEFT", 16, -150) -- needs 87
+searchResults:SetPoint("TOPLEFT", 16, -144) -- needs 87
 searchResults:SetWidth(CONTENT_WIDTH)
 searchResults:SetJustifyH("LEFT")
 searchResults:SetJustifyV("TOP")

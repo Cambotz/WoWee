@@ -212,3 +212,43 @@ TEST_CASE("every bound button has a name a player would recognise") {
     CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_START)) == "Start");
     CHECK(std::string(wowee::ui::padButtonLabel(SDL_CONTROLLER_BUTTON_BACK)) == "Back");
 }
+
+TEST_CASE("a finger landing on the touchpad does not move the pointer") {
+    // Lifting at one edge and landing at the other is how a trackpad crosses
+    // a screen, so a landing must be worth nothing.
+    wowee::ui::TouchTrail trail;
+    const glm::vec2 landed = trail.follow(true, glm::vec2(0.9f, 0.5f));
+    CHECK(landed.x == Catch::Approx(0.0f));
+    CHECK(landed.y == Catch::Approx(0.0f));
+
+    const glm::vec2 slid = trail.follow(true, glm::vec2(0.7f, 0.6f));
+    CHECK(slid.x == Catch::Approx(-0.2f));
+    CHECK(slid.y == Catch::Approx(0.1f));
+
+    // Lifted, then down somewhere else: a new landing, not a slide.
+    CHECK(trail.follow(false, glm::vec2(0.7f, 0.6f)).x == Catch::Approx(0.0f));
+    CHECK(trail.follow(true, glm::vec2(0.1f, 0.5f)).x == Catch::Approx(0.0f));
+}
+
+TEST_CASE("a reset touch trail treats the next reading as a landing") {
+    wowee::ui::TouchTrail trail;
+    (void)trail.follow(true, glm::vec2(0.2f, 0.2f));
+    trail.reset();
+    CHECK(trail.follow(true, glm::vec2(0.8f, 0.8f)).x == Catch::Approx(0.0f));
+}
+
+TEST_CASE("a touchpad slide moves the pointer the same distance in every direction") {
+    // The full width of the touchpad is the full width of the window.
+    const glm::vec2 across = wowee::ui::GamepadControls::touchStep(glm::vec2(1.0f, 0.0f), 1280.0f);
+    CHECK(across.x == Catch::Approx(1280.0f));
+    CHECK(across.y == Catch::Approx(0.0f));
+
+    // A quarter of the touchpad's width is half its height, since it is twice
+    // as wide as tall; that same finger travel must move the pointer equally.
+    const glm::vec2 right = wowee::ui::GamepadControls::touchStep(glm::vec2(0.25f, 0.0f), 1280.0f);
+    const glm::vec2 down = wowee::ui::GamepadControls::touchStep(glm::vec2(0.0f, 0.5f), 1280.0f);
+    CHECK(down.y == Catch::Approx(right.x));
+
+    // No window, nowhere to move.
+    CHECK(wowee::ui::GamepadControls::touchStep(glm::vec2(1.0f, 1.0f), 0.0f).x == Catch::Approx(0.0f));
+}
