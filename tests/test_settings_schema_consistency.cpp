@@ -340,7 +340,7 @@ TEST_CASE("every panel the client offers still has settings on it", "[settings][
 
     for (const char* category : {"Graphics", "Detail", "Grass", "Upscaling", "Display",
                                  "Camera", "Interface", "Minimap", "Action Bars", "HUD",
-                                 "Combat", "Names", "Combat Text", "Unit Frames",
+                                 "Combat", "Names", "Nameplates", "Combat Text", "Unit Frames",
                                  "Sound", "Sound Effects", "Chat", "Gameplay"}) {
         INFO("no setting names the category " << category
              << " any more, so that panel is empty or gone");
@@ -356,6 +356,9 @@ TEST_CASE("every panel the client offers still has settings on it", "[settings][
     // to carry moved here: Graphics was already using most of its two
     // columns, so the ones describing how much of the world is drawn went to
     // a Detail page of their own.
-    INFO("the schema names " << present.size() << " categories where eighteen are expected");
-    CHECK(present.size() == 18);
+    // Nineteen since the nameplates left the Names page: twenty-five controls
+    // is more than the 413 by 428 container holds in two columns, and the
+    // last four were being laid out past the bottom of the second one.
+    INFO("the schema names " << present.size() << " categories where nineteen are expected");
+    CHECK(present.size() == 19);
 }

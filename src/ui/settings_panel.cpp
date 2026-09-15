@@ -97,6 +97,13 @@ void SettingsPanel::renderSettingsInterfaceTab(const std::function<void()>& save
     ImGui::SeparatorText("Names");
     drawSchemaCategory("Names", saveCallback);
 
+    // Its own category since the nameplates outgrew the Names panel in the
+    // game's own options frame; this window scrolls, so here they are just
+    // the next heading down.
+    ImGui::Spacing();
+    ImGui::SeparatorText("Nameplates");
+    drawSchemaCategory("Nameplates", saveCallback);
+
     ImGui::Spacing();
     ImGui::SeparatorText("Combat");
     drawSchemaCategory("Combat", saveCallback);

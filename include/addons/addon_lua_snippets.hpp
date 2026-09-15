@@ -27,8 +27,10 @@ if not list or #list == 0 then return end
 
 local ROOT = "WoWee"
 
--- The panel container is 623 wide and a little under 500 tall, so two columns
--- of roughly 300 fit side by side with room for a slider's own labels. A
+-- The panel container is 413 wide and 428 tall - measured off the real
+-- FrameXML rather than assumed, after "623 by a little under 500" had been
+-- written here long enough to be quoted into three other places. Two columns
+-- of about 180 fit side by side with room for a slider's own labels. A
 -- category that outgrows both columns is a category that wants splitting;
 -- rather than clip it, the layout keeps going down the second column and the
 -- overflow is visible, which is the version of this failure someone notices.
@@ -50,10 +52,13 @@ local kCategoryHost = {
     ["Sound Effects"] = "audio",
 }
 
-local COLUMN_X      = {16, 326}
+-- Where a panel's controls start. The rest of the column arithmetic - how
+-- many there are, how wide, and where the bottom is - is measured off the
+-- panel in newLayout, because the three frames that host these panels are not
+-- the same width. There were constants for those too, describing a container
+-- 623 wide that nothing is laid out in; they were left behind when the
+-- builder started measuring, and the layout test went on checking them.
 local COLUMN_TOP    = -52
-local COLUMN_BOTTOM = -436
-local COLUMN_WIDTH  = 290
 
 -- Frame names are looked up in _G, so a category's name has to survive being
 -- part of one. "Combat & HUD" would not.
@@ -604,6 +609,13 @@ end
 
 -- The root. It holds no controls of its own: what it is for is to say what
 -- this client's own settings are, and where the six that are not here live.
+--
+-- The "needs N" notes below are measured rather than estimated: every block
+-- was laid out at the width this panel really has, and its GetStringHeight
+-- read back through the headless runner. They were guesses before, and three
+-- of them were short - the About block said it needed 42 where four lines of
+-- that font are 58 - which is how the client's name and the author's line
+-- ended up drawn over the Okay and Cancel buttons.
 -- The root panel is laid out by hand rather than generated, so the anchors
 -- below carry the room each block needs as a "needs N" note. A test reads
 -- those and checks nothing is placed inside anything else - which is how a
@@ -612,13 +624,23 @@ end
 local root = CreateFrame("Frame", "WoweeOptionsRoot")
 root.name = ROOT
 
+-- The room this panel actually has.
+--
+-- Every width below was 560, which is not a number from anywhere: the frame
+-- the game puts these panels in is 648 wide and the container inside it 413,
+-- so a 560-wide rule ran a third of its length outside the window and the
+-- text beside it wrapped against nothing. Read off the container instead,
+-- with the measured figure as the fallback for a run where it has not loaded.
+local rootContainer = rawget(_G, "InterfaceOptionsFramePanelContainer")
+local CONTENT_WIDTH = math.max(200, (rootContainer and rootContainer:GetWidth() or 413) - 32)
+
 local rootTitle = root:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge")
 rootTitle:SetPoint("TOPLEFT", 16, -16) -- needs 22
 rootTitle:SetText(ROOT)
 
 local blurb = root:CreateFontString(nil, "ARTWORK", "GameFontHighlight")
-blurb:SetPoint("TOPLEFT", 16, -48) -- needs 42
-blurb:SetWidth(560)
+blurb:SetPoint("TOPLEFT", 16, -48) -- needs 44
+blurb:SetWidth(CONTENT_WIDTH)
 blurb:SetJustifyH("LEFT")
 blurb:SetJustifyV("TOP")
 blurb:SetText("This client's own settings, under the headings below. "
@@ -626,19 +648,19 @@ blurb:SetText("This client's own settings, under the headings below. "
     .. "there when you opened the panel.")
 
 local elsewhere = root:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-elsewhere:SetPoint("TOPLEFT", 16, -240) -- needs 14
+elsewhere:SetPoint("TOPLEFT", 16, -244) -- needs 15
 elsewhere:SetText("In the game's own panels")
 
 local elsewhereRule = root:CreateTexture(nil, "ARTWORK")
 elsewhereRule:SetTexture("Interface\\Buttons\\WHITE8X8")
 elsewhereRule:SetVertexColor(0.5, 0.42, 0.22, 0.7)
-elsewhereRule:SetWidth(560)
+elsewhereRule:SetWidth(CONTENT_WIDTH)
 elsewhereRule:SetHeight(1)
-elsewhereRule:SetPoint("TOPLEFT", 16, -258) -- needs 2
+elsewhereRule:SetPoint("TOPLEFT", 16, -262) -- needs 2
 
 local elsewhereText = root:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-elsewhereText:SetPoint("TOPLEFT", 16, -268) -- needs 84
-elsewhereText:SetWidth(560)
+elsewhereText:SetPoint("TOPLEFT", 16, -272) -- needs 72
+elsewhereText:SetWidth(CONTENT_WIDTH)
 elsewhereText:SetJustifyH("LEFT")
 elsewhereText:SetJustifyV("TOP")
 -- As data rather than only as a sentence, because the search box above reads
@@ -668,9 +690,12 @@ WOWEE_SETTINGS_ELSEWHERE = {
     { panel = "Key Bindings",      names = { "every key" } },
 }
 
+-- No blank line after the sentence. The panel is 428 tall and the content
+-- wants every line of that: a spacer here is one line of the four the About
+-- block needs at the bottom.
 local elsewhereLines = {
     "Some settings are driven by the game's own controls rather than repeated "
-    .. "here, so that the two cannot disagree:", "" }
+    .. "here, so that the two cannot disagree:" }
 for _, group in ipairs(WOWEE_SETTINGS_ELSEWHERE) do
     elsewhereLines[#elsewhereLines + 1] =
         "|cffffd100" .. group.panel .. "|r  ..  " .. table.concat(group.names, ", ")
@@ -680,23 +705,23 @@ elsewhereText:SetText(table.concat(elsewhereLines, "\n"))
 -- What this build is. The version comes from the client rather than being
 -- written here, where it would go stale the first time a tag was cut.
 local aboutTitle = root:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-aboutTitle:SetPoint("TOPLEFT", 16, -370) -- needs 14
+aboutTitle:SetPoint("TOPLEFT", 16, -352) -- needs 15
 aboutTitle:SetText("About")
 
 local aboutRule = root:CreateTexture(nil, "ARTWORK")
 aboutRule:SetTexture("Interface\\Buttons\\WHITE8X8")
 aboutRule:SetVertexColor(0.5, 0.42, 0.22, 0.7)
-aboutRule:SetWidth(560)
+aboutRule:SetWidth(CONTENT_WIDTH)
 aboutRule:SetHeight(1)
-aboutRule:SetPoint("TOPLEFT", 16, -388) -- needs 2
+aboutRule:SetPoint("TOPLEFT", 16, -370) -- needs 2
 
 local aboutText = root:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall")
-aboutText:SetPoint("TOPLEFT", 16, -398) -- needs 42
-aboutText:SetWidth(560)
+aboutText:SetPoint("TOPLEFT", 16, -380) -- needs 44
+aboutText:SetWidth(CONTENT_WIDTH)
 aboutText:SetJustifyH("LEFT")
 aboutText:SetJustifyV("TOP")
 aboutText:SetText("WoWee, a World of Warcraft client\n"
-    .. (WoweeVersion and WoweeVersion() or "") .. "\n\n"
+    .. (WoweeVersion and WoweeVersion() or "") .. "\n"
     .. "Kelsi Davis  ..  |cff66b3ffgithub.com/Kelsidavis/WoWee|r")
 
 -- Find a setting without knowing which panel it is on.
@@ -706,18 +731,18 @@ aboutText:SetText("WoWee, a World of Warcraft client\n"
 -- reported missing. Typing here lists what matches and, more to the point,
 -- says which panel each one is on.
 local searchTitle = root:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
-searchTitle:SetPoint("TOPLEFT", 16, -104) -- needs 14
+searchTitle:SetPoint("TOPLEFT", 16, -96) -- needs 15
 searchTitle:SetText("Find a setting")
 
 local searchRule = root:CreateTexture(nil, "ARTWORK")
 searchRule:SetTexture("Interface\\Buttons\\WHITE8X8")
 searchRule:SetVertexColor(0.5, 0.42, 0.22, 0.7)
-searchRule:SetWidth(560)
+searchRule:SetWidth(CONTENT_WIDTH)
 searchRule:SetHeight(1)
-searchRule:SetPoint("TOPLEFT", 16, -122) -- needs 2
+searchRule:SetPoint("TOPLEFT", 16, -114) -- needs 2
 
 local searchBox = CreateFrame("EditBox", "WoweeOptionsSearchBox", root, "InputBoxTemplate")
-searchBox:SetPoint("TOPLEFT", 22, -130) -- needs 22
+searchBox:SetPoint("TOPLEFT", 22, -122) -- needs 22
 searchBox:SetWidth(280)
 searchBox:SetHeight(20)
 searchBox:SetAutoFocus(false)
@@ -726,8 +751,8 @@ searchBox:SetAutoFocus(false)
 -- headless runner cannot enumerate a frame's regions.
 local searchResults = root:CreateFontString("WoweeOptionsSearchResults",
                                            "ARTWORK", "GameFontHighlightSmall")
-searchResults:SetPoint("TOPLEFT", 16, -158) -- needs 78
-searchResults:SetWidth(560)
+searchResults:SetPoint("TOPLEFT", 16, -150) -- needs 87
+searchResults:SetWidth(CONTENT_WIDTH)
 searchResults:SetJustifyH("LEFT")
 searchResults:SetJustifyV("TOP")
 

@@ -518,35 +518,44 @@ constexpr SettingDesc kSchema[] = {
     {"enemytotemnames", "Enemy totems", SettingKind::Bool, 0, 0, 0, "Names", "",
      "Names over their totems.", "", 1, "", "cvar:UnitNameEnemyTotemName"},
 
-    {"friendlyplates", "Friendly nameplates", SettingKind::Bool, 0, 0, 0, "Names", "Nameplates",
+    // Nameplates are a panel of their own, not a section of Names.
+    //
+    // Twenty-five controls do not fit on one options panel. The container the
+    // game puts them in is 413 by 428, which is two columns of about 180 and
+    // a little over 360 of height each, and the last four of these were laid
+    // out past the bottom of the second one - registered, refreshed,
+    // answering correctly, and not on screen. The two halves are already
+    // separate ideas: names drawn over heads, and the plates with the health
+    // bars on them.
+    {"friendlyplates", "Friendly nameplates", SettingKind::Bool, 0, 0, 0, "Nameplates", "Nameplates",
      "Name and health bars over friendly players and creatures, not\n"
      "only hostile ones. Shift+V toggles this too.", "", 0},
-    {"friendlypetplates", "Friendly pets", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"friendlypetplates", "Friendly pets", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Plates over friendly pets.", "", 1, "friendlyplates", "cvar:nameplateShowFriendlyPets"},
-    {"friendlyguardianplates", "Friendly guardians", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"friendlyguardianplates", "Friendly guardians", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Plates over friendly guardians.", "", 1, "friendlyplates",
      "cvar:nameplateShowFriendlyGuardians"},
-    {"friendlytotemplates", "Friendly totems", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"friendlytotemplates", "Friendly totems", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Plates over friendly totems.", "", 0, "friendlyplates", "cvar:nameplateShowFriendlyTotems"},
-    {"enemyplates", "Enemy nameplates", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"enemyplates", "Enemy nameplates", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Name and health bars over hostile players and creatures. The V\n"
      "key toggles this too.", "", 1},
-    {"enemypetplates", "Enemy pets", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"enemypetplates", "Enemy pets", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Plates over enemy pets.", "", 1, "enemyplates", "cvar:nameplateShowEnemyPets"},
-    {"enemyguardianplates", "Enemy guardians", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"enemyguardianplates", "Enemy guardians", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Plates over enemy guardians.", "", 1, "enemyplates", "cvar:nameplateShowEnemyGuardians"},
-    {"enemytotemplates", "Enemy totems", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"enemytotemplates", "Enemy totems", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Plates over enemy totems.", "", 1, "enemyplates", "cvar:nameplateShowEnemyTotems"},
-    {"nameplateoverlap", "Let nameplates overlap", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"nameplateoverlap", "Let nameplates overlap", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Plates over units standing in a line may cover each other. Off,\n"
      "each is pushed clear of the others.", "", 0, "", "cvar:nameplateAllowOverlap"},
     {"nameplateclasscolours", "Class colours for enemy players", SettingKind::Bool, 0, 0, 0,
-     "Names", "", "Colour an enemy player's health bar by their class.", "", 0,
+     "Nameplates", "", "Colour an enemy player's health bar by their class.", "", 0,
      "", "cvar:ShowClassColorInNameplate"},
-    {"nameplatecastbar", "Cast bar on the target's plate", SettingKind::Bool, 0, 0, 0, "Names", "",
+    {"nameplatecastbar", "Cast bar on the target's plate", SettingKind::Bool, 0, 0, 0, "Nameplates", "",
      "Show what your target is casting under its nameplate.", "", 1,
      "", "cvar:showVKeyCastbar"},
-    {"nameplatescale", "Nameplate scale", SettingKind::Float, 0.5f, 2.0f, 0.05f, "Names", "",
+    {"nameplatescale", "Nameplate scale", SettingKind::Float, 0.5f, 2.0f, 0.05f, "Nameplates", "",
      "Size of the name and health bars over creatures' heads.", "", 1},
 
     // ------------------------------------------------------------- Combat Text

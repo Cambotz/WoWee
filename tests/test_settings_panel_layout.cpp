@@ -39,12 +39,67 @@ constexpr int kHeadingHeight = 32;
 constexpr int kCheckButtonHeight = 27;
 constexpr int kSliderHeight = 50;  // and dropdowns, which reserve the same
 
+/// The room a panel has, and how newLayout divides it.
+///
+/// The builder measures the frame it was given rather than reading constants,
+/// so this measures the same way. The panel size is the fallback pair written
+/// into newLayout itself - 413 x 428, which is what
+/// InterfaceOptionsFramePanelContainer really comes out at, asked of the real
+/// FrameXML through framexml_run.
+///
+/// This used to read COLUMN_X, COLUMN_WIDTH and COLUMN_BOTTOM out of the Lua.
+/// Those described a container 623 wide and 446 tall that nothing has ever
+/// been laid out in; the builder stopped using them when it started measuring,
+/// and the test went on checking them. So it was laying the schema out against
+/// a panel half again as wide as the real one, and passing.
+struct Layout {
+    int panelWidth;
+    int panelHeight;
+    int columnWidth;
+    std::vector<int> columns;
+    int bottom;
+};
+
+Layout panelLayout(const std::string& lua) {
+    // The fallback dimensions, which are the measured ones.
+    const std::regex fallbackW(R"(if\s+width\s*<=\s*0\s+then\s+width\s*=\s*([0-9]+))");
+    const std::regex fallbackH(R"(if\s+height\s*<=\s*0\s+then\s+height\s*=\s*([0-9]+))");
+    const std::regex spacing(
+        R"(local\s+margin,\s*gap,\s*minWidth\s*=\s*([0-9]+),\s*([0-9]+),\s*([0-9]+))");
+    std::smatch w;
+    std::smatch h;
+    std::smatch sp;
+    REQUIRE(std::regex_search(lua, w, fallbackW));
+    REQUIRE(std::regex_search(lua, h, fallbackH));
+    REQUIRE(std::regex_search(lua, sp, spacing));
+
+    Layout out;
+    out.panelWidth = std::stoi(w[1]);
+    out.panelHeight = std::stoi(h[1]);
+    const int margin = std::stoi(sp[1]);
+    const int gap = std::stoi(sp[2]);
+    const int minWidth = std::stoi(sp[3]);
+
+    const int twoWide = (out.panelWidth - margin * 2 - gap) / 2;
+    if (twoWide >= minWidth) {
+        out.columnWidth = twoWide;
+        out.columns = {margin, margin + out.columnWidth + gap};
+    } else {
+        out.columnWidth = std::max(minWidth, out.panelWidth - margin * 2);
+        out.columns = {margin};
+    }
+    out.bottom = -(out.panelHeight - 10);
+    return out;
+}
+
 }  // namespace
 
 TEST_CASE("every settings panel fits in its two columns", "[settings]") {
     const std::string lua = addons::kWoweeOptionsPanelLua;
     const int columnTop = luaConstant(lua, "COLUMN_TOP");
-    const int columnBottom = luaConstant(lua, "COLUMN_BOTTOM");
+    const Layout layout = panelLayout(lua);
+    const int columnBottom = layout.bottom;
+    const int columnCount = static_cast<int>(layout.columns.size());
     REQUIRE(columnBottom < columnTop);
 
     std::size_t count = 0;
@@ -78,8 +133,8 @@ TEST_CASE("every settings panel fits in its two columns", "[settings]") {
                                                                       : kSliderHeight);
 
         for (int height : reservations) {
-            if (y - height < columnBottom && column == 1) {
-                column = 2;
+            if (y - height < columnBottom && column < columnCount) {
+                ++column;
                 y = columnTop;
             }
             INFO("setting " << schema[i].key << " on panel " << schema[i].category
@@ -96,24 +151,18 @@ TEST_CASE("a dropdown does not hang off the right of the panel", "[settings]") {
     // its column, because the template carries its own left inset. In the
     // second column that is the tightest fit on the panel.
     const std::string lua = addons::kWoweeOptionsPanelLua;
-    const int columnWidth = luaConstant(lua, "COLUMN_WIDTH");
-
-    // COLUMN_X is a table rather than a number, so it is read on its own.
-    const std::regex columns("local\\s+COLUMN_X\\s*=\\s*\\{\\s*(-?[0-9]+)\\s*,\\s*(-?[0-9]+)");
-    std::smatch m;
-    REQUIRE(std::regex_search(lua, m, columns));
-    const int secondColumnX = std::stoi(m[2]);
+    const Layout layout = panelLayout(lua);
+    const int lastColumnX = layout.columns.back();
 
     // What the builder does: anchor back by 14, then UIDropDownMenu_SetWidth
-    // with COLUMN_WIDTH - 60. The template adds about 25 units of its own
-    // chrome on each side of that.
-    const int left = secondColumnX - 14;
-    const int right = left + (columnWidth - 60) + 25 * 2;
+    // with the column width less 60. The template adds about 25 units of its
+    // own chrome on each side of that.
+    const int left = lastColumnX - 14;
+    const int right = left + (layout.columnWidth - 60) + 25 * 2;
 
-    // InterfaceOptionsFramePanelContainer, which is what the panels sit in.
-    constexpr int kPanelWidth = 623;
-    INFO("a dropdown in the second column reaches " << right << " of " << kPanelWidth);
-    CHECK(right <= kPanelWidth);
+    INFO("a dropdown in the last column reaches " << right << " of "
+         << layout.panelWidth);
+    CHECK(right <= layout.panelWidth);
 }
 
 TEST_CASE("the root panel's blocks do not sit inside each other", "[settings]") {
@@ -146,8 +195,14 @@ TEST_CASE("the root panel's blocks do not sit inside each other", "[settings]") 
         previousBottom = b.top + b.needs;
     }
 
-    // InterfaceOptionsFramePanelContainer is about 492 tall.
-    constexpr int kPanelHeight = 492;
+    // InterfaceOptionsFramePanelContainer, measured rather than estimated.
+    //
+    // The frame the game puts these panels in is 648 x 520 in its own XML,
+    // and the container inside it comes out at 413 x 428 - asked of the real
+    // FrameXML through the headless runner. This said 492, which is 64 more
+    // room than the panel has, and the About block was over the Okay and
+    // Cancel buttons with this check passing.
+    constexpr int kPanelHeight = 428;
     INFO("the root panel's content ends at -" << previousBottom);
     CHECK(previousBottom <= kPanelHeight);
 }
