@@ -1605,6 +1605,25 @@ void emitBindings(Emitter& e, const XmlNode& root) {
                                         "command anything can refer to");
             continue;
         }
+        // A binding the original client only shipped on one platform, where a
+        // feature of that build stood behind it.
+        //
+        // Nine of them, all platform="mac": five to drive iTunes and four to
+        // work the Mac client's movie recorder. Their bodies call
+        // MusicPlayer_PlayPause, MovieRecording_Toggle and the rest, and
+        // nothing defines those - not FrameXML, which never did, and not this
+        // client, which has neither feature on any platform. So they listed
+        // nine rows in the Key Bindings panel that a player could bind a key
+        // to and that would raise on the first press.
+        //
+        // Skipped wherever they are declared rather than tested against the
+        // platform this is running on: "mac" meant the Mac build of a client
+        // that had a music player to remote-control, and being on a Mac is
+        // not the same claim. If either feature is ever built here, this
+        // becomes a real platform test and the binding comes back with it.
+        if (const std::string* platform = b.attr("platform"); platform && !platform->empty()) {
+            continue;
+        }
         // A header attribute does not name the binding's section - it opens
         // one, as a row of its own above the command that carries it. The list
         // shows it through BINDING_HEADER_*, and everything after it belongs to
