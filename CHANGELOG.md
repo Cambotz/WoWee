@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [v3.1.28] - 2026-09-14
 
 ### Added
 - **The controller scheme fits the controller in hand.** SDL resolves every pad to one shape, so most of what this needed was to stop assuming that shape is an Xbox pad. Face buttons are read by position rather than by the letters printed on them, because SDL's default is by label and Nintendo prints its letters the other way round - the button this client jumps on would have been the right-hand one on a Switch pad and the bottom one everywhere else. They are then named as the pad in hand names them: A on an Xbox pad, Cross on a PlayStation one, B on a Switch one, so the settings panel and the line in the log send a player to the button under their thumb. PlayStation, Nintendo, Steam Deck, Luna, Stadia, Shield and a virtual pad all have their own names; anything SDL has no family for gets the Xbox ones, which is what its mapping already says it is
