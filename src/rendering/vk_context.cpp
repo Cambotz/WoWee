@@ -503,7 +503,7 @@ bool VkContext::selectPhysicalDevice() {
     // degradations into one hard refusal to start, which is what a Pixel 9a got.
     vkb::PhysicalDeviceSelector selector{vkbInstance_};
     selector.set_surface(surface)
-            .set_minimum_version(1, 1)
+            .set_minimum_version(1, 0)
             .prefer_gpu_device_type(vkb::PreferredDeviceType::discrete);
 
     auto physRet = selector.select();
